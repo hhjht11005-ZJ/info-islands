@@ -461,5 +461,73 @@
 
   buildMap(); refresh();
   const h = location.hash.slice(1); if (byId[h]) openIsland(h);
+
+  /* ---------- 手機版 (< 768px) HUD 精簡與折疊面板控制 ---------- */
+  const hudLeft = $(".hud-left");
+  const brandBar = $(".brand-bar");
+  const sceneControls = $(".scene-controls");
+  const filterBar = $(".filter-bar");
+  const hudUserRow = $(".hud-user-row");
+  const userChip = $("#userChip");
+  const audioToggleBtn = $("#audioToggleBtn");
+  const resultBtn = $("#resultBtn");
+  const leaderboardBtn = $("#leaderboardBtn");
+  const mobileTopActions = $(".mobile-top-actions");
+  const mobileToolsToggleBtn = $("#mobileToolsToggleBtn");
+  const mobileToolsPanel = $("#mobileToolsPanel");
+  const mobileUserActions = $(".mobile-user-actions");
+
+  if (
+    hudLeft && brandBar && sceneControls && filterBar && hudUserRow &&
+    userChip && audioToggleBtn && resultBtn && leaderboardBtn &&
+    mobileTopActions && mobileToolsToggleBtn && mobileToolsPanel && mobileUserActions
+  ) {
+    const mobileMql = window.matchMedia("(max-width: 767px)");
+    const setMobileToolsOpen = (open) => {
+      mobileToolsPanel.hidden = !open;
+      mobileToolsToggleBtn.setAttribute("aria-expanded", String(open));
+      mobileToolsToggleBtn.classList.toggle("is-open", open);
+    };
+    const syncMobileHudLayout = (isMobile) => {
+      if (isMobile) {
+        mobileTopActions.insertBefore(leaderboardBtn, mobileToolsToggleBtn);
+        mobileToolsPanel.insertBefore(sceneControls, mobileUserActions);
+        mobileToolsPanel.insertBefore(filterBar, mobileUserActions);
+        mobileUserActions.append(userChip, audioToggleBtn, resultBtn);
+      } else {
+        brandBar.appendChild(sceneControls);
+        hudLeft.appendChild(filterBar);
+        hudUserRow.append(userChip, audioToggleBtn, resultBtn, leaderboardBtn);
+      }
+      setMobileToolsOpen(false);
+    };
+
+    syncMobileHudLayout(mobileMql.matches);
+    mobileMql.addEventListener("change", (ev) => syncMobileHudLayout(ev.matches));
+
+    mobileToolsToggleBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      setMobileToolsOpen(mobileToolsPanel.hidden);
+    });
+    document.addEventListener("ii:gradefilter", () => {
+      if (mobileMql.matches) setMobileToolsOpen(false);
+    });
+    searchInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && mobileMql.matches) setMobileToolsOpen(false);
+    });
+    sugBox.addEventListener("click", (ev) => {
+      if (ev.target.closest(".sg-item") && mobileMql.matches) setMobileToolsOpen(false);
+    });
+    document.addEventListener("pointerdown", (ev) => {
+      if (
+        mobileMql.matches &&
+        !mobileToolsPanel.hidden &&
+        !mobileToolsPanel.contains(ev.target) &&
+        !mobileToolsToggleBtn.contains(ev.target)
+      ) {
+        setMobileToolsOpen(false);
+      }
+    });
+  }
 })();
 
