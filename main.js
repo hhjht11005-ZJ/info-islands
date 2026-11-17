@@ -1,0 +1,25 @@
+// Vite ES Module 入口：依既有全域載入順序匯入設定、教材資料、3D 場景與各功能模組
+import "./config.js";
+import "./data/islands.js";
+import "./data/units/pc-adventure.js";
+import "./data/units/island-hardware.js";
+import "./data/units/island-security.js";
+import "./data/units/island-create.js";
+import "./data/units/island-creative.js";
+import "./data/units/island-program.js";
+import "./data/units/island-programming.js";
+import "./data/units/island-alg.js";
+import "./data/units/island-algo.js";
+import "./data/units/island-database.js";
+import "./data/units/island-data.js";
+import "./data/units/AI-alg.js";
+import "./data/units/island-ai.js";
+import "./js/store.js";
+import "./js/audio_manager.js";
+import "./app.js";
+import "./src/scene-v1-backup.js";
+import "./js/quiz.js";
+import "./js/user.js";
+import "./js/results.js";
+import "./js/leaderboard.js";
+import "./js/print.js";

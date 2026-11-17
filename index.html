@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>資訊課程島</title>
+  <link rel="stylesheet" href="./style.css" />
+  <link rel="stylesheet" href="./css/print.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="hud-left">
+      <div class="brand-bar">
+        <div class="brand hud-capsule">
+          <h1>🏝️ <span id="siteTitle">資訊課程島</span></h1>
+          <p id="siteSub" style="display:none;"></p>
+        </div>
+        <div class="scene-controls">
+          <button id="dayNightToggleBtn" class="daynight-toggle-btn" type="button" aria-pressed="false" aria-label="切換白天與夜晚模式">
+            <span>☀️ 白天 / 🌙 夜晚</span><span class="dn-pill" id="dnStateLabel">目前：☀️ 白天</span>
+          </button>
+          <button id="cameraResetBtn" class="camera-reset-btn" type="button" aria-label="全景視角重置" title="點擊返回微縮全景視角">
+            <span>🌐 微縮全景</span>
+          </button>
+        </div>
+      </div>
+      <div class="filter-bar">
+        <div class="chips hud-capsule" id="gradeChips" role="group" aria-label="年級篩選"></div>
+        <div class="search-capsule hud-capsule">
+          <span class="search-ico" aria-hidden="true">🔍</span>
+          <input id="search" type="text" placeholder="搜尋主題、單元、關鍵字…" aria-label="搜尋" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="searchSuggest" />
+          <button id="clearSearchBtn" class="search-clear-btn" type="button" aria-label="清除搜尋" title="清除搜尋" hidden>✕</button>
+        </div>
+      </div>
+    </div>
+    <div class="hud-right right">
+      <div class="hud-user-row">
+        <div id="userChip" class="user-chip hud-capsule" aria-live="polite"></div>
+        <button id="audioToggleBtn" class="chip hud-capsule audio-toggle-btn" type="button" aria-label="切換背景音樂與音效">
+          <span class="audio-ico">🔊</span><span class="audio-txt">音樂播放中</span>
+        </button>
+        <button id="resultBtn" class="chip result-btn hud-capsule" type="button">📈 學習成果</button>
+        <button id="leaderboardBtn" class="chip leaderboard-btn hud-capsule" type="button">🏅 年級風雲榜</button>
+      </div>
+      <div class="view-bar controls">
+        <div class="chips hud-capsule" id="viewChips" role="group" aria-label="檢視模式">
+          <button data-view="map" class="chip active">🗺️ 島嶼地圖</button>
+          <button data-view="term" class="chip">🧭 學期航程</button>
+          <button data-view="list" class="chip">📋 清單</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section id="viewMap" class="view active">
+      <div class="map-wrap">
+        <svg id="map" viewBox="0 0 1200 900" preserveAspectRatio="xMidYMid meet" role="img" aria-label="資訊課程島嶼地圖"></svg>
+        <label class="route-toggle"><input type="checkbox" id="routeToggle" checked /> 顯示建議航線</label>
+        <div class="legend">點擊島嶼進入主題 · 航線依建議學習順序</div>
+      </div>
+    </section>
+    <section id="viewTerm" class="view"><div id="termBoard" class="term-board"></div></section>
+    <section id="viewList" class="view"><div id="cards" class="cards"></div></section>
+    <p class="notice">📘 課綱條碼與條文已依教育部「十二年國民基本教育課程綱要：國民中學暨普通型高級中等學校—科技領域（第四學習階段 IV）」正式核校；節數為建議值，請依校內課程計畫彈性調整。</p>
+  </main>
+
+  <div id="backdrop" class="backdrop"></div>
+  <aside id="drawer" class="drawer" aria-hidden="true" aria-live="polite">
+    <button id="closeBtn" class="close" aria-label="關閉">✕</button>
+    <div id="drawerHead"></div>
+    <nav id="tabs" class="tabs" role="tablist"></nav>
+    <div id="tabBody" class="tab-body"></div>
+  </aside>
+
+  <!-- 動森風格：橫式圓角「登島船票 / 冒險護照」學生登入 Modal -->
+  <div id="loginModal" class="modal-wrap" role="dialog" aria-modal="true" aria-labelledby="loginPassportTitle">
+    <form class="modal login passport-ticket" id="loginForm" novalidate>
+      <!-- 左側：船票存根與護照封面區 -->
+      <div class="passport-stub">
+        <div class="stub-ribbon">✈️ ISLAND AIRWAYS · BOARDING PASS</div>
+        <div class="stub-emblem">
+          <span class="emoji-big">🏝️</span>
+          <span class="stub-compass">🧭</span>
+        </div>
+        <h2 id="loginPassportTitle">歡迎登島！</h2>
+        <p class="sub" id="loginSchoolSub">請先辦理探險護照，測驗成績才會記到你的名下</p>
+        <!-- 復古郵戳點綴 -->
+        <div class="vintage-stamp" aria-hidden="true">
+          <div class="stamp-ring">
+            <span class="stamp-top">INFO ISLANDS · CUSTOMS</span>
+            <strong class="stamp-main">准予登島</strong>
+            <span class="stamp-bot">STAGE IV · APPROVED</span>
+          </div>
+        </div>
+        <div class="stub-barcode" aria-hidden="true">
+          <div class="bars"></div>
+          <span>PASS NO. II-107-ADVENTURE</span>
+        </div>
+      </div>
+
+      <!-- 中央：虛線打孔撕線與上下半圓缺口 -->
+      <div class="passport-perf" aria-hidden="true"></div>
+
+      <!-- 右側：旅客登島資料填寫區 -->
+      <div class="passport-body">
+        <div class="passport-body-head">
+          <span class="pass-tag">🛂 ADVENTURER PASSPORT · 探險家登島登記</span>
+          <span class="pass-gate">GATE 01</span>
+        </div>
+
+        <div class="row3">
+          <label><span class="lbl-ico">🏫 年級</span>
+            <select name="grade" required>
+              <option value="">選擇</option>
+              <option value="7">七年級</option>
+              <option value="8">八年級</option>
+              <option value="9">九年級</option>
+            </select>
+          </label>
+          <label><span class="lbl-ico">🚩 班級</span>
+            <select name="room" id="loginRoomSelect" required>
+              <option value="">選擇</option>
+            </select>
+          </label>
+          <label><span class="lbl-ico">🪑 座號</span>
+            <select name="seat" id="loginSeatSelect" required>
+              <option value="">選擇</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row2-passport">
+          <label><span class="lbl-ico">🧭 探險者姓名</span>
+            <input name="name" type="text" maxlength="10" autocomplete="off" placeholder="請輸入真實姓名" required />
+          </label>
+          <label><span class="lbl-ico">🎫 學號驗證碼</span>
+            <input name="verifyCode" type="text" maxlength="16" autocomplete="off" placeholder="學號或通行碼（選填）" />
+          </label>
+        </div>
+
+        <p class="err" id="loginErr" role="alert"></p>
+        <button class="btn-primary btn-boarding" id="loginBtn" type="submit">🎒 領取裝備，即刻登島！</button>
+        <p class="privacy">🔒 只收集「班級、座號、姓名」，僅供老師統計學習成績使用。</p>
+        <p class="mode" id="loginMode"></p>
+      </div>
+    </form>
+  </div>
+
+  <!-- Chart.js(CDN;若 CDN 無法連線則改用本機備份 vendor/chart.umd.min.js) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+          onerror="this.onerror=null;var s=document.createElement('script');s.src='./vendor/chart.umd.min.js';document.head.appendChild(s);"></script>
+  <!-- Three.js (r128), OrbitControls, html2canvas & canvas-confetti (CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
+
