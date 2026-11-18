@@ -18,19 +18,22 @@ var SHEET_ROSTER = "名冊";
 var SHEET_TEACHER_ROSTER = "Roster";
 var SHEET_LEADERBOARD = "Leaderboard";
 var SHEET_WRONGLOGS = "WrongLogs";
+var SHEET_CONFIG = "Config";
 var SHEET_LOG = "紀錄(全部)";
 
 var ROSTER_HEADER = ["班級", "座號", "姓名", "首次登入", "最近登入"];
 var TEACHER_ROSTER_HEADER = ["班級", "座號", "姓名"];
 var LEADERBOARD_HEADER = ["studentKey", "年級", "班級", "座號", "姓名", "總積分", "皇冠數", "更新時間"];
 var WRONGLOGS_HEADER = ["時間", "年級", "班級", "座號", "姓名", "單元代碼", "難度", "錯題索引鍵"];
+var CONFIG_HEADER = ["key", "value"];
 var LOG_HEADER = ["時間", "紀錄編號", "班級", "座號", "姓名", "類型", "島嶼", "單元代碼", "單元名稱", "年級", "學期", "分數", "答對", "題數", "作答秒數", "詳細(JSON)", "難度"];
 var CLASS_HEADER = ["時間", "班級", "座號", "姓名", "類型", "島嶼", "單元代碼", "單元名稱", "年級", "學期", "分數", "答對", "題數", "作答秒數", "詳細(JSON)", "難度"];
 
 function doGet() {
   try {
     var data = getLeaderboardPublicData_();
-    return jsonOut_({ status: "ok", data: data });
+    var config = getConfigData_();
+    return jsonOut_({ status: "ok", data: data, config: config });
   } catch (err) {
     return jsonOut_({ status: "error", message: "讀取失敗:" + err });
   }
@@ -54,6 +57,7 @@ function doPost(e) {
 function dispatchPost_(req) {
   if (!req || typeof req !== "object") return { ok: false, status: "error", message: "無效的請求" };
   if (req.action === "teacher_dashboard") return teacherDashboard_(req);
+  if (req.action === "save_config") return saveConfig_(req);
   if (req.action === "login" || req.action === "submit") return route_(req);
   if (req.className !== undefined && req.seat !== undefined && req.name !== undefined) {
     return recordLeaderboardAndWrongLogs_(req);
@@ -188,8 +192,57 @@ function teacherDashboard_(req) {
     status: "ok",
     roster: roster,
     students: students,
-    wrongLogs: wrongLogs
+    wrongLogs: wrongLogs,
+    config: getConfigData_()
   };
+}
+
+/* ---------- 雲端動態公告與任務派發 (Config 分頁) ---------- */
+function getConfigData_() {
+  var cfg = {
+    announcement: "",
+    targetIsland: "",
+    taskLinkTitle: "",
+    taskLinkUrl: ""
+  };
+  var sh = ss_().getSheetByName(SHEET_CONFIG);
+  if (!sh || sh.getLastRow() <= 1) return cfg;
+  var rows = sh.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    var k = String(rows[i][0] || "").trim();
+    var v = String(rows[i][1] || "").trim();
+    if (k === "announcement" || k === "targetIsland" || k === "taskLinkTitle" || k === "taskLinkUrl") {
+      cfg[k] = v;
+    }
+  }
+  return cfg;
+}
+
+function saveConfig_(req) {
+  var expected = PropertiesService.getScriptProperties().getProperty("TEACHER_PASSWORD") || "info2026";
+  if (String(req.password || "") !== String(expected)) {
+    return { status: "unauthorized", message: "密碼錯誤" };
+  }
+  var incoming = (req.config && typeof req.config === "object") ? req.config : {};
+  var nextCfg = {
+    announcement: String(incoming.announcement || "").trim(),
+    targetIsland: String(incoming.targetIsland || "").trim(),
+    taskLinkTitle: String(incoming.taskLinkTitle || "").trim(),
+    taskLinkUrl: String(incoming.taskLinkUrl || "").trim()
+  };
+
+  var sh = sheet_(SHEET_CONFIG, CONFIG_HEADER);
+  if (sh.getLastRow() > 1) {
+    sh.getRange(2, 1, sh.getLastRow() - 1, 2).clearContent();
+  }
+  var rows = [
+    ["announcement", nextCfg.announcement],
+    ["targetIsland", nextCfg.targetIsland],
+    ["taskLinkTitle", nextCfg.taskLinkTitle],
+    ["taskLinkUrl", nextCfg.taskLinkUrl]
+  ];
+  sh.getRange(2, 1, rows.length, 2).setValues(rows);
+  return { status: "ok", config: nextCfg };
 }
 
 /* ---------- 年級風雲榜 GET / POST ---------- */

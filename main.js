@@ -16,6 +16,7 @@ import "./data/units/AI-alg.js";
 import "./data/units/island-ai.js";
 import "./js/store.js";
 import "./js/audio_manager.js";
+import "./js/cloud_task.js";
 import "./app.js";
 import "./js/island_3d.js";
 import "./js/quiz.js";

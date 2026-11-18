@@ -9297,7 +9297,26 @@
   let sealToastTimer = null;
   const SEAL_MESSAGE = "迷霧深處沉睡著資訊聖殿……需集齊 7 座島嶼完全繁榮方能喚醒。";
 
+  function buildSanctuaryTaskBannerHtml() {
+    const cfg = window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null;
+    if (!cfg) return "";
+    const ann = String(cfg.announcement || "").trim();
+    const rawUrl = String(cfg.taskLinkUrl || "").trim();
+    const safeUrl = (window.CloudConfig && typeof window.CloudConfig.sanitizeUrl === "function")
+      ? window.CloudConfig.sanitizeUrl(rawUrl)
+      : rawUrl;
+    if (!ann && !safeUrl) return "";
+    const escTxt = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const btnLabel = String(cfg.taskLinkTitle || "").trim() || "前往任務連結";
+    return `<div class="sanctuary-task-banner">
+      <div class="stb-title">📢 今日上課任務公告</div>
+      ${ann ? `<div class="stb-msg">${escTxt(ann).replace(/\n/g, "<br>")}</div>` : ""}
+      ${safeUrl ? `<a class="stb-btn" href="${escTxt(safeUrl)}" target="_blank" rel="noopener noreferrer">🚀 ${escTxt(btnLabel)}</a>` : ""}
+    </div>`;
+  }
+
   function showSanctuarySealPrompt() {
+    const taskHtml = buildSanctuaryTaskBannerHtml();
     const pillsHtml = sealPillars
       .map(
         (p) =>
@@ -9306,12 +9325,13 @@
           }</span>`
       )
       .join("");
-    sealToastEl.innerHTML = `<div class="seal-msg">🔒 ${SEAL_MESSAGE}</div><div class="seal-pillars-bar">${pillsHtml}</div>`;
+    sealToastEl.classList.toggle("has-task", !!taskHtml);
+    sealToastEl.innerHTML = `${taskHtml}<div class="seal-msg">🔒 ${SEAL_MESSAGE}</div><div class="seal-pillars-bar">${pillsHtml}</div>`;
     sealToastEl.classList.add("show");
     if (sealToastTimer) clearTimeout(sealToastTimer);
     sealToastTimer = setTimeout(() => {
       sealToastEl.classList.remove("show");
-    }, 4500);
+    }, taskHtml ? 8500 : 4500);
   }
 
   // 建立「國中資訊科技全域領航證書」Modal
@@ -9321,6 +9341,7 @@
   certModalWrap.innerHTML = `
     <div class="modal cert-modal" role="dialog" aria-modal="true" aria-labelledby="certTitle">
       <button class="close" id="certCloseBtn" aria-label="關閉">✕</button>
+      <div id="certTaskBanner"></div>
       <div id="certificateCard" class="cert-card">
         <div class="cert-header">
           <span class="cert-Header-badge" id="certSchoolBadge">🏛️ 資訊聖殿島 · 終極榮譽證書</span>
@@ -9472,6 +9493,8 @@
       now.getDate()
     ).padStart(2, "0")} 日`;
 
+    const certTaskBannerEl = certModalWrap.querySelector("#certTaskBanner");
+    if (certTaskBannerEl) certTaskBannerEl.innerHTML = buildSanctuaryTaskBannerHtml();
     certModalWrap.querySelector("#certSchoolBadge").textContent = `🏛️ ${school} · 終極榮譽證書`;
     certModalWrap.querySelector("#certStudentWho").textContent = studentText;
     certModalWrap.querySelector("#certSerialNo").textContent = `證書編號：${serialCode}`;
@@ -10670,8 +10693,99 @@
     moveState.targetUnitKey = unitKey || null;
   }
 
+  /* ============================================================
+   * 今日指定任務島 3D 高亮定位標記（金色旋轉稜鏡＋光圈波紋）
+   * ============================================================ */
+  const targetIslandBeaconGroup = new THREE.Group();
+  targetIslandBeaconGroup.visible = false;
+  targetIslandBeaconGroup.name = "targetIslandBeacon";
+  scene.add(targetIslandBeaconGroup);
+
+  const beaconPrismMat = new THREE.MeshStandardMaterial({
+    color: 0xffd166,
+    emissive: 0xffaa00,
+    emissiveIntensity: 0.95,
+    metalness: 0.45,
+    roughness: 0.2
+  });
+  const beaconPrism = new THREE.Mesh(new THREE.OctahedronGeometry(2.2, 0), beaconPrismMat);
+  beaconPrism.scale.set(1, 1.45, 1);
+  beaconPrism.position.y = 22.5;
+  targetIslandBeaconGroup.add(beaconPrism);
+
+  const beaconWireMat = new THREE.MeshBasicMaterial({
+    color: 0xfff3b0,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.7
+  });
+  const beaconWire = new THREE.Mesh(new THREE.OctahedronGeometry(2.75, 0), beaconWireMat);
+  beaconWire.scale.set(1, 1.45, 1);
+  beaconWire.position.y = 22.5;
+  targetIslandBeaconGroup.add(beaconWire);
+
+  const beaconPulseRingMat = new THREE.MeshBasicMaterial({
+    color: 0xffd166,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.78
+  });
+  const beaconPulseRing = new THREE.Mesh(new THREE.RingGeometry(4.2, 5.2, 48), beaconPulseRingMat);
+  beaconPulseRing.rotation.x = -Math.PI / 2;
+  beaconPulseRing.position.y = 14.5;
+  targetIslandBeaconGroup.add(beaconPulseRing);
+
+  const beaconGroundRingMat = new THREE.MeshBasicMaterial({
+    color: 0xffe066,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.55
+  });
+  const beaconGroundRing = new THREE.Mesh(new THREE.RingGeometry(11.5, 12.8, 64), beaconGroundRingMat);
+  beaconGroundRing.rotation.x = -Math.PI / 2;
+  beaconGroundRing.position.y = 0.65;
+  targetIslandBeaconGroup.add(beaconGroundRing);
+
+  let activeTargetIslandId = "";
+  function setTargetIslandHighlight(islandId) {
+    activeTargetIslandId = String(islandId || "").trim();
+    const rec = activeTargetIslandId ? islandRecords.find((r) => r.id === activeTargetIslandId) : null;
+    if (!rec || !rec.group) {
+      targetIslandBeaconGroup.visible = false;
+      return;
+    }
+    targetIslandBeaconGroup.position.set(rec.group.position.x, 0, rec.group.position.z);
+    targetIslandBeaconGroup.visible = true;
+  }
+
+  function updateTargetIslandBeacon(t) {
+    if (!targetIslandBeaconGroup.visible) return;
+    const bob = Math.sin(t * 2.8) * 1.35;
+    beaconPrism.position.y = 22.5 + bob;
+    beaconPrism.rotation.y = t * 1.9;
+    beaconWire.position.y = 22.5 + bob;
+    beaconWire.rotation.y = -t * 1.25;
+
+    const wave = (t * 0.85) % 1;
+    const s = 0.85 + wave * 1.35;
+    beaconPulseRing.scale.set(s, s, 1);
+    beaconPulseRingMat.opacity = (1 - wave) * 0.78;
+
+    const gWave = 1 + Math.sin(t * 3.2) * 0.08;
+    beaconGroundRing.scale.set(gWave, gWave, 1);
+    beaconGroundRingMat.opacity = 0.42 + Math.sin(t * 3.2) * 0.22;
+  }
+
+  document.addEventListener("ii:config-updated", (e) => {
+    setTargetIslandHighlight(e && e.detail ? e.detail.targetIsland : "");
+  });
+  if (window.CloudConfig && typeof window.CloudConfig.get === "function") {
+    setTargetIslandHighlight(window.CloudConfig.get().targetIsland);
+  }
+
   function renderSceneFrame() {
     const t = clock.getElapsedTime();
+    updateTargetIslandBeacon(t);
 
     // 更新 7 座動森風吊橋走動 NPC 與中央聖殿神聖雙環/火炬
     if (typeof updateBridgeNPCs === "function") {
@@ -11815,7 +11929,8 @@
     retriggerConfetti: launchCelebrationConfetti,
     launchConfetti: launchCelebrationConfetti,
     setNight: (night) => applyDayNightTheme(!!night),
-    isNight: () => isNight
+    isNight: () => isNight,
+    setTargetIslandHighlight
   };
 
   let animFrameId = null;

@@ -1794,7 +1794,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 /* ================================================================
    教師戰情室 (Teacher Cockpit) & 投影講解視窗
    ================================================================ */
-.tc-auth-wrap { z-index: 1200; }
+.tc-auth-wrap { z-index: 10001; }
 .tc-auth-modal {
   width: min(420px, 92vw);
   padding: 28px 26px 24px;
@@ -1825,7 +1825,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .tc-cockpit {
   position: fixed;
   inset: 0;
-  z-index: 1100;
+  z-index: 9999;
   display: none;
   background: radial-gradient(1200px 700px at 50% 0%, rgba(11, 66, 110, 0.97), rgba(5, 22, 42, 0.98));
   backdrop-filter: blur(18px);
@@ -2187,7 +2187,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   position: fixed;
   right: 22px;
   bottom: 22px;
-  z-index: 1150;
+  z-index: 10000;
   display: none;
   align-items: center;
   gap: 8px;
@@ -2207,7 +2207,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .tc-projector-wrap {
   position: fixed;
   inset: 0;
-  z-index: 1300;
+  z-index: 10002;
   display: none;
   align-items: center;
   justify-content: center;
@@ -2352,4 +2352,159 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   .tc-shell { padding: 10px 12px 14px; }
   .tc-kpi-row { grid-template-columns: 1fr; }
   .tc-projector-card { padding: 18px; }
+}
+
+/* ================================================================
+   登入視窗教師入口 + 雲端任務公告牌 + 聖殿置頂公告 + 戰情室任務派發
+   ================================================================ */
+.login-footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+.login-footer-row .mode { margin: 0; }
+.login-teacher-link {
+  margin-left: auto;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 41, 66, 0.18);
+  background: rgba(15, 41, 66, 0.06);
+  color: #3a5672;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.login-teacher-link:hover {
+  background: rgba(15, 41, 66, 0.14);
+  color: #0f2942;
+}
+
+/* 左下角動森風格「今日任務公告」卡片 */
+.cloud-task-card {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  z-index: 28;
+  width: min(320px, calc(100vw - 36px));
+  border-radius: 20px;
+  background: linear-gradient(155deg, rgba(255, 251, 235, 0.96), rgba(254, 243, 199, 0.94));
+  border: 2.5px solid #f59e0b;
+  box-shadow: 0 12px 32px rgba(6, 26, 48, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: #451a03;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+}
+.cloud-task-card[hidden] { display: none; }
+.cloud-task-card.is-collapsed { width: auto; min-width: 188px; }
+.ct-head {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 14px;
+  background: rgba(245, 158, 11, 0.16);
+  border: none;
+  color: #78350f;
+  font-weight: 900;
+  font-size: 0.9rem;
+  text-align: left;
+}
+.ct-chev { font-size: 0.9rem; }
+.ct-body { padding: 10px 14px 13px; display: flex; flex-direction: column; gap: 9px; }
+.ct-body[hidden] { display: none; }
+.ct-msg {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: #451a03;
+  font-weight: 600;
+}
+.ct-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.85rem;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.32);
+}
+.ct-link-btn:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+@media (max-width: 768px) {
+  .cloud-task-card {
+    left: 12px;
+    bottom: 72px;
+    width: min(290px, calc(100vw - 24px));
+  }
+}
+
+/* 中央神殿對話框 / 證書置頂任務公告 */
+.seal-toast.has-task { pointer-events: auto; }
+.sanctuary-task-banner {
+  margin-bottom: 12px;
+  padding: 12px 15px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(254, 243, 199, 0.96), rgba(253, 230, 138, 0.94));
+  border: 2px solid #f59e0b;
+  color: #451a03;
+  text-align: left;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.stb-title { font-weight: 900; font-size: 0.92rem; color: #92400e; margin-bottom: 4px; }
+.stb-msg { font-size: 0.9rem; line-height: 1.5; font-weight: 600; margin-bottom: 8px; }
+.stb-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #d97706;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.84rem;
+  text-decoration: none;
+}
+.stb-btn:hover { background: #b45309; }
+
+/* 教師戰情室：分頁三 雲端任務派發 */
+.tc-dispatch-panel { max-width: 820px; }
+.tc-dispatch-form { display: flex; flex-direction: column; gap: 14px; }
+.tc-df-row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tc-df-field { display: flex; flex-direction: column; gap: 6px; font-size: 0.9rem; font-weight: 700; color: #d6ecff; }
+.tc-df-field input,
+.tc-df-field select,
+.tc-df-field textarea {
+  width: 100%;
+  padding: 10px 13px;
+  border-radius: 12px;
+  border: 1.5px solid rgba(255, 255, 255, 0.22);
+  background: rgba(4, 16, 32, 0.72);
+  color: #fff;
+  font: inherit;
+  font-size: 0.95rem;
+  outline: none;
+}
+.tc-df-field input:focus,
+.tc-df-field select:focus,
+.tc-df-field textarea:focus {
+  border-color: #ffd166;
+  box-shadow: 0 0 0 3px rgba(255, 209, 102, 0.18);
+}
+.tc-df-field select option { background: #09243f; color: #fff; }
+.tc-df-status { min-height: 1.2em; margin: 0; font-size: 0.9rem; font-weight: 700; color: #bfe4ff; }
+.tc-df-status.ok { color: #86efac; }
+.tc-df-status.err { color: #fca5a5; }
+.tc-df-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.tc-df-save-btn { padding: 11px 22px; border-radius: 12px; font-size: 0.96rem; }
+@media (max-width: 720px) {
+  .tc-df-row2 { grid-template-columns: 1fr; }
 }

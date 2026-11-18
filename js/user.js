@@ -41,7 +41,10 @@
           <p class="err" id="loginErr" role="alert"></p>
           <button class="btn-primary btn-boarding" id="loginBtn" type="submit">🎒 領取裝備，即刻登島！</button>
           <p class="privacy">🔒 只收集「班級、座號、姓名」，僅供老師統計學習成績使用。</p>
-          <p class="mode" id="loginMode"></p>
+          <div class="login-footer-row">
+            <p class="mode" id="loginMode"></p>
+            <button type="button" id="loginTeacherEntryBtn" class="login-teacher-link">🧑🏫 教師入口</button>
+          </div>
         </div>
       </form>`;
     document.body.appendChild(modal);
@@ -104,7 +107,16 @@
   }
   document.addEventListener("ii:synced", renderChip);
 
+  const teacherEntryBtn = $("#loginTeacherEntryBtn", modal);
+  if (teacherEntryBtn) {
+    teacherEntryBtn.addEventListener("click", () => {
+      if (window.TeacherCockpit && typeof window.TeacherCockpit.open === "function") {
+        window.TeacherCockpit.open();
+      }
+    });
+  }
+
   renderChip();
   if (!Store.profile) show();    // 初次入島自動跳出
-  window.Auth = { show, requireLogin: () => { if (!Store.profile) { show(); return false; } return true; }, renderChip };
+  window.Auth = { show, hide, requireLogin: () => { if (!Store.profile) { show(); return false; } return true; }, renderChip };
 })();

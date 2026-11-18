@@ -96,10 +96,10 @@
 
   /* ---- 狀態 ---- */
   let state = {
-    data: { roster: [], students: [], wrongLogs: [] },
+    data: { roster: [], students: [], wrongLogs: [], config: null },
     selectedClass: "",
     isPrivacyMode: true,
-    activeTab: "radar", // "radar" | "wrong"
+    activeTab: "radar", // "radar" | "wrong" | "dispatch"
     activeStage: null,
     isMinimized: false,
     luckyRunning: false,
@@ -173,6 +173,7 @@
       <nav class="tc-tabs" role="tablist">
         <button type="button" class="tc-tab active" data-tab="radar" role="tab" aria-selected="true">📋 課堂即時進度、抓漏雷達與幸運抽籤</button>
         <button type="button" class="tc-tab" data-tab="wrong" role="tab" aria-selected="false">🎯 班級高頻錯題診斷 Top 3 ＋ 一鍵投影講解</button>
+        <button type="button" class="tc-tab" data-tab="dispatch" role="tab" aria-selected="false">📢 雲端任務派發</button>
       </nav>
 
       <main class="tc-main" id="tcMainBody"></main>
@@ -214,13 +215,29 @@
     state.data = {
       roster: Array.isArray(json.roster) ? json.roster : [],
       students: Array.isArray(json.students) ? json.students : [],
-      wrongLogs: Array.isArray(json.wrongLogs) ? json.wrongLogs : []
+      wrongLogs: Array.isArray(json.wrongLogs) ? json.wrongLogs : [],
+      config: (json.config && typeof json.config === "object") ? json.config : null
     };
+    if (state.data.config && window.CloudConfig && typeof window.CloudConfig.set === "function") {
+      window.CloudConfig.set(state.data.config);
+    }
     const classes = getAllClasses();
     if (!state.selectedClass || !classes.includes(state.selectedClass)) {
       state.selectedClass = classes[0] || "";
     }
     state.luckyResult = null;
+  }
+
+  async function saveCloudConfig(password, config) {
+    const url = getGasUrl();
+    if (!url) throw new Error("尚未設定 GAS_LEADERBOARD_URL");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: "save_config", password, config })
+    });
+    if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
+    return await res.json();
   }
 
   function getAllClasses() {
@@ -633,15 +650,125 @@
     projWrap.classList.remove("show");
   }
 
+  /* ---- 渲染分頁三：📢 雲端任務派發 ---- */
+  function renderDispatchTab(body) {
+    const cfg = (state.data.config)
+      || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
+      || { announcement: "", targetIsland: "", taskLinkTitle: "", taskLinkUrl: "" };
+    const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
+
+    body.innerHTML = `
+      <section class="tc-panel tc-dispatch-panel">
+        <div class="tc-panel-head">
+          <h3>📢 雲端動態公告與任務派發設定</h3>
+          <small>發布後全校學生重整或載入網頁即自動同步（亦可直接於試算表 <code>Config</code> 分頁編輯）</small>
+        </div>
+        <form id="tcDispatchForm" class="tc-dispatch-form">
+          <label class="tc-df-field">
+            <span>📣 今日公告文字</span>
+            <textarea id="tcCfgAnnouncement" rows="3" placeholder="例如：今天請大家先完成「電腦探險島」挑戰，下課前要交卷喔！">${esc(cfg.announcement || "")}</textarea>
+          </label>
+          <div class="tc-df-row2">
+            <label class="tc-df-field">
+              <span>🎯 指定高亮島嶼（3D 場景金色標記）</span>
+              <select id="tcCfgTargetIsland">
+                <option value="">（無指定）</option>
+                ${islands.map((isl) => `<option value="${esc(isl.id)}"${cfg.targetIsland === isl.id ? " selected" : ""}>${esc(isl.emoji)} ${esc(isl.name)} (${esc(isl.id)})</option>`).join("")}
+              </select>
+            </label>
+            <label class="tc-df-field">
+              <span>🔘 延伸任務按鈕名稱</span>
+              <input id="tcCfgLinkTitle" type="text" maxlength="40" value="${esc(cfg.taskLinkTitle || "")}" placeholder="預設：前往任務連結" />
+            </label>
+          </div>
+          <label class="tc-df-field">
+            <span>🔗 任務網址</span>
+            <input id="tcCfgLinkUrl" type="url" value="${esc(cfg.taskLinkUrl || "")}" placeholder="https://..." />
+          </label>
+          <p class="tc-df-status" id="tcDispatchStatus" role="status"></p>
+          <div class="tc-df-actions">
+            <button type="submit" id="tcDispatchSubmit" class="btn-primary tc-df-save-btn">💾 發布至全校海島</button>
+            <button type="button" id="tcDispatchClear" class="tc-icon-btn">🧹 清空表單</button>
+          </div>
+        </form>
+      </section>
+    `;
+
+    const form = body.querySelector("#tcDispatchForm");
+    const statusEl = body.querySelector("#tcDispatchStatus");
+    const saveBtn = body.querySelector("#tcDispatchSubmit");
+
+    body.querySelector("#tcDispatchClear").onclick = () => {
+      body.querySelector("#tcCfgAnnouncement").value = "";
+      body.querySelector("#tcCfgTargetIsland").value = "";
+      body.querySelector("#tcCfgLinkTitle").value = "";
+      body.querySelector("#tcCfgLinkUrl").value = "";
+      statusEl.textContent = "已清空欄位，請點擊「💾 發布至全校海島」套用變更。";
+      statusEl.className = "tc-df-status";
+    };
+
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      let pwd = "";
+      try { pwd = sessionStorage.getItem(SESSION_KEY) || ""; } catch {}
+      if (!pwd) {
+        openAuthModal("請重新驗證教師密碼");
+        return;
+      }
+      const nextConfig = {
+        announcement: body.querySelector("#tcCfgAnnouncement").value.trim(),
+        targetIsland: body.querySelector("#tcCfgTargetIsland").value.trim(),
+        taskLinkTitle: body.querySelector("#tcCfgLinkTitle").value.trim(),
+        taskLinkUrl: body.querySelector("#tcCfgLinkUrl").value.trim()
+      };
+      saveBtn.disabled = true;
+      saveBtn.textContent = "⏳ 正在發布至雲端…";
+      statusEl.textContent = "";
+      statusEl.className = "tc-df-status";
+      try {
+        const res = await saveCloudConfig(pwd, nextConfig);
+        if (res && res.status === "ok") {
+          const saved = res.config || nextConfig;
+          state.data.config = saved;
+          if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
+            window.CloudConfig.set(saved);
+          }
+          statusEl.textContent = "✅ 已發布至全校海島！目前畫面已同步預覽 3D 島嶼標記與今日任務公告牌。";
+          statusEl.className = "tc-df-status ok";
+        } else if (res && res.status === "unauthorized") {
+          try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+          openAuthModal("密碼錯誤，請重新驗證");
+        } else {
+          statusEl.textContent = `⚠ 發布失敗：${(res && res.message) || "請稍後再試"}`;
+          statusEl.className = "tc-df-status err";
+        }
+      } catch (err) {
+        statusEl.textContent = `⚠ 連線失敗：${err.message || "請檢查網路或 GAS 部署"}`;
+        statusEl.className = "tc-df-status err";
+      } finally {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "💾 發布至全校海島";
+      }
+    };
+  }
+
   function renderMainBody() {
     renderTopBar();
     const body = cockpitWrap.querySelector("#tcMainBody");
     if (state.activeTab === "radar") renderRadarTab(body);
-    else renderWrongTab(body);
+    else if (state.activeTab === "wrong") renderWrongTab(body);
+    else renderDispatchTab(body);
   }
 
   /* ---- 開啟 / 關閉 / 縮小戰情室 ---- */
   function showCockpitWorkspace() {
+    // 教師成功登入後，自動隱藏並略過學生登入遮罩視窗
+    if (window.Auth && typeof window.Auth.hide === "function") {
+      window.Auth.hide();
+    }
+    const loginModal = document.getElementById("loginModal");
+    if (loginModal) loginModal.classList.remove("show");
+
     state.isMinimized = false;
     restorePill.classList.remove("show");
     cockpitWrap.classList.add("show");
