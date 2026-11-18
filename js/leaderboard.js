@@ -97,12 +97,41 @@
   };
 
   const GRADE_NAMES = { 7: "七年級", 8: "八年級", 9: "九年級" };
+  const LB_CACHE_KEY = "ii:leaderboard:gas_cache_v1";
+  const GAS_TIMEOUT_MS = 8000;
   let activeGrade = 7;
   let remoteCache = { 7: [], 8: [], 9: [] };
   let remoteStatus = "idle"; // "idle" | "loading" | "ok" | "error"
   let hasRemoteSnapshot = false;
+  let cacheSavedAt = 0;
   let fetchSeq = 0;
   let customRemoteProvider = null;
+
+  function loadGasCache() {
+    try {
+      const raw = localStorage.getItem(LB_CACHE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.data && typeof parsed.data === "object") {
+        remoteCache = {
+          7: Array.isArray(parsed.data["7"]) ? parsed.data["7"] : [],
+          8: Array.isArray(parsed.data["8"]) ? parsed.data["8"] : [],
+          9: Array.isArray(parsed.data["9"]) ? parsed.data["9"] : []
+        };
+        cacheSavedAt = Number(parsed.savedAt) || 0;
+        hasRemoteSnapshot = true;
+      }
+    } catch {}
+  }
+
+  function saveGasCache(data) {
+    try {
+      cacheSavedAt = Date.now();
+      localStorage.setItem(LB_CACHE_KEY, JSON.stringify({ savedAt: cacheSavedAt, data }));
+    } catch {}
+  }
+
+  loadGasCache();
 
   function parseUpdatedAtMs(val) {
     if (typeof val === "number" && Number.isFinite(val)) return val;
@@ -393,23 +422,20 @@
     const poolNote = $("#lbPoolNote");
     const listEl = $("#lbList");
 
-    if (remoteStatus === "loading") {
-      if (poolNote) poolNote.textContent = "⏳ 正在同步全校即時戰況...";
-      listEl.innerHTML = `<div class="lb-loading" role="status" aria-live="polite">⏳ 正在同步全校即時戰況...</div>`;
-      renderChaseBanner(getGradeLeaderboard(activeGrade));
-      return;
-    }
-
     const data = getGradeLeaderboard(activeGrade);
     if (poolNote) {
       const top10Real = data.top10.filter((e) => !e.isGatekeeper).length;
-      if (remoteStatus === "ok") {
+      if (remoteStatus === "loading") {
+        poolNote.textContent = hasRemoteSnapshot
+          ? `⚡ 秒開快取顯示 · 背景同步最新排名中…`
+          : `⏳ 正在背景同步全校即時戰況…`;
+      } else if (remoteStatus === "ok") {
         poolNote.textContent = top10Real >= 10
-          ? `☁️ 全校即時戰況 · 前 10 名全由真實學生佔據（共 ${data.realCount} 人）`
-          : `☁️ 全校即時戰況 · 本年級真實 ${data.realCount} 人（含守門員基準）`;
+          ? `☁️ 目前即時同步 · 前 10 名全由真實學生佔據（共 ${data.realCount} 人）`
+          : `☁️ 目前即時同步 · 本年級真實 ${data.realCount} 人（含守門員基準）`;
       } else {
         poolNote.textContent = hasRemoteSnapshot
-          ? `📡 雲端連線異常 · 顯示最近同步紀錄與守門員基準`
+          ? `📡 網路連線逾時 · 已平滑顯示快取紀錄與守門員基準`
           : `📡 離線備援模式 · 本機真實 ${data.realCount} 人（含守門員基準）`;
       }
     }
@@ -450,7 +476,7 @@
     }
 
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), 12000) : null;
+    const timer = controller ? setTimeout(() => controller.abort(), GAS_TIMEOUT_MS) : null;
 
     try {
       if (customRemoteProvider) {
@@ -459,6 +485,7 @@
         remoteCache[grade] = Array.isArray(rows) ? rows : [];
         hasRemoteSnapshot = true;
         remoteStatus = "ok";
+        saveGasCache(remoteCache);
       } else {
         const res = await fetch(`${GAS_LEADERBOARD_URL}?t=${Date.now()}`, {
           cache: "no-store",
@@ -477,6 +504,7 @@
         };
         hasRemoteSnapshot = true;
         remoteStatus = "ok";
+        saveGasCache(remoteCache);
       }
     } catch (err) {
       if (seq !== fetchSeq) return;

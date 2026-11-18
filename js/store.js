@@ -1,7 +1,8 @@
 /* 資料層:學員身分 + 學習紀錄(本機 localStorage,並可同步到 Google 試算表) + 年級榮譽成績池 */
 (() => {
   const CFG = window.APP_CONFIG;
-  const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending";
+  const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending", LB_SYNCED = "ii:leaderboard:synced_v1";
+  const GAS_TIMEOUT_MS = 8000;
   const ls = {
     get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } }
@@ -167,13 +168,45 @@
     }
   }
 
+  function getSyncedLeaderboardRecord(sKey) {
+    const map = ls.get(LB_SYNCED, {});
+    return map && map[sKey] ? map[sKey] : null;
+  }
+
+  function markLeaderboardSynced(sKey, payload) {
+    if (!sKey || !payload) return;
+    const map = ls.get(LB_SYNCED, {});
+    const prev = map[sKey];
+    const nextScore = Math.max(0, Math.round(Number(payload.totalScore) || 0));
+    const nextCrowns = Math.max(0, Math.round(Number(payload.crownCount) || 0));
+    map[sKey] = {
+      totalScore: prev ? Math.max(prev.totalScore || 0, nextScore) : nextScore,
+      crownCount: prev ? Math.max(prev.crownCount || 0, nextCrowns) : nextCrowns,
+      syncedAt: Date.now()
+    };
+    ls.set(LB_SYNCED, map);
+  }
+
+  async function fetchWithTimeout(url, options = {}, timeoutMs = GAS_TIMEOUT_MS) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      return await fetch(url, {
+        ...options,
+        signal: controller ? controller.signal : options.signal
+      });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   async function postLeaderboardPayload(url, payload) {
     // text/plain;charset=utf-8 可避開瀏覽器 CORS 預檢 (OPTIONS)，讓 GAS doPost 順利接收
-    const r = await fetch(url, {
+    const r = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
-    });
+    }, GAS_TIMEOUT_MS);
     if (!r.ok) throw new Error("伺服器回應 " + r.status);
     const data = await r.json();
     if (!data || data.status !== "ok") {
@@ -188,12 +221,23 @@
     const url = getLeaderboardUrl();
     if (!url) return { ok: false, offline: true };
 
+    // 智慧去重上傳：只有當總積分或滿分皇冠數真正超越上次成功同步紀錄時才發送 POST
+    const lastSynced = getSyncedLeaderboardRecord(built.studentKey);
+    if (
+      lastSynced &&
+      built.payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
+      built.payload.crownCount <= (Number(lastSynced.crownCount) || 0)
+    ) {
+      return { ok: true, deduplicated: true };
+    }
+
     const seq = ++lbUploadSeq;
     savePendingLeaderboard(built.studentKey, built.payload, seq, built.updatedAt);
 
     try {
       const data = await postLeaderboardPayload(url, built.payload);
       clearPendingLeaderboard(built.studentKey, seq);
+      markLeaderboardSynced(built.studentKey, built.payload);
       return { ok: true, data };
     } catch (e) {
       console.warn("風雲榜背景上傳失敗（已保留 localStorage 本地備份）:", e);
@@ -217,9 +261,19 @@
         totalScore: Math.max(0, Math.round(Number(it.totalScore) || 0)),
         crownCount: Math.max(0, Math.round(Number(it.crownCount) || 0))
       };
+      const lastSynced = getSyncedLeaderboardRecord(it.studentKey);
+      if (
+        lastSynced &&
+        payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
+        payload.crownCount <= (Number(lastSynced.crownCount) || 0)
+      ) {
+        clearPendingLeaderboard(it.studentKey, it.seq);
+        continue;
+      }
       try {
         await postLeaderboardPayload(url, payload);
         clearPendingLeaderboard(it.studentKey, it.seq);
+        markLeaderboardSynced(it.studentKey, payload);
         flushed++;
       } catch {
         // 網路仍異常時保留 localStorage 待下次重試
@@ -331,7 +385,7 @@
       const lbUrl = getLeaderboardUrl();
       if (lbUrl) {
         try {
-          const r = await fetch(`${lbUrl}?t=${Date.now()}`, { cache: "no-store" });
+          const r = await fetchWithTimeout(`${lbUrl}?t=${Date.now()}`, { cache: "no-store" }, GAS_TIMEOUT_MS);
           if (!r.ok) return [];
           const json = await r.json();
           if (json && json.status === "ok" && json.data) {

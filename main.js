@@ -17,7 +17,7 @@ import "./data/units/island-ai.js";
 import "./js/store.js";
 import "./js/audio_manager.js";
 import "./app.js";
-import "./src/scene-v1-backup.js";
+import "./js/island_3d.js";
 import "./js/quiz.js";
 import "./js/user.js";
 import "./js/results.js";

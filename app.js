@@ -178,7 +178,11 @@
     state.island = null; history.replaceState(null, "", location.pathname + location.search);
   }
   $("#closeBtn").onclick = closeDrawer; backdrop.onclick = closeDrawer;
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeDrawer(); });
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && drawer.classList.contains("open") && !document.querySelector(".modal-wrap.show")) {
+      closeDrawer();
+    }
+  });
 
   const R = {
     標準(i) {

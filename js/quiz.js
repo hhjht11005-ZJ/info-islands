@@ -34,7 +34,14 @@
   wrap.querySelector("#quizClose").onclick = close;
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
   document.addEventListener("keydown", e => { if (e.key === "Escape" && wrap.classList.contains("show")) close(); });
-  function close() { wrap.classList.remove("show"); }
+  let quizCompletedInSession = false;
+  function close() {
+    if (!wrap.classList.contains("show")) return;
+    wrap.classList.remove("show");
+    const completed = quizCompletedInSession;
+    quizCompletedInSession = false;
+    document.dispatchEvent(new CustomEvent("ii:quizclosed", { detail: { completed } }));
+  }
 
   /* ---- 批改 ---- */
   const norm = s => String(s).trim().toLowerCase().replace(/\s+/g, "").replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 65248));
@@ -60,6 +67,7 @@
   function open(key, diff) {
     if (!window.Auth.requireLogin()) return;       // 未登入先跳出登入視窗
     const info = unitInfo(key); if (!info || !hasQuiz(key)) return;
+    quizCompletedInSession = false;
     wrap.classList.add("show");
     if (diff && hasLevels(key) && window.CONTENT[key].quiz.levels[diff]) run(key, info, diff);
     else intro(key, info);
@@ -227,6 +235,7 @@
         }
       });
     }
+    quizCompletedInSession = true;
     document.dispatchEvent(new CustomEvent("ii:synced"));
     document.dispatchEvent(new CustomEvent("ii:quizdone", { detail: { key, score, difficulty: C.diff } }));
   }
