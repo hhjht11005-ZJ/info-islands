@@ -23,3 +23,4 @@ import "./js/user.js";
 import "./js/results.js";
 import "./js/leaderboard.js";
 import "./js/print.js";
+import "./js/teacher_cockpit.js";

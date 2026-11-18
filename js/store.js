@@ -215,15 +215,25 @@
     return data;
   }
 
-  async function uploadLeaderboardScore(profile) {
+  async function uploadLeaderboardScore(profile, quizMeta) {
     const built = buildLeaderboardPayload(profile || Store.profile);
     if (!built) return { ok: false, skipped: true };
     const url = getLeaderboardUrl();
     if (!url) return { ok: false, offline: true };
 
-    // 智慧去重上傳：只有當總積分或滿分皇冠數真正超越上次成功同步紀錄時才發送 POST
+    const wrongQuestions = quizMeta && Array.isArray(quizMeta.wrongQuestions) ? quizMeta.wrongQuestions : [];
+    const hasWrongQuestions = wrongQuestions.length > 0;
+    const payloadToSend = { ...built.payload };
+    if (quizMeta) {
+      if (quizMeta.unitId) payloadToSend.unitId = String(quizMeta.unitId);
+      if (quizMeta.difficulty) payloadToSend.difficulty = String(quizMeta.difficulty);
+      payloadToSend.wrongQuestions = wrongQuestions;
+    }
+
+    // 智慧去重上傳：只有當「無錯題」且「總積分與滿分皇冠數未超越上次成功同步紀錄」時才略過
     const lastSynced = getSyncedLeaderboardRecord(built.studentKey);
     if (
+      !hasWrongQuestions &&
       lastSynced &&
       built.payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
       built.payload.crownCount <= (Number(lastSynced.crownCount) || 0)
@@ -232,11 +242,12 @@
     }
 
     const seq = ++lbUploadSeq;
-    savePendingLeaderboard(built.studentKey, built.payload, seq, built.updatedAt);
+    const pendingKey = hasWrongQuestions ? `${built.studentKey}::wq::${seq}` : built.studentKey;
+    savePendingLeaderboard(pendingKey, payloadToSend, seq, built.updatedAt);
 
     try {
-      const data = await postLeaderboardPayload(url, built.payload);
-      clearPendingLeaderboard(built.studentKey, seq);
+      const data = await postLeaderboardPayload(url, payloadToSend);
+      clearPendingLeaderboard(pendingKey, seq);
       markLeaderboardSynced(built.studentKey, built.payload);
       return { ok: true, data };
     } catch (e) {
@@ -249,10 +260,13 @@
     const url = getLeaderboardUrl();
     if (!url) return 0;
     const pending = ls.get(LB_PENDING, {});
-    const items = Object.values(pending || {});
+    const entries = Object.entries(pending || {});
     let flushed = 0;
-    for (const it of items) {
+    for (const [pendingKey, it] of entries) {
       if (!it || !it.className || !it.seat || !it.name) continue;
+      const baseStudentKey = buildStudentKey(it.grade || parseGradeFromCls(it.className), it.className, it.seat);
+      const wrongQuestions = Array.isArray(it.wrongQuestions) ? it.wrongQuestions : [];
+      const hasWrongQuestions = wrongQuestions.length > 0;
       const payload = {
         grade: String(it.grade || parseGradeFromCls(it.className)),
         className: String(it.className),
@@ -261,19 +275,24 @@
         totalScore: Math.max(0, Math.round(Number(it.totalScore) || 0)),
         crownCount: Math.max(0, Math.round(Number(it.crownCount) || 0))
       };
-      const lastSynced = getSyncedLeaderboardRecord(it.studentKey);
+      if (it.unitId) payload.unitId = String(it.unitId);
+      if (it.difficulty) payload.difficulty = String(it.difficulty);
+      if (hasWrongQuestions) payload.wrongQuestions = wrongQuestions;
+
+      const lastSynced = getSyncedLeaderboardRecord(baseStudentKey);
       if (
+        !hasWrongQuestions &&
         lastSynced &&
         payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
         payload.crownCount <= (Number(lastSynced.crownCount) || 0)
       ) {
-        clearPendingLeaderboard(it.studentKey, it.seq);
+        clearPendingLeaderboard(pendingKey, it.seq);
         continue;
       }
       try {
         await postLeaderboardPayload(url, payload);
-        clearPendingLeaderboard(it.studentKey, it.seq);
-        markLeaderboardSynced(it.studentKey, payload);
+        clearPendingLeaderboard(pendingKey, it.seq);
+        markLeaderboardSynced(baseStudentKey, payload);
         flushed++;
       } catch {
         // 網路仍異常時保留 localStorage 待下次重試
@@ -330,8 +349,13 @@
       ev.eid = `${ev.ts}-${ev.type}-${ev.unit}`;
       ls.set(evKey(p), [...Store.events().filter(e => e.eid !== ev.eid), ev]);
       syncLeaderboardPool(p);
+      const quizMeta = ev.type === "quiz" ? {
+        unitId: ev.unitId || ev.unit || "",
+        difficulty: ev.quizDifficulty || ev.difficulty || (ev.detail && ev.detail.difficulty) || "single",
+        wrongQuestions: Array.isArray(ev.wrongQuestions) ? ev.wrongQuestions : []
+      } : null;
       const leaderboardSyncPromise = (ev.type === "quiz" && getLeaderboardUrl())
-        ? uploadLeaderboardScore(p)
+        ? uploadLeaderboardScore(p, quizMeta)
         : null;
       if (!Store.online()) return { local: true, synced: false, leaderboardSyncPromise };
       try {

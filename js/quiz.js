@@ -177,9 +177,17 @@
     const total = questions.length;
     const score = Math.round((correctCount / questions.length) * 100);
     const pass = score >= 60;
+    const quizDiff = C.diff || "single";
+    const wrongQuestions = [];
+    questions.forEach((q, idx) => {
+      if (!marks[idx]) wrongQuestions.push(`${key}::${quizDiff}::${idx}`);
+    });
     const ev = {
       ts: Date.now(), type: "quiz", island: info.isl.id, unit: key, unitName: info.s.unit,
       grade: info.s.grade, term: info.s.term, score, correct: correctCount, total: questions.length, sec,
+      unitId: key,
+      quizDifficulty: quizDiff,
+      wrongQuestions,
       detail: {
         difficulty: C.diff || null,
         totalQuestions: questions.length,
