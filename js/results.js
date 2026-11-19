@@ -32,7 +32,10 @@
     }
   };
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && wrap.classList.contains("show")) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
+    if (e.key === "Escape" && wrap.classList.contains("show")) close();
+  });
 
   /** 讀取 localStorage 內的測驗成績,回傳每座島最新得分(沒有則 0) */
   function islandScores() {

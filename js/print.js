@@ -24,7 +24,10 @@
   }
   wrap.querySelector("#ppClose").onclick = close;
   wrap.querySelector("#ppPrint").onclick = () => window.print();
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && wrap.classList.contains("show")) close(); });
+  document.addEventListener("keydown", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
+    if (e.key === "Escape" && wrap.classList.contains("show")) close();
+  });
   window.addEventListener("afterprint", () => { if (wrap.classList.contains("show")) document.title = oldTitle; });
 
   const unitMeta = (key) => {

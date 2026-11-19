@@ -265,6 +265,7 @@
 
     // 2. 若學生已處於登入狀態，首次在畫面點擊互動時即自動恢復 BGM 播放
     const unlockOnce = (e) => {
+      if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
       if (e.target && e.target.closest && e.target.closest("#audioToggleBtn")) return;
       if (window.Store && window.Store.profile) {
         startBGM();

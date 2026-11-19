@@ -104,9 +104,31 @@
     isMinimized: false,
     luckyRunning: false,
     luckyResult: null,
-    luckyOnlineOnly: true
+    luckyOnlineOnly: true,
+    dispatchDraft: null,
+    dispatchDirty: false
   };
   let luckyTimer = null;
+
+  function isFormFieldTarget(el) {
+    if (typeof window.isFormInputTarget === "function") return window.isFormInputTarget(el);
+    const tag = el && el.tagName ? el.tagName.toUpperCase() : "";
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(el && el.isContentEditable);
+  }
+
+  function createDraftFromConfig(cfg) {
+    const src = (cfg && typeof cfg === "object") ? cfg : {};
+    return {
+      announcement: String(src.announcement || ""),
+      targetIsland: String(src.targetIsland || ""),
+      taskLinkTitle: String(src.taskLinkTitle || ""),
+      taskLinkUrl: String(src.taskLinkUrl || "")
+    };
+  }
+
+  function notifyCockpitToggle() {
+    document.dispatchEvent(new CustomEvent("ii:cockpit-toggle"));
+  }
 
   /* ---- DOM 建置：密碼驗證視窗 ---- */
   const authWrap = document.createElement("div");
@@ -221,6 +243,11 @@
     if (state.data.config && window.CloudConfig && typeof window.CloudConfig.set === "function") {
       window.CloudConfig.set(state.data.config);
     }
+    const baseCfg = state.data.config
+      || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
+      || {};
+    state.dispatchDraft = createDraftFromConfig(baseCfg);
+    state.dispatchDirty = false;
     const classes = getAllClasses();
     if (!state.selectedClass || !classes.includes(state.selectedClass)) {
       state.selectedClass = classes[0] || "";
@@ -643,18 +670,27 @@
     };
 
     renderProjector();
+    projWrap.hidden = false;
+    projWrap.classList.remove("hidden", "pointer-events-none");
     projWrap.classList.add("show");
+    notifyCockpitToggle();
   }
 
   function closeProjectorModal() {
     projWrap.classList.remove("show");
+    projWrap.classList.add("pointer-events-none");
+    notifyCockpitToggle();
   }
 
   /* ---- 渲染分頁三：📢 雲端任務派發 ---- */
   function renderDispatchTab(body) {
-    const cfg = (state.data.config)
-      || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
-      || { announcement: "", targetIsland: "", taskLinkTitle: "", taskLinkUrl: "" };
+    if (!state.dispatchDraft) {
+      const fallbackCfg = state.data.config
+        || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
+        || {};
+      state.dispatchDraft = createDraftFromConfig(fallbackCfg);
+    }
+    const cfg = state.dispatchDraft;
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
 
     body.innerHTML = `
@@ -697,12 +733,38 @@
     const form = body.querySelector("#tcDispatchForm");
     const statusEl = body.querySelector("#tcDispatchStatus");
     const saveBtn = body.querySelector("#tcDispatchSubmit");
+    const announcementEl = body.querySelector("#tcCfgAnnouncement");
+    const targetIslandEl = body.querySelector("#tcCfgTargetIsland");
+    const linkTitleEl = body.querySelector("#tcCfgLinkTitle");
+    const linkUrlEl = body.querySelector("#tcCfgLinkUrl");
+
+    const fields = [announcementEl, targetIslandEl, linkTitleEl, linkUrlEl].filter(Boolean);
+    const syncDraftFromInputs = () => {
+      state.dispatchDirty = true;
+      state.dispatchDraft = {
+        announcement: announcementEl ? announcementEl.value : "",
+        targetIsland: targetIslandEl ? targetIslandEl.value : "",
+        taskLinkTitle: linkTitleEl ? linkTitleEl.value : "",
+        taskLinkUrl: linkUrlEl ? linkUrlEl.value : ""
+      };
+    };
+
+    fields.forEach((fieldEl) => {
+      fieldEl.disabled = false;
+      fieldEl.readOnly = false;
+      fieldEl.removeAttribute("disabled");
+      fieldEl.removeAttribute("readonly");
+      fieldEl.addEventListener("input", syncDraftFromInputs);
+      fieldEl.addEventListener("change", syncDraftFromInputs);
+    });
 
     body.querySelector("#tcDispatchClear").onclick = () => {
-      body.querySelector("#tcCfgAnnouncement").value = "";
-      body.querySelector("#tcCfgTargetIsland").value = "";
-      body.querySelector("#tcCfgLinkTitle").value = "";
-      body.querySelector("#tcCfgLinkUrl").value = "";
+      if (announcementEl) announcementEl.value = "";
+      if (targetIslandEl) targetIslandEl.value = "";
+      if (linkTitleEl) linkTitleEl.value = "";
+      if (linkUrlEl) linkUrlEl.value = "";
+      state.dispatchDirty = true;
+      state.dispatchDraft = createDraftFromConfig(null);
       statusEl.textContent = "已清空欄位，請點擊「💾 發布至全校海島」套用變更。";
       statusEl.className = "tc-df-status";
     };
@@ -716,10 +778,10 @@
         return;
       }
       const nextConfig = {
-        announcement: body.querySelector("#tcCfgAnnouncement").value.trim(),
-        targetIsland: body.querySelector("#tcCfgTargetIsland").value.trim(),
-        taskLinkTitle: body.querySelector("#tcCfgLinkTitle").value.trim(),
-        taskLinkUrl: body.querySelector("#tcCfgLinkUrl").value.trim()
+        announcement: (announcementEl ? announcementEl.value : "").trim(),
+        targetIsland: (targetIslandEl ? targetIslandEl.value : "").trim(),
+        taskLinkTitle: (linkTitleEl ? linkTitleEl.value : "").trim(),
+        taskLinkUrl: (linkUrlEl ? linkUrlEl.value : "").trim()
       };
       saveBtn.disabled = true;
       saveBtn.textContent = "⏳ 正在發布至雲端…";
@@ -730,6 +792,8 @@
         if (res && res.status === "ok") {
           const saved = res.config || nextConfig;
           state.data.config = saved;
+          state.dispatchDraft = createDraftFromConfig(saved);
+          state.dispatchDirty = false;
           if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
             window.CloudConfig.set(saved);
           }
@@ -761,18 +825,33 @@
   }
 
   /* ---- 開啟 / 關閉 / 縮小戰情室 ---- */
+  function closeAuthModal() {
+    authWrap.classList.remove("show");
+    authWrap.classList.add("hidden", "pointer-events-none");
+    authWrap.hidden = true;
+    notifyCockpitToggle();
+  }
+
   function showCockpitWorkspace() {
     // 教師成功登入後，自動隱藏並略過學生登入遮罩視窗
     if (window.Auth && typeof window.Auth.hide === "function") {
       window.Auth.hide();
     }
     const loginModal = document.getElementById("loginModal");
-    if (loginModal) loginModal.classList.remove("show");
+    if (loginModal) {
+      loginModal.classList.remove("show");
+      loginModal.classList.add("hidden", "pointer-events-none");
+      loginModal.hidden = true;
+    }
 
+    closeAuthModal();
     state.isMinimized = false;
     restorePill.classList.remove("show");
+    cockpitWrap.hidden = false;
+    cockpitWrap.classList.remove("hidden", "pointer-events-none");
     cockpitWrap.classList.add("show");
     renderMainBody();
+    notifyCockpitToggle();
   }
 
   function minimizeFor3DStage(stageNum) {
@@ -782,7 +861,9 @@
     }
     state.isMinimized = true;
     cockpitWrap.classList.remove("show");
+    cockpitWrap.classList.add("pointer-events-none");
     restorePill.classList.add("show");
+    notifyCockpitToggle();
   }
 
   function closeCockpit() {
@@ -792,12 +873,14 @@
       state.luckyRunning = false;
     }
     cockpitWrap.classList.remove("show");
+    cockpitWrap.classList.add("pointer-events-none");
     restorePill.classList.remove("show");
     closeProjectorModal();
     if (state.activeStage !== null && typeof window.previewAllStage === "function") {
       window.previewAllStage("auto");
       state.activeStage = null;
     }
+    notifyCockpitToggle();
   }
 
   function openAuthModal(prefillErr = "") {
@@ -805,7 +888,10 @@
     const input = authWrap.querySelector("#tcPasswordInput");
     errEl.textContent = prefillErr;
     input.value = "";
+    authWrap.hidden = false;
+    authWrap.classList.remove("hidden", "pointer-events-none");
     authWrap.classList.add("show");
+    notifyCockpitToggle();
     setTimeout(() => input.focus(), 60);
   }
 
@@ -833,8 +919,24 @@
   }
 
   /* ---- 事件綁定 ---- */
-  authWrap.querySelector("#tcAuthClose").onclick = () => authWrap.classList.remove("show");
-  authWrap.addEventListener("click", (e) => { if (e.target === authWrap) authWrap.classList.remove("show"); });
+  const stopBubble = (e) => { e.stopPropagation(); };
+  [cockpitWrap, authWrap, projWrap].forEach((container) => {
+    container.addEventListener("click", stopBubble);
+    container.addEventListener("pointerdown", stopBubble);
+    container.addEventListener("mousedown", stopBubble);
+    container.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !isFormFieldTarget(e.target)) {
+        if (container === projWrap && projWrap.classList.contains("show")) closeProjectorModal();
+        else if (container === authWrap && authWrap.classList.contains("show")) closeAuthModal();
+        else if (container === cockpitWrap && cockpitWrap.classList.contains("show")) closeCockpit();
+      }
+      e.stopPropagation();
+    });
+    container.addEventListener("keyup", stopBubble);
+  });
+
+  authWrap.querySelector("#tcAuthClose").onclick = closeAuthModal;
+  authWrap.addEventListener("click", (e) => { if (e.target === authWrap) closeAuthModal(); });
   authWrap.querySelector("#tcAuthForm").onsubmit = async (e) => {
     e.preventDefault();
     const input = authWrap.querySelector("#tcPasswordInput");
@@ -853,7 +955,7 @@
       const res = await fetchTeacherDashboard(pwd);
       if (res && res.status === "ok") {
         try { sessionStorage.setItem(SESSION_KEY, pwd); } catch {}
-        authWrap.classList.remove("show");
+        closeAuthModal();
         applyDashboardData(res);
         showCockpitWorkspace();
       } else if (res && res.status === "unauthorized") {
@@ -925,9 +1027,10 @@
   projWrap.addEventListener("click", (e) => { if (e.target === projWrap) closeProjectorModal(); });
 
   document.addEventListener("keydown", (e) => {
+    if (isFormFieldTarget(e.target)) return;
     if (e.key === "Escape") {
       if (projWrap.classList.contains("show")) closeProjectorModal();
-      else if (authWrap.classList.contains("show")) authWrap.classList.remove("show");
+      else if (authWrap.classList.contains("show")) closeAuthModal();
       else if (cockpitWrap.classList.contains("show")) closeCockpit();
     }
   });

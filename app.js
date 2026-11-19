@@ -179,6 +179,7 @@
   }
   $("#closeBtn").onclick = closeDrawer; backdrop.onclick = closeDrawer;
   document.addEventListener("keydown", e => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
     if (e.key === "Escape" && drawer.classList.contains("open") && !document.querySelector(".modal-wrap.show")) {
       closeDrawer();
     }
@@ -281,7 +282,10 @@
   const closeDoc = () => docWrap.classList.remove("show");
   docWrap.querySelector("#docClose").onclick = closeDoc;
   docWrap.addEventListener("click", (e) => { if (e.target === docWrap) closeDoc(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && docWrap.classList.contains("show")) closeDoc(); });
+  document.addEventListener("keydown", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
+    if (e.key === "Escape" && docWrap.classList.contains("show")) closeDoc();
+  });
 
   function unitMeta(key) {
     const [iid, n] = key.split("-");
@@ -461,7 +465,10 @@
   sugBox.addEventListener("click", (ev) => {
     const li = ev.target.closest(".sg-item"); if (li) pickSuggest(sugItems[+li.dataset.n]);
   });
-  document.addEventListener("pointerdown", (ev) => { if (!searchCapsule.contains(ev.target)) hideSuggest(); });
+  document.addEventListener("pointerdown", (ev) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(ev)) return;
+    if (!searchCapsule.contains(ev.target)) hideSuggest();
+  });
 
   buildMap(); refresh();
   const h = location.hash.slice(1); if (byId[h]) openIsland(h);
@@ -523,6 +530,7 @@
       if (ev.target.closest(".sg-item") && mobileMql.matches) setMobileToolsOpen(false);
     });
     document.addEventListener("pointerdown", (ev) => {
+      if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(ev)) return;
       if (
         mobileMql.matches &&
         !mobileToolsPanel.hidden &&

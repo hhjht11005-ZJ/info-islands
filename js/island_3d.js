@@ -9402,6 +9402,7 @@
     if (e.target === certModalWrap) closeCertModal();
   });
   document.addEventListener("keydown", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
     if (e.key === "Escape" && certModalWrap.classList.contains("show")) closeCertModal();
   });
 
@@ -9898,6 +9899,7 @@
   let hoveredGuardianNpc = null;
 
   renderer.domElement.addEventListener("pointerdown", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
     if (e.button !== 0 && e.pointerType === "mouse") return;
     pointerDownPos = { x: e.clientX, y: e.clientY };
     pointerDownTime = performance.now();
@@ -9907,6 +9909,7 @@
   });
 
   renderer.domElement.addEventListener("pointermove", (e) => {
+    if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return;
     const picked = pickSceneTargetAtEvent(e);
     hoveredGuardianNpc = picked && picked.type === "npc" ? picked.npc : null;
     hoveredIslandRec = picked && picked.type === "island" ? picked.rec : null;
@@ -9915,6 +9918,10 @@
   });
 
   renderer.domElement.addEventListener("pointerup", (e) => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) {
+      pointerDownPos = null;
+      return;
+    }
     if (!pointerDownPos) return;
     const dx = e.clientX - pointerDownPos.x;
     const dy = e.clientY - pointerDownPos.y;
@@ -11936,6 +11943,7 @@
   let animFrameId = null;
   function isScenePaused() {
     if (document.hidden) return true;
+    if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return true;
     return !!document.querySelector("#quizModal.show, #docModal.show, #leaderboardModal.show, #resultModal.show");
   }
 
@@ -11949,6 +11957,7 @@
   }
 
   function resumeSceneLoop() {
+    controls.enabled = !(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
     if (animFrameId === null && !isScenePaused()) {
       animate();
     }
@@ -11958,6 +11967,7 @@
     if (!document.hidden) resumeSceneLoop();
   });
   document.addEventListener("ii:quizclosed", resumeSceneLoop);
+  document.addEventListener("ii:cockpit-toggle", resumeSceneLoop);
 
   if (typeof MutationObserver !== "undefined") {
     const modalObserver = new MutationObserver(() => {

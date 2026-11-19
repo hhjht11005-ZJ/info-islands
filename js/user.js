@@ -71,8 +71,17 @@
       ? "已連線年級風雲榜雲端資料庫（單題作答明細僅存於本機）。"
       : "目前為離線體驗模式：成績只會儲存在這台電腦。");
 
-  function show() { modal.classList.add("show"); setTimeout(() => form.grade.focus(), 50); }
-  function hide() { modal.classList.remove("show"); }
+  function show() {
+    modal.hidden = false;
+    modal.classList.remove("hidden", "pointer-events-none");
+    modal.classList.add("show");
+    setTimeout(() => form.grade.focus(), 50);
+  }
+  function hide() {
+    modal.classList.remove("show");
+    modal.classList.add("hidden", "pointer-events-none");
+    modal.hidden = true;
+  }
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault(); err.textContent = "";
@@ -118,5 +127,6 @@
 
   renderChip();
   if (!Store.profile) show();    // 初次入島自動跳出
+  else hide();
   window.Auth = { show, hide, requireLogin: () => { if (!Store.profile) { show(); return false; } return true; }, renderChip };
 })();

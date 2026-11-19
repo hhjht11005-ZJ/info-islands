@@ -33,7 +33,10 @@
   const body = wrap.querySelector("#quizBody");
   wrap.querySelector("#quizClose").onclick = close;
   wrap.addEventListener("click", e => { if (e.target === wrap) close(); });
-  document.addEventListener("keydown", e => { if (e.key === "Escape" && wrap.classList.contains("show")) close(); });
+  document.addEventListener("keydown", e => {
+    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
+    if (e.key === "Escape" && wrap.classList.contains("show")) close();
+  });
   let quizCompletedInSession = false;
   function close() {
     if (!wrap.classList.contains("show")) return;

@@ -432,4 +432,12 @@
   };
   syncLeaderboardPool();
   window.Store = Store;
+
+  /** 全域焦點與教師戰情室狀態守衛：供各模組的 keydown / pointerdown 監聽統一放行輸入元件 */
+  window.isFormInputTarget = (el) => {
+    const tag = el && el.tagName ? el.tagName.toUpperCase() : "";
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(el && el.isContentEditable);
+  };
+  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcProjectorModal.show");
+  window.shouldSkipGlobalEvent = (e) => window.isFormInputTarget(e && e.target) || window.isTeacherCockpitOpen();
 })();
