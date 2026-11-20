@@ -603,13 +603,13 @@
     bootDark: SM(0x2b3340)
   };
 
-  // 6 座環繞小浮島專屬材質庫
+  // 6 座環繞小浮島 + 量子沙漏咖啡島專屬共用材質庫（全發光效果皆以 emissive 屬性實現，不使用 PointLight）
   const isletMat = {
     lighthouseRed: SM(0xe5484d),
     lighthouseWhite: SM(0xf8fafc),
-    lighthouseLantern: SB(0xfff1a8),
+    lighthouseLantern: SG(0xfff1a8, 0xffb703, 1.45),
     lighthouseRim: SM(0x3a4252),
-    lighthouseBeam: SB(0xfff2a8, { transparent: true, opacity: 0.24, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    lighthouseBeam: SM(0xffe680, { emissive: 0xffc83d, emissiveIntensity: 1.15, transparent: true, opacity: 0.24, depthWrite: false, side: THREE.DoubleSide, roughness: 0.25 }),
     windmillWall: SM(0xf3e5c8),
     windmillRoof: SM(0xd96b43),
     windmillSail: SM(0xfff7e0),
@@ -638,7 +638,34 @@
     chestGem: SG(0x00f5d4, 0x00bbf9, 1.1),
     bucketBlue: SM(0x38a3d1),
     bobberRed: SM(0xff4d4d),
-    fishLine: SB(0xffffff)
+    fishLine: SM(0xffffff, { emissive: 0xffffff, emissiveIntensity: 0.35 }),
+    // 升級 7 座 NPC 島共用主題材質
+    cafeSand: SM(0xfbf2da, { roughness: 0.78 }),
+    cafeTurf: SM(0x7ad680, { roughness: 0.68 }),
+    mintRoof: SM(0x52d6a6, { roughness: 0.52 }),
+    crystalCyan: SG(0x7fe9ff, 0x00c2ff, 0.95, { transparent: true, opacity: 0.68, roughness: 0.14, metalness: 0.12 }),
+    starGoldEmissive: SG(0xffe066, 0xffb703, 1.15, { metalness: 0.45, roughness: 0.22 }),
+    buoyGlow: SG(0x7ff0ff, 0x00d4ff, 1.35),
+    lampEmissive: SG(0xfff0a8, 0xffaa00, 1.25),
+    coffeeCeramic: SM(0xfffdf8, { roughness: 0.28 }),
+    coffeeLiquid: SM(0x5c3a21, { roughness: 0.35 }),
+    observatoryWall: SM(0xf8fafc, { roughness: 0.48 }),
+    observatoryDome: SM(0x2563eb, { roughness: 0.44 }),
+    postRed: SM(0xe11d48, { roughness: 0.52 }),
+    bottleGlass: SG(0x9be7ff, 0x38bdf8, 0.4, { transparent: true, opacity: 0.65, roughness: 0.14 }),
+    corkGlow: SG(0xffd166, 0xff9f1c, 1.2),
+    parchment: SM(0xfef3c7, { roughness: 0.65 }),
+    koiOrange: SG(0xff7b3a, 0xff4d00, 0.9),
+    koiCyan: SG(0x5eead4, 0x14b8a6, 0.9),
+    vinylBlack: SM(0x1e293b, { roughness: 0.32, metalness: 0.2 }),
+    noteNeonPink: SG(0xff70a6, 0xff2e88, 1.15),
+    noteNeonCyan: SG(0x64dfdf, 0x00bbf9, 1.15),
+    greenhouseGlass: SG(0xc8f7ff, 0x38bdf8, 0.28, { transparent: true, opacity: 0.42, roughness: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+    glowFlowerCyan: SG(0x7ff0ff, 0x00d4ff, 1.05),
+    glowFlowerPink: SG(0xff9ecd, 0xff4791, 1.05),
+    headphoneGlow: SG(0x38bdf8, 0x0ea5e9, 1.2),
+    gogglesLens: SG(0x67e8f9, 0x06b6d4, 1.1),
+    apronCoffee: SM(0x6f4e37, { roughness: 0.72 })
   };
 
   // 中央神殿升級 + 終極通關特效材質庫
@@ -6649,10 +6676,11 @@
     });
   });
 
-  /* ---------- 8c. NPC 小副島（無害裝飾，填補外海空隙） ---------- */
+  /* ---------- 8c. 7 座主題 NPC 島（6 座外海主題小浮島全面升級 + 第 7 座核心航道「⏳ 量子沙漏咖啡島」） ---------- */
   const npcIsletGroup = new THREE.Group();
   npcIsletGroup.name = "npcIslets";
   scene.add(npcIsletGroup);
+  const npcIslandRecords = [];
 
   const isletSandGeo = createRoundedCylinderGeometry(3.6, 4.2, 1.3, 0.35, 12);
   const isletTurfGeo = createRoundedCylinderGeometry(3.1, 3.45, 0.8, 0.35, 12);
@@ -6660,6 +6688,15 @@
   isletShallowGeo.rotateX(-Math.PI / 2);
   const isletFoamGeo = new THREE.RingGeometry(4.2, 4.8, 28);
   isletFoamGeo.rotateX(-Math.PI / 2);
+
+  // 量子沙漏咖啡島專用雙層圓弧階梯台地幾何
+  const cafeSandGeo = createRoundedCylinderGeometry(4.35, 4.95, 1.2, 0.35, 16);
+  const cafeTurfGeo = createRoundedCylinderGeometry(3.55, 3.9, 0.9, 0.32, 16);
+  const cafeShallowGeo = new THREE.RingGeometry(4.7, 7.1, 28);
+  cafeShallowGeo.rotateX(-Math.PI / 2);
+  const cafeFoamGeo = new THREE.RingGeometry(4.95, 5.6, 28);
+  cafeFoamGeo.rotateX(-Math.PI / 2);
+
   const isletSandMat = LM(0xf6dfa4);
   const isletTurfMat = LM(0x7fd88a);
   const isletTreeSpots = [];
@@ -6670,16 +6707,62 @@
   const sphereGeo8 = new THREE.SphereGeometry(1, 8, 6);
   const cubeGeo = new THREE.BoxGeometry(1, 1, 1);
 
+  // 極致效能共用幾何體池（欄杆、柱子、燈柱、花草、方塊、桌椅、浮標、NPC 零件）
   const sharedMiniNpcBodyGeo = new THREE.CylinderGeometry(0.2, 0.27, 0.5, 8);
   const sharedMiniNpcHatConeGeo = new THREE.ConeGeometry(0.26, 0.22, 8);
   const sharedMiniNpcHatBrimGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.03, 10);
+  const sharedMiniNpcCapDomeGeo = new THREE.SphereGeometry(0.25, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.52);
+  const sharedMiniNpcApronGeo = new THREE.BoxGeometry(0.32, 0.34, 0.06);
+  const sharedMiniNpcGoggleGeo = new THREE.TorusGeometry(0.068, 0.018, 5, 10);
+  const sharedMiniNpcLensGeo = new THREE.CylinderGeometry(0.055, 0.055, 0.03, 8);
+  const sharedMiniNpcHeadbandGeo = new THREE.TorusGeometry(0.255, 0.024, 5, 14, Math.PI * 1.1);
+  const sharedMiniNpcEarCupGeo = new THREE.CylinderGeometry(0.08, 0.08, 0.06, 8);
+  const sharedMiniNpcBagGeo = new THREE.BoxGeometry(0.18, 0.2, 0.1);
 
-  function makeMiniNPC(shirtHex, hatHex, skinHex) {
+  const sharedRailPostGeo = new THREE.BoxGeometry(0.08, 0.42, 0.08);
+  const sharedRailBarGeo = new THREE.BoxGeometry(1, 0.06, 0.06);
+  const sharedPillarGeo = new THREE.CylinderGeometry(0.085, 0.095, 1.62, 7);
+  const sharedLampPostGeo = new THREE.CylinderGeometry(0.045, 0.065, 1.1, 6);
+  const sharedLampGlobeGeo = new THREE.OctahedronGeometry(0.14, 0);
+  const sharedDataCubeGeo = new THREE.BoxGeometry(0.16, 0.16, 0.16);
+  const sharedFlowerStemGeo = new THREE.CylinderGeometry(0.02, 0.025, 0.22, 4);
+  const sharedFlowerHeadGeo = new THREE.DodecahedronGeometry(0.1, 0);
+  const sharedUmbrellaSliceGeo = new THREE.ConeGeometry(0.78, 0.3, 6, 1, false, 0, Math.PI / 3);
+  const sharedUmbrellaPoleGeo = new THREE.CylinderGeometry(0.035, 0.04, 1.48, 6);
+  const sharedTableTopGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.06, 10);
+  const sharedTableLegGeo = new THREE.CylinderGeometry(0.05, 0.09, 0.44, 6);
+  const sharedStoolGeo = new THREE.CylinderGeometry(0.15, 0.13, 0.26, 8);
+  const sharedCupGeo = new THREE.CylinderGeometry(0.06, 0.042, 0.08, 8);
+  const sharedSaucerGeo = new THREE.CylinderGeometry(0.1, 0.085, 0.02, 8);
+  const sharedBuoyBaseGeo = new THREE.CylinderGeometry(0.26, 0.34, 0.32, 8);
+  const sharedBuoyMastGeo = new THREE.CylinderGeometry(0.038, 0.055, 0.52, 6);
+  const sharedBuoyGlowGeo = new THREE.OctahedronGeometry(0.16, 0);
+  const sharedBottleBodyGeo = new THREE.CylinderGeometry(0.13, 0.14, 0.36, 8);
+  const sharedBottleNeckGeo = new THREE.CylinderGeometry(0.055, 0.09, 0.12, 8);
+  const sharedBottleCorkGeo = new THREE.CylinderGeometry(0.052, 0.045, 0.09, 8);
+  const sharedFishBodyGeo = new THREE.ConeGeometry(0.11, 0.34, 5);
+  const sharedFishTailGeo = new THREE.ConeGeometry(0.08, 0.16, 4);
+  const sharedNoteStemGeo = new THREE.BoxGeometry(0.045, 0.32, 0.045);
+  const sharedIsletHitGeo = new THREE.CylinderGeometry(4.6, 5.0, 5.4, 12);
+  const sharedCafeHitGeo = new THREE.CylinderGeometry(5.2, 5.6, 6.2, 14);
+  const sharedHitMat = new THREE.MeshBasicMaterial({ visible: false });
+
+  function makeMiniNPC(shirtHex, hatHex, skinHex, opts = {}) {
     const root = new THREE.Group();
-    mk(sharedMiniNpcBodyGeo, LM(shirtHex), 0, 0.32, 0, root, true);
+    const bodyPivot = new THREE.Group();
+    root.add(bodyPivot);
+    const shirtMat = LM(shirtHex);
+    mk(sharedMiniNpcBodyGeo, shirtMat, 0, 0.32, 0, bodyPivot, true);
+    if (opts.apronMat) {
+      mk(sharedMiniNpcApronGeo, opts.apronMat, 0, 0.29, 0.22, bodyPivot);
+    }
+    if (opts.backpackMat) {
+      mk(sharedMiniNpcBagGeo, opts.backpackMat, 0, 0.35, -0.22, bodyPivot);
+    }
+
     const head = new THREE.Group();
     head.position.y = 0.78;
-    root.add(head);
+    bodyPivot.add(head);
     const skin = LM(skinHex || 0xffd7b0);
     const headMesh = mk(sphereGeo8, skin, 0, 0, 0, head, true);
     headMesh.scale.setScalar(0.24);
@@ -6687,377 +6770,930 @@
       const e = mk(sphereGeo8, darkEyeMat, ex, 0.02, 0.21, head);
       e.scale.setScalar(0.03);
     });
-    if (hatHex) {
-      mk(sharedMiniNpcHatConeGeo, LM(hatHex), 0, 0.26, 0, head, true);
-      mk(sharedMiniNpcHatBrimGeo, LM(hatHex), 0, 0.17, 0, head);
+
+    if (opts.goggles) {
+      [-0.095, 0.095].forEach((gx) => {
+        mk(sharedMiniNpcGoggleGeo, isletMat.brassGold, gx, 0.14, 0.2, head);
+        const lens = mk(sharedMiniNpcLensGeo, isletMat.gogglesLens, gx, 0.14, 0.2, head);
+        lens.rotation.x = Math.PI / 2;
+      });
     }
-    const armL = mk(sphereGeo8, skin, -0.27, 0.45, 0, root);
-    armL.scale.setScalar(0.08);
-    const armR = mk(sphereGeo8, skin, 0.27, 0.45, 0, root);
-    armR.scale.setScalar(0.08);
+    if (opts.glasses) {
+      [-0.09, 0.09].forEach((gx) => {
+        mk(sharedMiniNpcGoggleGeo, npcExtraMat.bootDark, gx, 0.02, 0.225, head).scale.setScalar(0.95);
+      });
+    }
+    if (opts.headphones) {
+      const hb = mk(sharedMiniNpcHeadbandGeo, npcExtraMat.bootDark, 0, 0.04, 0, head);
+      hb.rotation.z = -Math.PI * 0.05;
+      [-0.25, 0.25].forEach((hx) => {
+        const cup = mk(sharedMiniNpcEarCupGeo, isletMat.headphoneGlow, hx, 0.01, 0, head);
+        cup.rotation.z = Math.PI / 2;
+      });
+    }
+    if (hatHex) {
+      const hatMat = LM(hatHex);
+      if (opts.hatStyle === "cap") {
+        mk(sharedMiniNpcCapDomeGeo, hatMat, 0, 0.05, 0, head, true);
+        mk(sharedMiniNpcHatBrimGeo, hatMat, 0, 0.08, 0.04, head).scale.set(0.85, 1, 0.95);
+      } else {
+        mk(sharedMiniNpcHatConeGeo, hatMat, 0, 0.26, 0, head, true);
+        mk(sharedMiniNpcHatBrimGeo, hatMat, 0, 0.17, 0, head);
+      }
+    }
+
+    const armL = new THREE.Group();
+    armL.position.set(-0.27, 0.45, 0);
+    bodyPivot.add(armL);
+    const armMeshL = mk(sphereGeo8, skin, 0, 0, 0, armL);
+    armMeshL.scale.setScalar(0.08);
+
+    const armR = new THREE.Group();
+    armR.position.set(0.27, 0.45, 0);
+    bodyPivot.add(armR);
+    const armMeshR = mk(sphereGeo8, skin, 0, 0, 0, armR);
+    armMeshR.scale.setScalar(0.08);
+
     [-0.1, 0.1].forEach((fx) => {
       const f = mk(sphereGeo8, npcExtraMat.bootDark, fx, 0.06, 0.03, root);
       f.scale.set(0.09, 0.06, 0.12);
     });
-    return { root, head, armL, armR };
+    return { root, bodyPivot, head, armL, armR };
   }
 
-  function addNpcIdle(npc, phase) {
+  function addNpcIdle(npc, phase, opts = {}) {
     expansionAnims.push((t) => {
-      npc.root.position.y = (npc.baseY || 0) + Math.abs(Math.sin(t * 2.2 + phase)) * 0.05;
-      npc.head.rotation.y = Math.sin(t * 1.1 + phase) * 0.45;
-      npc.armR.position.y = 0.45 + Math.max(0, Math.sin(t * 3 + phase)) * 0.18;
+      const baseY = npc.baseY || 0;
+      if (opts.seated) {
+        npc.bodyPivot.rotation.x = Math.sin(t * 1.8 + phase) * 0.05;
+        npc.head.rotation.y = Math.sin(t * 1.1 + phase) * 0.28;
+        return;
+      }
+      if (opts.dj) {
+        const beat = Math.abs(Math.sin(t * 5.4 + phase));
+        npc.root.position.y = baseY + beat * 0.08;
+        npc.head.rotation.x = Math.sin(t * 5.4 + phase) * 0.18;
+        npc.bodyPivot.rotation.z = Math.sin(t * 2.7 + phase) * 0.08;
+        npc.armL.position.y = 0.45 + beat * 0.12;
+        npc.armR.position.y = 0.45 + Math.abs(Math.cos(t * 5.4 + phase)) * 0.12;
+        return;
+      }
+      npc.root.position.y = baseY + Math.abs(Math.sin(t * 2.2 + phase)) * 0.05;
+      npc.head.rotation.y = Math.sin(t * 1.1 + phase) * 0.38;
+      if (opts.wave) {
+        npc.armR.position.y = 0.58 + Math.sin(t * 6.0 + phase) * 0.12;
+        npc.armR.position.x = 0.30 + Math.cos(t * 6.0 + phase) * 0.05;
+      } else {
+        npc.armR.position.y = 0.45 + Math.max(0, Math.sin(t * 3 + phase)) * 0.12;
+      }
     });
   }
 
-  function addBuddyIsletIdle(buddy, phase, baseY = 0) {
-    expansionAnims.push((t) => {
-      buddy.root.position.y = baseY + Math.abs(Math.sin(t * 2.6 + phase)) * 0.07;
-      buddy.headPivot.rotation.y = Math.sin(t * 1.35 + phase) * 0.38;
-      if (buddy.armR) buddy.armR.rotation.z = -0.35 - Math.abs(Math.sin(t * 3.2 + phase)) * 0.45;
-      if (buddy.tailPivot) buddy.tailPivot.rotation.y = Math.sin(t * 4.0 + phase) * 0.35;
-    });
-  }
-
-  function isletTree(local, spot) {
-    isletTreeSpots.push({ x: local.x + spot[0], y: local.y + 1.55, z: local.z + spot[1], s: spot[2] || 1 });
+  function isletTree(local, spot, topY = GROUND_TOP_Y.ISLET_TURF) {
+    isletTreeSpots.push({ x: local.x + spot[0], y: local.y + topY, z: local.z + spot[1], s: spot[2] || 1 });
   }
 
   function createNpcIslet(spec) {
-    const a = (spec.angleDeg * Math.PI) / 180;
     const g = new THREE.Group();
-    const pos = new THREE.Vector3(Math.cos(a) * spec.radius, 0, Math.sin(a) * spec.radius);
+    const pos = spec.worldPos
+      ? spec.worldPos.clone()
+      : new THREE.Vector3(
+          Math.cos((spec.angleDeg * Math.PI) / 180) * spec.radius,
+          0,
+          Math.sin((spec.angleDeg * Math.PI) / 180) * spec.radius
+        );
     g.position.copy(pos);
     g.scale.setScalar(spec.scale || 1);
+    g.userData = { npcIslandId: spec.id, npcIslandName: spec.name };
     npcIsletGroup.add(g);
 
-    mk(isletShallowGeo, shallowLagoonMat, 0, 0.08, 0, g);
-    mk(isletFoamGeo, foamMat, 0, 0.13, 0, g);
-    const sand = mk(isletSandGeo, isletSandMat, 0, 0.4, 0, g, true);
+    const isCafe = spec.id === "quantum-cafe";
+    mk(isCafe ? cafeShallowGeo : isletShallowGeo, shallowLagoonMat, 0, 0.08, 0, g);
+    mk(isCafe ? cafeFoamGeo : isletFoamGeo, foamMat, 0, 0.13, 0, g);
+
+    const sand = mk(
+      isCafe ? cafeSandGeo : isletSandGeo,
+      isCafe ? isletMat.cafeSand : isletSandMat,
+      0,
+      isCafe ? 0.6 : 0.4,
+      0,
+      g,
+      true
+    );
     sand.receiveShadow = true;
-    const turf = mk(isletTurfGeo, isletTurfMat, 0, 1.15, 0, g, true);
+
+    const turf = mk(
+      isCafe ? cafeTurfGeo : isletTurfGeo,
+      isCafe ? isletMat.cafeTurf : isletTurfMat,
+      0,
+      isCafe ? 1.55 : 1.15,
+      0,
+      g,
+      true
+    );
     turf.receiveShadow = true;
 
     const content = new THREE.Group();
-    content.position.y = GROUND_TOP_Y.ISLET_TURF;
+    content.position.y = isCafe ? 2.0 : GROUND_TOP_Y.ISLET_TURF;
     g.add(content);
 
+    // 隱形點擊碰撞體
+    const hitMesh = mk(isCafe ? sharedCafeHitGeo : sharedIsletHitGeo, sharedHitMat, 0, 2.4, 0, g);
+    hitMesh.userData = { npcIslandId: spec.id };
+
+    // 可愛縮放版島名浮動牌（不擋住主島名牌）
+    const labelSprite = createLabelSprite(spec.emoji, spec.name, spec.subtitle, spec.accent, false);
+    labelSprite.scale.set(7.4, 2.55, 1);
+    labelSprite.position.set(0, spec.labelY || 6.4, 0);
+    g.add(labelSprite);
+
     spec.build(content, g, pos);
+
+    const rec = {
+      id: spec.id,
+      name: spec.name,
+      emoji: spec.emoji,
+      group: g,
+      content,
+      labelSprite,
+      baseScale: spec.scale || 1
+    };
+    npcIslandRecords.push(rec);
     return g;
   }
 
-  // 1) 紅白微風燈塔島 + 看海 NPC
-  function buildLighthouseBreezeIsle(c, g, pos) {
-    const stripes = [isletMat.lighthouseWhite, isletMat.lighthouseRed, isletMat.lighthouseWhite];
-    [0.45, 1.3, 2.15].forEach((y, i) => {
-      mk(new THREE.CylinderGeometry(0.58 - i * 0.07, 0.68 - i * 0.07, 0.85, 8), stripes[i], -0.75, y, -0.55, c, true);
-    });
-    mk(new THREE.CylinderGeometry(0.72, 0.72, 0.1, 8), isletMat.lighthouseRim, -0.75, 2.62, -0.55, c);
-    mk(new THREE.CylinderGeometry(0.3, 0.3, 0.46, 8), isletMat.lighthouseLantern, -0.75, 2.9, -0.55, c);
-    mk(new THREE.ConeGeometry(0.5, 0.46, 8), isletMat.lighthouseRed, -0.75, 3.4, -0.55, c, true);
+  // 共用輔助：建立迷你露天咖啡座（紅白條紋遮陽傘 + 原木圓桌 + 迷你咖啡杯 + 小圓凳）
+  function buildCafeSeatingSet(parent, x, z) {
+    const grp = new THREE.Group();
+    grp.position.set(x, 0, z);
+    parent.add(grp);
 
-    const beamGeo = new THREE.ConeGeometry(0.85, 5, 12, 1, true);
-    beamGeo.translate(0, -2.5, 0);
+    // 原木圓桌 (高 0.47)
+    mk(sharedTableLegGeo, woodDarkM, 0, 0.22, 0, grp, true);
+    mk(sharedTableTopGeo, woodPlankMat, 0, 0.45, 0, grp, true);
+
+    // 2 個迷你咖啡杯 + 杯碟
+    [
+      [-0.14, 0.12],
+      [0.14, -0.1]
+    ].forEach(([cx, cz]) => {
+      mk(sharedSaucerGeo, isletMat.coffeeCeramic, cx, 0.49, cz, grp);
+      mk(sharedCupGeo, isletMat.coffeeCeramic, cx, 0.54, cz, grp);
+      const coffeeTop = mk(sharedSaucerGeo, isletMat.coffeeLiquid, cx, 0.575, cz, grp);
+      coffeeTop.scale.set(0.45, 0.4, 0.45);
+    });
+
+    // 2 張原木小圓凳
+    [
+      [-0.56, 0.18],
+      [0.56, -0.15]
+    ].forEach(([sx, sz]) => {
+      mk(sharedStoolGeo, woodM, sx, 0.13, sz, grp, true);
+    });
+
+    // 紅白條紋遮陽傘（共用傘骨與 6 片錐形傘瓣幾何）
+    mk(sharedUmbrellaPoleGeo, woodDarkM, 0, 0.96, 0, grp);
+    for (let u = 0; u < 6; u++) {
+      const slice = mk(
+        sharedUmbrellaSliceGeo,
+        u % 2 === 0 ? isletMat.umbrellaRed : isletMat.umbrellaWhite,
+        0,
+        1.68,
+        0,
+        grp,
+        true
+      );
+      slice.rotation.y = (u / 6) * Math.PI * 2;
+    }
+  }
+
+  // 0) 【第 7 座核心航道 NPC 島】⏳ 量子沙漏驛站・星光咖啡島
+  function buildQuantumHourglassCafeIsle(c, g, pos) {
+    // 面向中央海灣與視角微調角度
+    c.rotation.y = Math.atan2(-pos.x, 22 - pos.z);
+
+    // 雙層圓弧階梯台地前方木質踏階（從沙灘 1.20 銜接草地 2.00）
+    const stairGroup = new THREE.Group();
+    stairGroup.position.set(0, -0.8, 3.65);
+    c.add(stairGroup);
+    mk(cubeGeo, woodPlankMat, 0, 0.22, 0.35, stairGroup, true).scale.set(1.55, 0.24, 0.55);
+    mk(cubeGeo, woodPlankMat, 0, 0.52, -0.05, stairGroup, true).scale.set(1.45, 0.34, 0.55);
+
+    // 中央八角木造涼亭（8 根原木柱 + 矮欄杆 + 薄荷綠錐頂）
+    const pavX = 0;
+    const pavZ = -0.55;
+    const pavDeck = mk(new THREE.CylinderGeometry(1.7, 1.82, 0.16, 8), woodPlankMat, pavX, 0.08, pavZ, c, true);
+    pavDeck.rotation.y = Math.PI / 8;
+    const pavR = 1.46;
+    for (let i = 0; i < 8; i++) {
+      const ang = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      const px = pavX + Math.cos(ang) * pavR;
+      const pz = pavZ + Math.sin(ang) * pavR;
+      mk(sharedPillarGeo, woodLogMat, px, 0.97, pz, c, true);
+
+      // 矮欄杆（正面 +z 兩柱之間留出入口）
+      const nextAng = ((i + 1) / 8) * Math.PI * 2 + Math.PI / 8;
+      const nx = pavX + Math.cos(nextAng) * pavR;
+      const nz = pavZ + Math.sin(nextAng) * pavR;
+      const midAng = (ang + nextAng) * 0.5;
+      if (Math.sin(midAng) > 0.85) continue; // 正前方留入口
+
+      const mx = (px + nx) * 0.5;
+      const mz = (pz + nz) * 0.5;
+      const segLen = Math.hypot(nx - px, nz - pz);
+      const rail = mk(sharedRailBarGeo, woodFenceMat, mx, 0.46, mz, c);
+      rail.scale.set(segLen, 1, 1);
+      rail.rotation.y = Math.atan2(-(nz - pz), nx - px);
+      mk(sharedRailPostGeo, woodFenceMat, mx, 0.32, mz, c);
+    }
+
+    // 薄荷綠八角錐頂 + 金色簷環
+    const roof = mk(new THREE.ConeGeometry(2.06, 0.95, 8), isletMat.mintRoof, pavX, 2.25, pavZ, c, true);
+    roof.rotation.y = Math.PI / 8;
+    const eave = mk(new THREE.TorusGeometry(1.86, 0.055, 6, 16), isletMat.starGoldEmissive, pavX, 1.78, pavZ, c);
+    eave.rotation.x = Math.PI / 2;
+
+    // 兩盞涼亭入口旁發光小風燈（使用 emissive，零 PointLight）
+    [-0.95, 0.95].forEach((lx) => {
+      mk(sharedLampPostGeo, woodDarkM, lx, 0.55, 1.55, c);
+      mk(sharedLampGlobeGeo, isletMat.lampEmissive, lx, 1.15, 1.55, c);
+    });
+
+    // 涼亭屋頂上方懸浮「雙錐水晶沙漏」＋金色星軌環＋4 顆發光金色數據方塊
+    const hgPivot = new THREE.Group();
+    hgPivot.position.set(pavX, 3.62, pavZ);
+    c.add(hgPivot);
+
+    const coneGeo = new THREE.ConeGeometry(0.5, 0.68, 8);
+    const upperCone = mk(coneGeo, isletMat.crystalCyan, 0, 0.34, 0, hgPivot);
+    upperCone.rotation.x = Math.PI;
+    mk(coneGeo, isletMat.crystalCyan, 0, -0.34, 0, hgPivot);
+
+    const capRingGeo = new THREE.TorusGeometry(0.52, 0.045, 6, 16);
+    const capTop = mk(capRingGeo, isletMat.starGoldEmissive, 0, 0.68, 0, hgPivot);
+    capTop.rotation.x = Math.PI / 2;
+    const capBot = mk(capRingGeo, isletMat.starGoldEmissive, 0, -0.68, 0, hgPivot);
+    capBot.rotation.x = Math.PI / 2;
+
+    const starOrbit = new THREE.Group();
+    starOrbit.rotation.set(0.45, 0, -0.28);
+    hgPivot.add(starOrbit);
+    const orbitRing = mk(new THREE.TorusGeometry(1.02, 0.032, 6, 28), isletMat.starGoldEmissive, 0, 0, 0, starOrbit);
+    orbitRing.rotation.x = Math.PI / 2;
+
+    const dataCubes = [];
+    for (let i = 0; i < 4; i++) {
+      const dc = mk(sharedDataCubeGeo, goldenCoreGlowMat, 0, 0, 0, hgPivot);
+      dc.scale.setScalar(0.85);
+      dataCubes.push({ mesh: dc, phase: (i / 4) * Math.PI * 2 });
+    }
+
+    expansionAnims.push((t) => {
+      hgPivot.position.y = 3.62 + Math.sin(t * 1.8) * 0.18;
+      hgPivot.rotation.y = t * 0.65;
+      starOrbit.rotation.y = -t * 1.15;
+      dataCubes.forEach((d, idx) => {
+        const a = t * 1.9 + d.phase;
+        const r = 0.22 + (idx % 2) * 0.06;
+        d.mesh.position.set(Math.cos(a) * r, Math.sin(t * 2.4 + d.phase) * 0.38, Math.sin(a) * r);
+        d.mesh.rotation.set(t * 1.4, t * 1.8, 0);
+      });
+    });
+
+    // 2 組露天咖啡座
+    buildCafeSeatingSet(c, -2.05, 1.35);
+    buildCafeSeatingSet(c, 2.05, 1.35);
+
+    // 4 位特色造型 NPC（腳底精準貼合草地 y=0）
+    // 1. 護目鏡機械師
+    const mechanic = makeMiniNPC(0x0ea5e9, 0x334155, 0xffd7b0, { goggles: true, hatStyle: "cap" });
+    mechanic.root.position.set(-1.1, 0, 0.85);
+    mechanic.root.rotation.y = 0.35;
+    mechanic.baseY = 0;
+    c.add(mechanic.root);
+    addNpcIdle(mechanic, 0.4);
+
+    // 2. 眼鏡學者
+    const scholar = makeMiniNPC(0x3a6073, 0x1e3a5f, 0xffd7b0, { glasses: true, hatStyle: "cap" });
+    scholar.root.position.set(1.1, 0, 0.85);
+    scholar.root.rotation.y = -0.35;
+    scholar.baseY = 0;
+    c.add(scholar.root);
+    addNpcIdle(scholar, 1.5);
+
+    // 3. 圍裙咖啡師
+    const barista = makeMiniNPC(0xf8fafc, 0x6f4e37, 0xffd7b0, { apronMat: isletMat.apronCoffee, hatStyle: "cap" });
+    barista.root.position.set(0, 0, 0.35);
+    barista.root.rotation.y = 0.05;
+    barista.baseY = 0;
+    c.add(barista.root);
+    addNpcIdle(barista, 2.6);
+
+    // 4. 招手領航員
+    const navigator = makeMiniNPC(0x2563eb, 0xfbbf24, 0xffd7b0, { hatStyle: "cap" });
+    navigator.root.position.set(0.15, 0, 2.45);
+    navigator.root.rotation.y = 0.0;
+    navigator.baseY = 0;
+    c.add(navigator.root);
+    addNpcIdle(navigator, 3.2, { wave: true });
+
+    // 周圍海面 2 顆發光導航浮標（使用 emissive 材質）
+    const buoySpots = [
+      [-5.35, 2.1, 0.2],
+      [5.35, -1.9, 2.5]
+    ];
+    buoySpots.forEach(([bx, bz, phase]) => {
+      const buoyRoot = new THREE.Group();
+      buoyRoot.position.set(bx, 0.08, bz);
+      g.add(buoyRoot);
+      mk(sharedBuoyBaseGeo, isletMat.umbrellaRed, 0, 0.16, 0, buoyRoot, true);
+      mk(sharedBuoyMastGeo, isletMat.lighthouseWhite, 0, 0.55, 0, buoyRoot);
+      const beacon = mk(sharedBuoyGlowGeo, isletMat.buoyGlow, 0, 0.9, 0, buoyRoot);
+      expansionAnims.push((t) => {
+        buoyRoot.position.y = 0.08 + Math.sin(t * 2.1 + phase) * 0.12;
+        buoyRoot.rotation.z = Math.sin(t * 1.7 + phase) * 0.1;
+        buoyRoot.rotation.x = Math.cos(t * 1.5 + phase) * 0.08;
+        beacon.rotation.y = t * 1.4;
+      });
+    });
+
+    // 周圍幾株點綴花叢與小樹（精準貼地 y = 2.0）
+    [
+      [-2.45, -1.75, 0.85],
+      [2.45, -1.7, 0.82]
+    ].forEach((s) => isletTree(pos, s, 2.0));
+  }
+
+  // 1) 🔭 星象觀測小島（Observatory Islet）
+  function buildObservatoryIslet(c, g, pos) {
+    // 白牆藍頂半圓球天文台
+    mk(new THREE.CylinderGeometry(1.12, 1.2, 1.05, 12), isletMat.observatoryWall, -0.72, 0.525, -0.48, c, true);
+    const dome = mk(
+      new THREE.SphereGeometry(1.14, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52),
+      isletMat.observatoryDome,
+      -0.72,
+      1.04,
+      -0.48,
+      c,
+      true
+    );
+    void dome;
+    const domeRim = mk(new THREE.TorusGeometry(1.13, 0.05, 5, 16), isletMat.starGoldEmissive, -0.72, 1.05, -0.48, c);
+    domeRim.rotation.x = Math.PI / 2;
+    mk(cubeGeo, woodDarkM, -0.72, 0.34, 0.68, c).scale.set(0.42, 0.65, 0.08);
+    mk(sharedLampGlobeGeo, isletMat.starLens, -0.72, 2.25, -0.48, c);
+
+    // 伸出的黃銅色望遠鏡筒（緩慢左右巡天轉動）
+    const scopeGroup = new THREE.Group();
+    scopeGroup.position.set(1.08, 0, 0.45);
+    c.add(scopeGroup);
+    for (let i = 0; i < 3; i++) {
+      const ta = (i / 3) * Math.PI * 2;
+      const leg = mk(
+        new THREE.CylinderGeometry(0.025, 0.02, 0.88, 5),
+        woodDarkM,
+        Math.cos(ta) * 0.16,
+        0.4,
+        Math.sin(ta) * 0.16,
+        scopeGroup
+      );
+      leg.rotation.set(Math.sin(ta) * 0.25, 0, -Math.cos(ta) * 0.25);
+    }
+    const barrelPivot = new THREE.Group();
+    barrelPivot.position.set(0, 0.84, 0);
+    barrelPivot.rotation.set(-0.55, -0.3, 0);
+    scopeGroup.add(barrelPivot);
+    mk(new THREE.CylinderGeometry(0.11, 0.075, 1.15, 10), isletMat.brassGold, 0, 0, 0, barrelPivot, true).rotation.x =
+      Math.PI / 2;
+    mk(new THREE.CylinderGeometry(0.125, 0.125, 0.14, 10), isletMat.starLens, 0, 0, 0.56, barrelPivot).rotation.x =
+      Math.PI / 2;
+    expansionAnims.push((t) => {
+      barrelPivot.rotation.y = -0.3 + Math.sin(t * 0.65) * 0.45;
+    });
+
+    // 星象木牌
+    mk(sharedLampPostGeo, woodDarkM, -1.55, 0.42, 1.15, c).scale.set(0.9, 0.75, 0.9);
+    const signBoard = mk(cubeGeo, woodPlankMat, -1.55, 0.88, 1.15, c, true);
+    signBoard.scale.set(0.68, 0.44, 0.06);
+    signBoard.rotation.y = 0.45;
+    mk(sharedLampGlobeGeo, isletMat.starGoldEmissive, -1.55, 0.9, 1.2, c).scale.setScalar(0.65);
+
+    // 觀星小學者 NPC（眼鏡＋天文帽，腳底貼地）
+    const scholar = makeMiniNPC(0x3a6073, 0x1e3a5f, 0xffd7b0, { glasses: true });
+    scholar.root.position.set(0.28, 0, 1.08);
+    scholar.root.rotation.y = 2.0;
+    scholar.baseY = 0;
+    c.add(scholar.root);
+    addNpcIdle(scholar, 1.1);
+
+    [
+      [-2.05, 1.15, 0.85],
+      [1.95, -1.25, 0.85],
+      [1.45, 1.85, 0.72]
+    ].forEach((s) => isletTree(pos, s));
+  }
+
+  // 2) 📮 海風瓶中信郵局（Bottle Post Islet）
+  function buildBottlePostIslet(c, g, pos) {
+    // 紅屋頂原木小郵局小屋
+    mk(cubeGeo, woodPlankMat, -0.78, 0.52, -0.52, c, true).scale.set(1.55, 1.04, 1.28);
+    const roof = mk(new THREE.ConeGeometry(1.32, 0.82, 4), isletMat.postRed, -0.78, 1.44, -0.52, c, true);
+    roof.rotation.y = Math.PI / 4;
+    mk(cubeGeo, woodDarkM, -0.78, 0.34, 0.14, c).scale.set(0.38, 0.66, 0.06);
+    mk(cubeGeo, isletMat.lampEmissive, -0.25, 0.58, 0.14, c).scale.set(0.28, 0.28, 0.05);
+    mk(cubeGeo, isletMat.lampEmissive, -1.3, 0.58, 0.14, c).scale.set(0.28, 0.28, 0.05);
+
+    // 門口超大紅色動森風郵筒
+    const mb = new THREE.Group();
+    mb.position.set(0.92, 0, 0.65);
+    c.add(mb);
+    mk(sharedLampPostGeo, woodDarkM, 0, 0.38, 0, mb).scale.set(1.3, 0.7, 1.3);
+    mk(cubeGeo, isletMat.postRed, 0, 0.86, 0, mb, true).scale.set(0.48, 0.42, 0.58);
+    const mbTop = mk(new THREE.CylinderGeometry(0.24, 0.24, 0.58, 10), isletMat.postRed, 0, 1.07, 0, mb, true);
+    mbTop.rotation.x = Math.PI / 2;
+    mk(cubeGeo, isletMat.lighthouseWhite, 0, 0.94, 0.3, mb).scale.set(0.32, 0.07, 0.04);
+    mk(cubeGeo, isletMat.starGoldEmissive, 0.27, 1.05, 0, mb).scale.set(0.05, 0.24, 0.12);
+
+    // 島邊海面漂浮 2 個帶發光軟木塞的玻璃瓶中信（於 g 局部水面上）
+    [
+      [3.3, 2.8, 0.3],
+      [-3.5, 3.0, 2.1]
+    ].forEach(([bx, bz, phase]) => {
+      const bPivot = new THREE.Group();
+      bPivot.position.set(bx, 0.1, bz);
+      bPivot.rotation.set(0.55, phase, 0.35);
+      g.add(bPivot);
+      mk(sharedBottleBodyGeo, isletMat.bottleGlass, 0, 0, 0, bPivot);
+      mk(sharedBottleNeckGeo, isletMat.bottleGlass, 0, 0.23, 0, bPivot);
+      mk(sharedBottleCorkGeo, isletMat.corkGlow, 0, 0.32, 0, bPivot);
+      mk(sharedBottleBodyGeo, isletMat.parchment, 0, -0.02, 0, bPivot).scale.set(0.55, 0.65, 0.55);
+      expansionAnims.push((t) => {
+        bPivot.position.y = 0.1 + Math.sin(t * 2.2 + phase) * 0.11;
+        bPivot.rotation.z = 0.35 + Math.sin(t * 1.8 + phase) * 0.14;
+        bPivot.rotation.x = 0.55 + Math.cos(t * 1.5 + phase) * 0.12;
+      });
+    });
+
+    // 海風郵差 NPC（藍色郵差裝＋郵差帽＋郵包，腳底貼地）
+    const postman = makeMiniNPC(0x0284c7, 0x1e3a5f, 0xffd7b0, {
+      hatStyle: "cap",
+      backpackMat: isletMat.chestWood
+    });
+    postman.root.position.set(0.15, 0, 1.32);
+    postman.root.rotation.y = 0.25;
+    postman.baseY = 0;
+    c.add(postman.root);
+    addNpcIdle(postman, 0.8, { wave: true });
+
+    [
+      [2.0, -0.95, 0.88],
+      [-2.1, 1.05, 0.82],
+      [1.55, -1.85, 0.75]
+    ].forEach((s) => isletTree(pos, s));
+  }
+
+  // 3) 🎣 像素釣魚棧橋島（Pixel Fishing Pier Islet）
+  function buildFishingPierIslet(c, g, pos) {
+    // 讓棧橋朝正外側海面延伸，絕對不碰撞主島或吊橋
+    const outYaw = Math.atan2(pos.x, pos.z);
+    c.rotation.y = outYaw;
+
+    // 島上小遮陽棚＋木桶＋釣魚箱
+    const canopy = new THREE.Group();
+    canopy.position.set(-0.85, 0, -0.45);
+    c.add(canopy);
+    [
+      [-0.65, -0.55],
+      [0.65, -0.55],
+      [-0.65, 0.55],
+      [0.65, 0.55]
+    ].forEach(([px, pz]) => {
+      mk(sharedLampPostGeo, woodDarkM, px, 0.62, pz, canopy).scale.set(0.9, 1.15, 0.9);
+    });
+    mk(cubeGeo, isletMat.towelBlue, 0, 1.28, 0, canopy, true).scale.set(1.55, 0.08, 1.3);
+    mk(cubeGeo, isletMat.umbrellaWhite, 0, 1.33, 0, canopy).scale.set(1.56, 0.03, 0.45);
+
+    // 木桶與釣魚箱
+    mk(new THREE.CylinderGeometry(0.24, 0.22, 0.44, 8), isletMat.chestWood, 1.05, 0.22, -0.55, c, true);
+    mk(cubeGeo, isletMat.bucketBlue, 0.95, 0.16, 0.45, c, true).scale.set(0.46, 0.3, 0.34);
+
+    // 向外海延伸的木棧道碼頭 (top = -0.62 + 0.07 = -0.55)
+    mk(cubeGeo, woodPlankMat, 0, -0.62, 3.65, c, true).scale.set(1.15, 0.14, 3.5);
+    [
+      [-0.45, 2.45],
+      [0.45, 2.45],
+      [-0.45, 5.05],
+      [0.45, 5.05]
+    ].forEach(([px, pz]) => {
+      mk(sharedLampPostGeo, woodDarkM, px, -1.1, pz, c).scale.set(1.2, 1.2, 1.2);
+    });
+
+    // 坐姿釣魚 NPC（坐在棧橋末端，腳貼於木棧板表面 y = -0.55）
+    const angler = makeMiniNPC(0x2ec4b6, 0xe9c46a, 0xf3c9a0);
+    angler.root.position.set(0, -0.55, 4.95);
+    angler.root.rotation.y = 0;
+    angler.baseY = -0.55;
+    c.add(angler.root);
+    addNpcIdle(angler, 1.4, { seated: true });
+
+    const rodPivot = new THREE.Group();
+    rodPivot.position.set(0.22, -0.08, 5.05);
+    c.add(rodPivot);
+    mk(new THREE.CylinderGeometry(0.016, 0.026, 1.55, 4), woodDarkM, 0, 0.32, 0.62, rodPivot).rotation.x = 1.12;
+    mk(new THREE.CylinderGeometry(0.006, 0.006, 1.15, 3), isletMat.fishLine, 0, -0.32, 1.28, rodPivot);
+    const bobber = mk(sphereGeo8, isletMat.bobberRed, 0, -0.94, 1.28, rodPivot);
+    bobber.scale.setScalar(0.075);
+
+    // 棧橋下水中的發光錦鯉/像素魚剪影繞圈游動
+    const fishGroup = new THREE.Group();
+    fishGroup.position.set(0, -1.42, 4.35);
+    c.add(fishGroup);
+    const fishes = [0, 1, 2].map((fi) => {
+      const fPivot = new THREE.Group();
+      const mat = fi % 2 === 0 ? isletMat.koiOrange : isletMat.koiCyan;
+      const body = mk(sharedFishBodyGeo, mat, 0, 0, 0, fPivot);
+      body.rotation.x = Math.PI / 2;
+      const tail = mk(sharedFishTailGeo, mat, 0, 0, -0.22, fPivot);
+      tail.rotation.x = -Math.PI / 2;
+      fishGroup.add(fPivot);
+      return { fPivot, radius: 0.95 + fi * 0.32, phase: fi * 2.1, speed: 1.05 + fi * 0.18 };
+    });
+
+    expansionAnims.push((t) => {
+      rodPivot.rotation.x = Math.sin(t * 1.6) * 0.06;
+      bobber.position.y = -0.94 + Math.sin(t * 3.6) * 0.05;
+      fishes.forEach((f) => {
+        const a = t * f.speed + f.phase;
+        f.fPivot.position.set(Math.cos(a) * f.radius, Math.sin(t * 2.5 + f.phase) * 0.04, Math.sin(a) * f.radius);
+        f.fPivot.rotation.y = -a;
+      });
+    });
+
+    [
+      [-1.95, -1.1, 0.82],
+      [1.85, -1.25, 0.85]
+    ].forEach((s) => isletTree(pos, s));
+  }
+
+  // 4) 🎵 芯片音樂八音盒島（Chiptune Music Box Islet）
+  function buildMusicBoxIslet(c, g, pos) {
+    // 黑膠唱片造型圓形木舞台 (頂面 y = 0.30)
+    mk(new THREE.CylinderGeometry(1.9, 2.06, 0.24, 16), woodPlankMat, 0, 0.12, 0.25, c, true);
+    mk(new THREE.CylinderGeometry(1.72, 1.72, 0.06, 20), isletMat.vinylBlack, 0, 0.27, 0.25, c, true);
+    mk(new THREE.CylinderGeometry(0.55, 0.55, 0.07, 16), isletMat.umbrellaRed, 0, 0.275, 0.25, c);
+    const groove = mk(new THREE.TorusGeometry(1.16, 0.025, 4, 24), isletMat.starGoldEmissive, 0, 0.305, 0.25, c);
+    groove.rotation.x = Math.PI / 2;
+
+    // 舞台後方巨大的金色發條鑰匙雕塑（持續緩慢旋轉）
+    const keyPivot = new THREE.Group();
+    keyPivot.position.set(0, 0, -1.78);
+    c.add(keyPivot);
+    mk(new THREE.CylinderGeometry(0.11, 0.13, 2.0, 8), isletMat.starGoldEmissive, 0, 1.0, 0, keyPivot, true);
+    [-0.48, 0.48].forEach((kx) => {
+      mk(new THREE.TorusGeometry(0.46, 0.1, 6, 14), isletMat.starGoldEmissive, kx, 2.25, 0, keyPivot, true);
+    });
+
+    // 發光音符方塊（共用幾何體與材質）
+    const noteSpecs = [
+      [-1.55, 1.25, 0.8, isletMat.noteNeonPink, 0.0],
+      [1.6, 1.4, 0.65, isletMat.noteNeonCyan, 1.6],
+      [-1.1, 1.75, -0.85, isletMat.noteNeonCyan, 3.1],
+      [1.25, 1.65, -0.75, isletMat.noteNeonPink, 4.4]
+    ];
+    const notes = noteSpecs.map(([nx, ny, nz, nMat, phase]) => {
+      const ng = new THREE.Group();
+      ng.position.set(nx, ny, nz);
+      mk(sharedDataCubeGeo, nMat, 0, 0, 0, ng).scale.set(1.2, 0.9, 1.2);
+      mk(sharedNoteStemGeo, nMat, 0.08, 0.22, 0, ng);
+      c.add(ng);
+      return { ng, baseY: ny, phase };
+    });
+
+    expansionAnims.push((t) => {
+      keyPivot.rotation.y = t * 0.9;
+      notes.forEach((n) => {
+        n.ng.position.y = n.baseY + Math.sin(t * 3.1 + n.phase) * 0.16;
+        n.ng.rotation.y = Math.sin(t * 1.4 + n.phase) * 0.35;
+      });
+    });
+
+    // 戴耳機的 DJ NPC 站在黑膠舞台頂面 (y = 0.30) 隨節奏點頭擺動
+    const dj = makeMiniNPC(0xec4899, 0x1e293b, 0xffd7b0, { headphones: true, hatStyle: "cap" });
+    dj.root.position.set(0, 0.3, 0.35);
+    dj.baseY = 0.3;
+    c.add(dj.root);
+    addNpcIdle(dj, 0.2, { dj: true });
+
+    [
+      [-2.15, 1.15, 0.8],
+      [2.15, -1.05, 0.85]
+    ].forEach((s) => isletTree(pos, s));
+  }
+
+  // 5) 🌱 數位綠洲溫室島（Digital Oasis Greenhouse Islet）
+  function buildGreenhouseIslet(c, g, pos) {
+    // 半透明玻璃圓頂花房（低多邊形半透明材質）
+    const ghX = -0.52;
+    const ghZ = -0.45;
+    const ghRim = mk(new THREE.TorusGeometry(1.48, 0.09, 6, 16), isletMat.lighthouseWhite, ghX, 0.06, ghZ, c);
+    ghRim.rotation.x = Math.PI / 2;
+    mk(
+      new THREE.SphereGeometry(1.48, 10, 6, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      isletMat.greenhouseGlass,
+      ghX,
+      0.06,
+      ghZ,
+      c
+    );
+    [0, Math.PI / 2].forEach((ry) => {
+      const rib = mk(new THREE.TorusGeometry(1.49, 0.032, 4, 14, Math.PI), isletMat.lighthouseWhite, ghX, 0.06, ghZ, c);
+      rib.rotation.y = ry;
+    });
+
+    // 內部與門前發光的青藍色與暖粉色奇幻花叢（共用花莖與花冠幾何體）
+    const flowerCoords = [
+      [-0.9, -0.65, true],
+      [-0.25, -0.85, false],
+      [-0.65, -0.05, true],
+      [-0.1, -0.2, false],
+      [-1.15, -0.2, false],
+      [0.45, 0.95, true],
+      [0.85, 1.2, false]
+    ];
+    flowerCoords.forEach(([fx, fz, isCyan]) => {
+      mk(sharedFlowerStemGeo, flowerBushGreenMat, fx, 0.11, fz, c);
+      mk(sharedFlowerHeadGeo, isCyan ? isletMat.glowFlowerCyan : isletMat.glowFlowerPink, fx, 0.28, fz, c);
+    });
+
+    // 小噴泉
+    mk(new THREE.CylinderGeometry(0.55, 0.62, 0.24, 10), stoneReliefMat, 1.38, 0.12, 0.62, c, true);
+    mk(new THREE.CylinderGeometry(0.14, 0.18, 0.45, 8), stoneReliefMat, 1.38, 0.34, 0.62, c);
+    const waterJet = mk(sharedLampGlobeGeo, isletMat.crystalCyan, 1.38, 0.72, 0.62, c);
+    waterJet.scale.set(1.2, 1.5, 1.2);
+
+    // 花叢光暈柔和明滅呼吸動畫
+    expansionAnims.push((t) => {
+      isletMat.glowFlowerCyan.emissiveIntensity = 0.65 + 0.75 * (0.5 + 0.5 * Math.sin(t * 2.1));
+      isletMat.glowFlowerPink.emissiveIntensity = 0.65 + 0.75 * (0.5 + 0.5 * Math.sin(t * 2.1 + Math.PI * 0.8));
+      waterJet.scale.y = 1.35 + Math.sin(t * 4.2) * 0.25;
+      waterJet.rotation.y = t * 1.4;
+    });
+
+    // 拿著澆水壺照料植物的園丁 NPC（腳底貼地 y = 0）
+    const gardener = makeMiniNPC(0x10b981, 0xe9c46a, 0xffd7b0, { apronMat: isletMat.windmillSail });
+    gardener.root.position.set(0.35, 0, 1.45);
+    gardener.root.rotation.y = 0.75;
+    gardener.baseY = 0;
+    c.add(gardener.root);
+    mk(new THREE.CylinderGeometry(0.08, 0.1, 0.15, 8), isletMat.wateringCan, 0.32, 0.42, 0.14, gardener.bodyPivot);
+    mk(new THREE.CylinderGeometry(0.02, 0.035, 0.14, 6), isletMat.wateringCan, 0.4, 0.48, 0.18, gardener.bodyPivot).rotation.z =
+      -0.85;
+    addNpcIdle(gardener, 1.7);
+
+    [
+      [2.05, -0.9, 0.88],
+      [-2.1, 1.1, 0.82]
+    ].forEach((s) => isletTree(pos, s));
+  }
+
+  // 6) 🧭 迷霧燈塔瞭望島（Mist Lighthouse Islet）
+  function buildLighthouseLookoutIslet(c, g, pos) {
+    // 紅白相間條紋高聳圓柱燈塔
+    const stripes = [
+      isletMat.lighthouseWhite,
+      isletMat.lighthouseRed,
+      isletMat.lighthouseWhite,
+      isletMat.lighthouseRed
+    ];
+    [0.45, 1.28, 2.1, 2.9].forEach((y, i) => {
+      mk(
+        new THREE.CylinderGeometry(0.62 - i * 0.06, 0.72 - i * 0.06, 0.84, 10),
+        stripes[i],
+        -0.68,
+        y,
+        -0.52,
+        c,
+        true
+      );
+    });
+    mk(new THREE.CylinderGeometry(0.74, 0.74, 0.12, 10), isletMat.lighthouseRim, -0.68, 3.38, -0.52, c);
+    mk(new THREE.CylinderGeometry(0.36, 0.36, 0.52, 8), isletMat.lighthouseLantern, -0.68, 3.7, -0.52, c);
+    mk(new THREE.ConeGeometry(0.54, 0.48, 8), isletMat.lighthouseRed, -0.68, 4.2, -0.52, c, true);
+
+    // 頂部金色風向標
+    const vanePivot = new THREE.Group();
+    vanePivot.position.set(-0.68, 4.55, -0.52);
+    c.add(vanePivot);
+    mk(new THREE.CylinderGeometry(0.025, 0.025, 0.35, 5), isletMat.starGoldEmissive, 0, -0.05, 0, vanePivot);
+    mk(cubeGeo, isletMat.starGoldEmissive, 0, 0.08, 0, vanePivot).scale.set(0.55, 0.04, 0.04);
+
+    // 燈塔頂部一對半透明金色探照光錐（emissive 材質，360 度旋轉掃射，無 PointLight）
+    const beamGeo = new THREE.ConeGeometry(0.95, 5.5, 12, 1, true);
+    beamGeo.translate(0, -2.75, 0);
     beamGeo.rotateZ(Math.PI / 2);
     const beamPivot = new THREE.Group();
-    beamPivot.position.set(-0.75, 2.9, -0.55);
+    beamPivot.position.set(-0.68, 3.7, -0.52);
     c.add(beamPivot);
     mk(beamGeo, isletMat.lighthouseBeam, 0, 0, 0, beamPivot);
     const beam2 = mk(beamGeo, isletMat.lighthouseBeam, 0, 0, 0, beamPivot);
     beam2.rotation.y = Math.PI;
+
     expansionAnims.push((t) => {
-      beamPivot.rotation.y = t * 1.15;
+      beamPivot.rotation.y = t * 1.1;
+      vanePivot.rotation.y = Math.sin(t * 1.2) * 0.45;
+      isletMat.lighthouseBeam.opacity = isNight ? 0.34 : 0.18;
+      isletMat.lighthouseBeam.emissiveIntensity = isNight ? 1.55 : 0.95;
     });
 
-    // 觀海矮護欄與長凳
+    // 觀海矮護欄（共用幾何體）
     for (let i = 0; i < 4; i++) {
-      mk(new THREE.BoxGeometry(0.08, 0.42, 0.08), woodM, 0.4 + i * 0.55, 0.21, 1.8, c);
+      mk(sharedRailPostGeo, woodM, 0.4 + i * 0.52, 0.21, 1.75, c);
     }
-    mk(new THREE.BoxGeometry(1.75, 0.06, 0.06), woodM, 1.22, 0.35, 1.8, c);
-    mk(cubeGeo, woodM, -1.65, 0.2, 0.9, c, true).scale.setScalar(0.38);
+    mk(sharedRailBarGeo, woodM, 1.18, 0.35, 1.75, c).scale.set(1.65, 1, 1);
 
-    // 看海 NPC（面向外海揮手望遠）
-    const keeper = makeMiniNPC(0x2b59c3, 0x1e3a5f, 0xffd7b0);
-    keeper.root.position.set(1.05, 0, 1.35);
+    // 燈塔守望員 NPC（黃色雨衣外套＋航海帽，腳底貼地）
+    const keeper = makeMiniNPC(0xf59e0b, 0x1e3a5f, 0xffd7b0, { hatStyle: "cap" });
+    keeper.root.position.set(1.05, 0, 1.25);
     keeper.root.rotation.y = 0.25;
     keeper.baseY = 0;
     c.add(keeper.root);
-    addNpcIdle(keeper, 0.3);
+    addNpcIdle(keeper, 0.5, { wave: true });
 
-    [[-2.05, -0.9, 0.85], [1.75, -1.45, 0.82], [-1.45, 1.75, 0.72]].forEach((s) => isletTree(pos, s));
-  }
-
-  // 2) 荷蘭木風車花圃島 + 澆花小動物
-  function buildWindmillFlowerIsle(c, g, pos) {
-    mk(new THREE.CylinderGeometry(0.62, 0.98, 2.4, 8), isletMat.windmillWall, -0.65, 1.2, -0.55, c, true);
-    mk(new THREE.ConeGeometry(0.86, 0.76, 8), isletMat.windmillRoof, -0.65, 2.78, -0.55, c, true);
-    mk(new THREE.BoxGeometry(0.34, 0.55, 0.06), woodDarkM, -0.65, 0.28, 0.42, c);
-    const blades = new THREE.Group();
-    blades.position.set(-0.65, 2.22, 0.46);
-    c.add(blades);
-    mk(new THREE.CylinderGeometry(0.1, 0.1, 0.2, 8), woodDarkM, 0, 0, 0, blades).rotation.x = Math.PI / 2;
-    for (let i = 0; i < 4; i++) {
-      const arm = new THREE.Group();
-      arm.rotation.z = (i * Math.PI) / 2;
-      blades.add(arm);
-      mk(new THREE.BoxGeometry(0.1, 1.5, 0.05), woodDarkM, 0, 0.8, 0, arm);
-      mk(new THREE.BoxGeometry(0.4, 0.95, 0.03), isletMat.windmillSail, 0.22, 0.95, 0.03, arm);
-    }
-    expansionAnims.push((t) => {
-      blades.rotation.z = -t * 1.1;
-    });
-
-    // 荷蘭鬱金香彩色花圃
-    const tulipMats = [isletMat.tulipRed, isletMat.tulipYellow, isletMat.tulipPurple];
-    mk(new THREE.BoxGeometry(1.7, 0.12, 1.15), woodM, 1.15, 0.06, 0.95, c, true);
-    for (let row = 0; row < 2; row++) {
-      for (let col = 0; col < 4; col++) {
-        const fx = 0.55 + col * 0.38;
-        const fz = 0.65 + row * 0.55;
-        mk(new THREE.CylinderGeometry(0.02, 0.02, 0.22, 4), flowerBushGreenMat, fx, 0.2, fz, c);
-        mk(new THREE.SphereGeometry(0.09, 6, 5), tulipMats[(row + col) % tulipMats.length], fx, 0.32, fz, c);
-      }
-    }
-    for (let i = 0; i < 10; i++) {
-      const a = (i / 10) * Math.PI * 2;
-      isletFlowerSpots.push({ x: pos.x + Math.cos(a) * 2.1, y: pos.y + 1.55 + 0.1, z: pos.z + Math.sin(a) * 1.8, c: [0xff4d6d, 0xffd166, 0xc77dff][i % 3] });
-    }
-
-    // 澆花小動物（奶油小兔提著藍色澆花壺）
-    const gardener = createCuteIslandBuddy("bunny", { furMat: npcExtraMat.bunnyWhite, scale: 1.08 });
-    gardener.root.position.set(0.35, 0, 1.45);
-    gardener.root.rotation.y = 0.85;
-    const can = mk(new THREE.CylinderGeometry(0.09, 0.11, 0.16, 8), isletMat.wateringCan, 0.24, 0.22, 0.14, gardener.bodyPivot);
-    mk(new THREE.CylinderGeometry(0.02, 0.04, 0.16, 6), isletMat.wateringCan, 0.32, 0.28, 0.18, gardener.bodyPivot).rotation.z = -0.85;
-    void can;
-    c.add(gardener.root);
-    addBuddyIsletIdle(gardener, 1.4, 0);
-
-    [[2.1, -0.8, 0.9], [-2.1, 1.0, 0.85], [1.65, -1.9, 0.78]].forEach((s) => isletTree(pos, s));
-  }
-
-  // 3) 夏日黃色露營帳篷與營火島 + 烤火 NPC
-  function buildSummerCampIsle(c, g, pos) {
-    const tent = mk(new THREE.ConeGeometry(1.12, 1.28, 4), isletMat.tentYellow, -1.05, 0.64, -0.45, c, true);
-    tent.rotation.y = Math.PI / 4;
-    tent.scale.z = 1.25;
-    mk(new THREE.BoxGeometry(0.36, 0.52, 0.06), isletMat.tentDoor, -0.52, 0.28, 0.02, c).rotation.y = Math.PI / 4;
-
-    const flame1 = mk(new THREE.ConeGeometry(0.22, 0.58, 6), isletMat.campfireOuter, 1.05, 0.31, -0.1, c);
-    const flame2 = mk(new THREE.ConeGeometry(0.13, 0.4, 6), isletMat.campfireInner, 1.05, 0.26, -0.1, c);
-    for (let i = 0; i < 6; i++) {
-      const sa = (i / 6) * Math.PI * 2;
-      const st = mk(sphereGeo8, isletMat.campfireStone, 1.05 + Math.cos(sa) * 0.38, 0.08, -0.1 + Math.sin(sa) * 0.38, c);
-      st.scale.set(0.12, 0.08, 0.12);
-    }
-    [0.6, -0.6].forEach((r) => {
-      const log = mk(new THREE.CylinderGeometry(0.06, 0.06, 0.6, 5), woodDarkM, 1.05, 0.07, -0.1, c);
-      log.rotation.set(Math.PI / 2, r, 0);
-    });
-    expansionAnims.push((t) => {
-      flame1.scale.set(1 + Math.sin(t * 11) * 0.1, 1 + Math.sin(t * 9 + 1) * 0.18, 1 + Math.sin(t * 11) * 0.1);
-      flame2.scale.set(1 + Math.sin(t * 13) * 0.12, 1 + Math.sin(t * 10) * 0.22, 1);
-    });
-
-    // 原木椅與烤火 NPC
-    mk(new THREE.CylinderGeometry(0.14, 0.14, 0.72, 6), woodM, 0.35, 0.14, 1.15, c).rotation.z = Math.PI / 2;
-    const camper = makeMiniNPC(0xe76f51, 0xe9c46a, 0xffd7b0);
-    camper.root.position.set(0.35, 0, 1.15);
-    camper.root.rotation.y = 2.45;
-    camper.baseY = 0;
-    c.add(camper.root);
-    addNpcIdle(camper, 0.6);
-
-    const campKitty = createCuteIslandBuddy("cat", { furMat: npcExtraMat.catOrange, scale: 0.92 });
-    campKitty.root.position.set(-0.55, 0, 1.45);
-    campKitty.root.rotation.y = 0.8;
-    c.add(campKitty.root);
-    addBuddyIsletIdle(campKitty, 2.2, 0);
-
-    [[-2.15, 0.8, 0.95], [2.15, -1.0, 0.85], [1.75, 1.7, 0.72]].forEach((s) => isletTree(pos, s));
-  }
-
-  // 4) 觀星小涼亭與望遠鏡島 + 觀星學者 NPC
-  function buildStargazingIsle(c, g, pos) {
-    // 觀星白石小涼亭
-    mk(new THREE.CylinderGeometry(1.18, 1.25, 0.16, 6), isletMat.gazeboWhite, -0.78, 0.08, -0.45, c, true);
-    for (let i = 0; i < 4; i++) {
-      const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
-      mk(new THREE.CylinderGeometry(0.08, 0.09, 1.65, 6), isletMat.gazeboWhite, -0.78 + Math.cos(a) * 0.86, 0.9, -0.45 + Math.sin(a) * 0.86, c, true);
-    }
-    mk(new THREE.ConeGeometry(1.38, 0.85, 6), isletMat.gazeboRoof, -0.78, 2.12, -0.45, c, true);
-    mk(new THREE.OctahedronGeometry(0.18, 0), isletMat.brassGold, -0.78, 2.62, -0.45, c);
-
-    // 黃銅天文望遠鏡
-    const scopeGroup = new THREE.Group();
-    scopeGroup.position.set(1.05, 0, 0.55);
-    c.add(scopeGroup);
-    for (let i = 0; i < 3; i++) {
-      const ta = (i / 3) * Math.PI * 2;
-      const leg = mk(new THREE.CylinderGeometry(0.025, 0.02, 0.88, 5), woodDarkM, Math.cos(ta) * 0.16, 0.4, Math.sin(ta) * 0.16, scopeGroup);
-      leg.rotation.set(Math.sin(ta) * 0.25, 0, -Math.cos(ta) * 0.25);
-    }
-    const barrelPivot = new THREE.Group();
-    barrelPivot.position.set(0, 0.82, 0);
-    barrelPivot.rotation.set(-0.58, -0.4, 0);
-    scopeGroup.add(barrelPivot);
-    mk(new THREE.CylinderGeometry(0.11, 0.07, 1.05, 10), isletMat.brassGold, 0, 0, 0, barrelPivot, true).rotation.x = Math.PI / 2;
-    mk(new THREE.CylinderGeometry(0.125, 0.125, 0.14, 10), isletMat.starLens, 0, 0, 0.52, barrelPivot).rotation.x = Math.PI / 2;
-    expansionAnims.push((t) => {
-      barrelPivot.rotation.y = -0.4 + Math.sin(t * 0.7) * 0.22;
-    });
-
-    // 觀星學者 NPC
-    const scholar = makeMiniNPC(0x3a6073, 0x1e3a5f, 0xffd7b0);
-    scholar.root.position.set(0.35, 0, 0.92);
-    scholar.root.rotation.y = 2.1;
-    scholar.baseY = 0;
-    c.add(scholar.root);
-    addNpcIdle(scholar, 1.9);
-
-    [[-2.1, 1.1, 0.85], [2.1, -1.1, 0.88], [1.4, 1.85, 0.72]].forEach((s) => isletTree(pos, s));
-  }
-
-  // 5) 椰林沙灘遮陽傘度假島 + 休息小動物
-  function buildPalmResortIsle(c, g, pos) {
-    // 兩棵弧形椰子樹
-    [[-1.15, -0.75, 1.0, 0.2], [-1.75, 0.45, 0.82, -0.18]].forEach(([px, pz, sc, lean]) => {
-      const palm = new THREE.Group();
-      palm.position.set(px, 0, pz);
-      palm.scale.setScalar(sc);
-      c.add(palm);
-      for (let seg = 0; seg < 4; seg++) {
-        mk(new THREE.CylinderGeometry(0.14 - seg * 0.015, 0.17 - seg * 0.015, 0.55, 6), isletMat.palmTrunk, seg * lean * 0.4, 0.26 + seg * 0.48, 0, palm, true).rotation.z = -lean * 0.7;
-      }
-      const topX = 3 * lean * 0.4;
-      const topY = 2.05;
-      for (let f = 0; f < 6; f++) {
-        const fa = (f / 6) * Math.PI * 2;
-        const frond = mk(new THREE.BoxGeometry(0.26, 0.05, 1.05), isletMat.palmLeaf, topX + Math.sin(fa) * 0.5, topY + 0.06, Math.cos(fa) * 0.5, palm, true);
-        frond.rotation.y = fa;
-        frond.rotation.x = 0.28;
-      }
-      [-0.14, 0.14].forEach((cx) => mk(sphereGeo8, isletMat.coconut, topX + cx, topY - 0.12, 0.12, palm).scale.setScalar(0.11));
-    });
-
-    // 紅白沙灘遮陽傘 + 海灘墊
-    mk(new THREE.CylinderGeometry(0.045, 0.045, 1.75, 6), woodM, 0.85, 0.88, -0.35, c);
-    for (let u = 0; u < 6; u++) {
-      const slice = mk(new THREE.ConeGeometry(1.15, 0.42, 6, 1, false, (u / 6) * Math.PI * 2, Math.PI / 3), u % 2 === 0 ? isletMat.umbrellaRed : isletMat.umbrellaWhite, 0.85, 1.72, -0.35, c, true);
-      void slice;
-    }
-    mk(new THREE.BoxGeometry(1.15, 0.05, 1.55), isletMat.towelBlue, 0.85, 0.025, 0.75, c);
-    mk(new THREE.BoxGeometry(1.16, 0.055, 0.24), isletMat.towelStripe, 0.85, 0.028, 0.22, c);
-
-    // 休息小動物（奶茶小熊 + 小灰貓）
-    const bear = createCuteIslandBuddy("bear", { furMat: npcExtraMat.bearTan, scale: 1.02 });
-    bear.root.position.set(0.85, 0.05, 0.75);
-    bear.root.rotation.y = -0.35;
-    c.add(bear.root);
-    addBuddyIsletIdle(bear, 0.7, 0.05);
-
-    const beachCat = createCuteIslandBuddy("cat", { furMat: npcExtraMat.catGray, scale: 0.92 });
-    beachCat.root.position.set(-0.3, 0, 1.25);
-    beachCat.root.rotation.y = 0.7;
-    c.add(beachCat.root);
-    addBuddyIsletIdle(beachCat, 2.5, 0);
-  }
-
-  // 6) 漂流藏寶箱與木棧釣魚島 + 垂釣 NPC
-  function buildTreasureFishingIsle(c, g, pos) {
-    // 敞開裝滿金幣與藍綠寶石的藏寶箱
-    mk(new THREE.BoxGeometry(0.95, 0.52, 0.68), isletMat.chestWood, -0.95, 0.26, -0.4, c, true);
-    const lid = mk(new THREE.BoxGeometry(0.95, 0.24, 0.68), isletMat.chestWood, -0.95, 0.66, -0.68, c, true);
-    lid.rotation.x = -0.75;
-    mk(new THREE.BoxGeometry(0.82, 0.16, 0.54), isletMat.chestGold, -0.95, 0.52, -0.4, c);
-    mk(new THREE.OctahedronGeometry(0.18, 0), isletMat.chestGem, -0.95, 0.68, -0.4, c);
-    mk(cubeGeo, woodM, 0.25, 0.22, -0.85, c, true).scale.setScalar(0.42);
-    mk(new THREE.CylinderGeometry(0.2, 0.17, 0.32, 8), isletMat.bucketBlue, 0.95, 0.16, 1.1, c);
-
-    // 延伸出島緣的木造釣魚棧橋 (top = -0.65 + 0.07 = -0.58)
-    mk(new THREE.BoxGeometry(3.2, 0.14, 0.95), woodM, 3.65, -0.65, 0.6, c, true);
     [
-      [2.5, 0.22],
-      [2.5, 0.98],
-      [4.9, 0.22],
-      [4.9, 0.98]
-    ].forEach(([x, z]) => mk(new THREE.CylinderGeometry(0.07, 0.07, 1.4, 5), woodDarkM, x, -1.05, z, c));
-
-    // 垂釣 NPC（精準立於木棧板頂面 y = -0.58）
-    const angler = makeMiniNPC(0x2ec4b6, 0xe9c46a, 0xf3c9a0);
-    angler.root.position.set(4.85, -0.58, 0.6);
-    angler.root.rotation.y = Math.PI / 2;
-    angler.baseY = -0.58;
-    c.add(angler.root);
-    addNpcIdle(angler, 1.1);
-
-    const rodPivot = new THREE.Group();
-    rodPivot.position.set(4.95, -0.08, 0.72);
-    rodPivot.rotation.y = Math.PI / 2;
-    c.add(rodPivot);
-    mk(new THREE.CylinderGeometry(0.015, 0.025, 1.55, 4), woodDarkM, 0, 0.3, 0.6, rodPivot).rotation.x = 1.15;
-    mk(new THREE.CylinderGeometry(0.006, 0.006, 1.15, 3), isletMat.fishLine, 0, -0.3, 1.25, rodPivot);
-    const bobber = mk(sphereGeo8, isletMat.bobberRed, 0, -0.92, 1.25, rodPivot);
-    bobber.scale.setScalar(0.07);
-    expansionAnims.push((t) => {
-      rodPivot.rotation.x = Math.sin(t * 1.6) * 0.05;
-      bobber.position.y = -0.92 + Math.sin(t * 3.4) * 0.04;
-    });
-
-    [[-2.0, 1.1, 0.85], [1.45, -1.55, 0.82], [-1.35, 1.85, 0.7]].forEach((s) => isletTree(pos, s));
+      [-2.0, -0.95, 0.85],
+      [1.75, -1.4, 0.82],
+      [-1.4, 1.75, 0.72]
+    ].forEach((s) => isletTree(pos, s));
   }
 
-  // 6 座環繞小浮島：均勻分佈於七島外環空檔 (1.22 ~ 1.32 × ringRadius=49)，避開所有吊橋與主題島嶼
+  // 精準計算「AI 智慧島」與「資料海灣」的中心座標中點，並朝外側海面垂直偏移 7.6 個單位
+  const aiIslandRec = islandRecords.find((r) => r.id === "ai");
+  const dataIslandRec = islandRecords.find((r) => r.id === "data");
+  let cafeWorldPos = new THREE.Vector3(-50.4, 0, -11.5);
+  if (aiIslandRec && dataIslandRec) {
+    const p1 = aiIslandRec.group.position;
+    const p2 = dataIslandRec.group.position;
+    const midX = (p1.x + p2.x) * 0.5;
+    const midZ = (p1.z + p2.z) * 0.5;
+    const dx = p2.x - p1.x;
+    const dz = p2.z - p1.z;
+    const len = Math.hypot(dx, dz) || 1;
+    let nx = -dz / len;
+    let nz = dx / len;
+    if (nx * midX + nz * midZ < 0) {
+      nx = -nx;
+      nz = -nz;
+    }
+    const outwardOffset = 7.6; // 6～8 單位距離，完全避開兩島間吊橋與雙島嶼
+    cafeWorldPos.set(midX + nx * outwardOffset, 0, midZ + nz * outwardOffset);
+  }
+
+  // 建置 7 座主題特色 NPC 島（第 7 座核心航道咖啡島 + 6 座外海升級主題浮島，保留原位置）
   [
-    { angleDeg: -64, radius: 61.5, scale: 1.0, build: buildLighthouseBreezeIsle },
-    { angleDeg: -10, radius: 64.0, scale: 1.0, build: buildWindmillFlowerIsle },
-    { angleDeg: 42, radius: 61.0, scale: 1.0, build: buildSummerCampIsle },
-    { angleDeg: 92, radius: 63.5, scale: 1.0, build: buildStargazingIsle },
-    { angleDeg: 142, radius: 61.5, scale: 1.0, build: buildPalmResortIsle },
-    { angleDeg: 242, radius: 64.0, scale: 1.0, build: buildTreasureFishingIsle }
+    {
+      id: "quantum-cafe",
+      emoji: "⏳",
+      name: "量子沙漏咖啡島",
+      subtitle: "核心航道驛站 · 點擊抽冷知識",
+      accent: "#00b4d8",
+      worldPos: cafeWorldPos,
+      scale: 1.0,
+      labelY: 7.4,
+      build: buildQuantumHourglassCafeIsle
+    },
+    {
+      id: "observatory",
+      emoji: "🔭",
+      name: "星象觀測小島",
+      subtitle: "演算法幸運籤 · 點擊占卜",
+      accent: "#4f7cff",
+      angleDeg: -64,
+      radius: 61.5,
+      scale: 1.0,
+      labelY: 6.1,
+      build: buildObservatoryIslet
+    },
+    {
+      id: "bottle-post",
+      emoji: "📮",
+      name: "海風瓶中信郵局",
+      subtitle: "資訊史故事 · 點擊撈瓶",
+      accent: "#e11d48",
+      angleDeg: -10,
+      radius: 64.0,
+      scale: 1.0,
+      labelY: 6.1,
+      build: buildBottlePostIslet
+    },
+    {
+      id: "fishing-pier",
+      emoji: "🎣",
+      name: "像素釣魚棧橋島",
+      subtitle: "防詐快問快答 · 點擊垂釣",
+      accent: "#14b8a6",
+      angleDeg: 42,
+      radius: 61.0,
+      scale: 1.0,
+      labelY: 6.1,
+      build: buildFishingPierIslet
+    },
+    {
+      id: "music-box",
+      emoji: "🎵",
+      name: "芯片音樂八音盒島",
+      subtitle: "8-bit 旋律 · 點擊聆聽",
+      accent: "#ec4899",
+      angleDeg: 92,
+      radius: 63.5,
+      scale: 1.0,
+      labelY: 6.2,
+      build: buildMusicBoxIslet
+    },
+    {
+      id: "greenhouse",
+      emoji: "🌱",
+      name: "數位綠洲溫室島",
+      subtitle: "綠色科技 · 點擊探索",
+      accent: "#10b981",
+      angleDeg: 142,
+      radius: 61.5,
+      scale: 1.0,
+      labelY: 6.1,
+      build: buildGreenhouseIslet
+    },
+    {
+      id: "lighthouse",
+      emoji: "🧭",
+      name: "迷霧燈塔瞭望島",
+      subtitle: "智慧航線羅盤 · 點擊導航",
+      accent: "#f59e0b",
+      angleDeg: 242,
+      radius: 64.0,
+      scale: 1.0,
+      labelY: 7.5,
+      build: buildLighthouseLookoutIslet
+    }
   ].forEach(createNpcIslet);
 
   // 小副島樹木 / 花朵：單一 InstancedMesh（世界座標，小副島靜止不浮動）
   (function buildIsletInstanced() {
     const n = isletTreeSpots.length;
-    const trunks = makeDecorInstanced(decorGeo.trunk, decorMat.trunk, n, npcIsletGroup, true);
-    const lo = makeDecorInstanced(decorGeo.crownLo, decorMat.crown, n, npcIsletGroup, true);
-    const hi = makeDecorInstanced(decorGeo.crownHi, decorMat.crown, n, npcIsletGroup, true);
-    isletTreeSpots.forEach((s, i) => {
-      const sc = s.s * 1.1;
-      decorTmp.rotation.set(0, i * 1.7, 0);
-      decorTmp.scale.setScalar(sc);
-      decorTmp.position.set(s.x, s.y + 0.35 * sc, s.z);
-      decorTmp.updateMatrix();
-      trunks.setMatrixAt(i, decorTmp.matrix);
-      decorTmp.position.set(s.x, s.y + 1.0 * sc, s.z);
-      decorTmp.updateMatrix();
-      lo.setMatrixAt(i, decorTmp.matrix);
-      lo.setColorAt(i, decorTreePalette[i % decorTreePalette.length]);
-      decorTmp.position.set(s.x, s.y + 1.62 * sc, s.z);
-      decorTmp.updateMatrix();
-      hi.setMatrixAt(i, decorTmp.matrix);
-      hi.setColorAt(i, decorTreePalette[(i + 2) % decorTreePalette.length]);
-    });
+    if (n > 0) {
+      const trunks = makeDecorInstanced(decorGeo.trunk, decorMat.trunk, n, npcIsletGroup, true);
+      const lo = makeDecorInstanced(decorGeo.crownLo, decorMat.crown, n, npcIsletGroup, true);
+      const hi = makeDecorInstanced(decorGeo.crownHi, decorMat.crown, n, npcIsletGroup, true);
+      isletTreeSpots.forEach((s, i) => {
+        const sc = s.s * 1.1;
+        decorTmp.rotation.set(0, i * 1.7, 0);
+        decorTmp.scale.setScalar(sc);
+        decorTmp.position.set(s.x, s.y + 0.35 * sc, s.z);
+        decorTmp.updateMatrix();
+        trunks.setMatrixAt(i, decorTmp.matrix);
+        decorTmp.position.set(s.x, s.y + 1.0 * sc, s.z);
+        decorTmp.updateMatrix();
+        lo.setMatrixAt(i, decorTmp.matrix);
+        lo.setColorAt(i, decorTreePalette[i % decorTreePalette.length]);
+        decorTmp.position.set(s.x, s.y + 1.62 * sc, s.z);
+        decorTmp.updateMatrix();
+        hi.setMatrixAt(i, decorTmp.matrix);
+        hi.setColorAt(i, decorTreePalette[(i + 2) % decorTreePalette.length]);
+      });
+      [trunks, lo, hi].forEach((m) => {
+        m.instanceMatrix.needsUpdate = true;
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      });
+    }
     const fn = isletFlowerSpots.length;
-    const flowers = makeDecorInstanced(new THREE.IcosahedronGeometry(0.1, 0), new THREE.MeshLambertMaterial({ color: 0xffffff }), fn, npcIsletGroup);
-    const stems = makeDecorInstanced(new THREE.CylinderGeometry(0.015, 0.015, 0.2, 3), LM(0x3a9d56), fn, npcIsletGroup);
-    const col = new THREE.Color();
-    isletFlowerSpots.forEach((f, i) => {
-      decorTmp.rotation.set(0, 0, 0);
-      decorTmp.scale.set(1, 1, 1);
-      decorTmp.position.set(f.x, f.y + 0.1, f.z);
-      decorTmp.updateMatrix();
-      flowers.setMatrixAt(i, decorTmp.matrix);
-      flowers.setColorAt(i, col.setHex(f.c));
-      decorTmp.position.set(f.x, f.y, f.z);
-      decorTmp.updateMatrix();
-      stems.setMatrixAt(i, decorTmp.matrix);
-    });
-    [trunks, lo, hi, flowers, stems].forEach((m) => {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
-    });
+    if (fn > 0) {
+      const flowers = makeDecorInstanced(
+        new THREE.IcosahedronGeometry(0.1, 0),
+        new THREE.MeshLambertMaterial({ color: 0xffffff }),
+        fn,
+        npcIsletGroup
+      );
+      const stems = makeDecorInstanced(
+        new THREE.CylinderGeometry(0.015, 0.015, 0.2, 3),
+        LM(0x3a9d56),
+        fn,
+        npcIsletGroup
+      );
+      const col = new THREE.Color();
+      isletFlowerSpots.forEach((f, i) => {
+        decorTmp.rotation.set(0, 0, 0);
+        decorTmp.scale.set(1, 1, 1);
+        decorTmp.position.set(f.x, f.y + 0.1, f.z);
+        decorTmp.updateMatrix();
+        flowers.setMatrixAt(i, decorTmp.matrix);
+        flowers.setColorAt(i, col.setHex(f.c));
+        decorTmp.position.set(f.x, f.y, f.z);
+        decorTmp.updateMatrix();
+        stems.setMatrixAt(i, decorTmp.matrix);
+      });
+      [flowers, stems].forEach((m) => {
+        m.instanceMatrix.needsUpdate = true;
+        if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      });
+    }
   })();
 
   
@@ -9280,6 +9916,7 @@
   };
 
   let hoveredIslandRec = null;
+  let hoveredNpcIslandRec = null;
   let hoveredSanctuary = false;
   let pointerDownPos = null;
   let pointerDownTime = 0;
@@ -9733,6 +10370,17 @@
     return null;
   }
 
+  function findNpcIslandRecordFromHit(object3d) {
+    let cur = object3d;
+    while (cur) {
+      if (cur.userData && cur.userData.npcIslandId) {
+        return npcIslandRecords.find((r) => r.id === cur.userData.npcIslandId) || null;
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
   function isSanctuaryHit(object3d) {
     let cur = object3d;
     while (cur) {
@@ -9765,9 +10413,9 @@
       }
     }
 
-    // 2. 偵測島嶼與中央聖殿島
+    // 2. 偵測 7 大主課程島嶼、中央聖殿島與 7 座主題 NPC 島
     const hits = raycaster.intersectObjects(
-      [...islandsGroup.children, mysteryReefGroup],
+      [...islandsGroup.children, mysteryReefGroup, ...npcIsletGroup.children],
       true
     );
     for (let i = 0; i < hits.length; i++) {
@@ -9779,6 +10427,10 @@
       if (rec) {
         if (rec.dimmed) continue; // 不符合年級篩選的島嶼暫停互動
         return { type: "island", rec };
+      }
+      const npcRec = findNpcIslandRecordFromHit(obj);
+      if (npcRec) {
+        return { type: "npcIsland", rec: npcRec };
       }
     }
     return null;
@@ -9836,6 +10488,23 @@
       targetCenter.y + 22.0,
       targetCenter.z + 23.5
     );
+
+    cameraFocusState.isFocused = true;
+    cameraFocusState.focusedIslandId = rec.id;
+  }
+
+  function focusOnNpcIsland(rec) {
+    if (!rec || !rec.group) return;
+    cameraIntroState.active = false;
+    cameraFocusState.active = true;
+    cameraFocusState.startTime = clock.getElapsedTime();
+    cameraFocusState.duration = 1.05;
+    cameraFocusState.fromCamPos.copy(camera.position);
+    cameraFocusState.fromTarget.copy(controls.target);
+
+    const targetCenter = new THREE.Vector3(rec.group.position.x, 2.2, rec.group.position.z);
+    cameraFocusState.toTarget.copy(targetCenter);
+    cameraFocusState.toCamPos.set(targetCenter.x, targetCenter.y + 15.5, targetCenter.z + 17.5);
 
     cameraFocusState.isFocused = true;
     cameraFocusState.focusedIslandId = rec.id;
@@ -9913,6 +10582,7 @@
     const picked = pickSceneTargetAtEvent(e);
     hoveredGuardianNpc = picked && picked.type === "npc" ? picked.npc : null;
     hoveredIslandRec = picked && picked.type === "island" ? picked.rec : null;
+    hoveredNpcIslandRec = picked && picked.type === "npcIsland" ? picked.rec : null;
     hoveredSanctuary = Boolean(picked && picked.type === "sanctuary");
     stage.style.cursor = picked ? "pointer" : "grab";
   });
@@ -9965,6 +10635,14 @@
     if (picked.type === "island" && picked.rec) {
       focusOnIsland(picked.rec);
       startRunToIsland(picked.rec);
+      return;
+    }
+
+    if (picked.type === "npcIsland" && picked.rec) {
+      focusOnNpcIsland(picked.rec);
+      if (typeof window.openNpcIslandModal === "function") {
+        window.openNpcIslandModal(picked.rec.id);
+      }
     }
   });
 
@@ -10932,6 +11610,13 @@
         if (refs.aiGyro2) refs.aiGyro2.rotation.x = t * 1.8;
         if (refs.aiGyro3) refs.aiGyro3.rotation.y = t * 1.4;
       }
+    });
+
+    // 7 座主題 NPC 島：懸停柔和放大回饋
+    npcIslandRecords.forEach((nRec) => {
+      const targetS = hoveredNpcIslandRec && hoveredNpcIslandRec.id === nRec.id ? nRec.baseScale * 1.045 : nRec.baseScale;
+      const curS = THREE.MathUtils.lerp(nRec.group.scale.x, targetS, 0.16);
+      nRec.group.scale.setScalar(curS);
     });
 
     // 3a. 建築升級落成平滑彈跳縮放動畫 (Scale Bounce)
@@ -11917,6 +12602,7 @@
     scene,
     camera,
     islandRecords,
+    npcIslandRecords,
     guardianNPCs,
     islandCritters,
     messengerGull,

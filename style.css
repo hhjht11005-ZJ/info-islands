@@ -2584,3 +2584,387 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 @media (max-width: 720px) {
   .tc-df-row2 { grid-template-columns: 1fr; }
 }
+
+/* ---------- 7 座主題 NPC 島：動森溫暖毛玻璃互動卡片（統一無襯線體） ---------- */
+.npc-island-modal-wrap {
+  background: rgba(8, 24, 48, 0.36);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+.npc-frosted-card {
+  --npc-card-accent: #00b4d8;
+  position: relative;
+  width: min(600px, 95vw);
+  margin: auto;
+  padding: 26px 26px 22px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 12% 10%, rgba(255, 244, 214, 0.78) 0%, transparent 48%),
+    linear-gradient(145deg, rgba(255, 252, 244, 0.90) 0%, rgba(248, 241, 224, 0.86) 100%);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  border: 3px solid rgba(217, 193, 148, 0.95);
+  color: #3b2a1a;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  box-shadow:
+    0 26px 64px rgba(10, 32, 58, 0.42),
+    0 6px 0 #c9b082,
+    inset 0 2px 0 rgba(255, 255, 255, 0.94);
+  animation: npcCardPop 0.28s cubic-bezier(0.2, 0.9, 0.25, 1.05);
+}
+@keyframes npcCardPop {
+  from { opacity: 0; transform: translateY(14px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.npc-card-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  border: 2px solid #dec89f;
+  background: rgba(255, 255, 255, 0.86);
+  color: #5c4028;
+  font-size: 1rem;
+  font-weight: 900;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.16s ease, background 0.16s ease;
+}
+.npc-card-close:hover {
+  transform: scale(1.08);
+  background: #ffffff;
+}
+.npc-card-head {
+  padding-right: 42px;
+  margin-bottom: 14px;
+}
+.npc-card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--npc-card-accent) 18%, #ffffff 82%);
+  border: 1.5px solid color-mix(in srgb, var(--npc-card-accent) 55%, #ffffff 45%);
+  color: #243447;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+.npc-card-title {
+  margin: 8px 0 0;
+  font-size: 1.38rem;
+  font-weight: 900;
+  color: #2c1e12;
+  letter-spacing: 0.01em;
+}
+.npc-host-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1.5px solid rgba(217, 193, 148, 0.7);
+}
+.npc-host-avatar {
+  flex: 0 0 46px;
+  width: 46px;
+  height: 46px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-size: 1.55rem;
+  background: color-mix(in srgb, var(--npc-card-accent) 20%, #fffdf5 80%);
+  border: 2px solid color-mix(in srgb, var(--npc-card-accent) 45%, #dec89f 55%);
+}
+.npc-host-name {
+  font-size: 0.8rem;
+  font-weight: 800;
+  color: #7c5c3a;
+  margin-bottom: 2px;
+}
+.npc-host-greeting {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.5;
+  color: #3f2e1f;
+}
+.npc-feature-box {
+  padding: 16px 18px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 2px solid rgba(217, 193, 148, 0.75);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.npc-fortune-box {
+  background: linear-gradient(155deg, rgba(240, 246, 255, 0.9), rgba(255, 251, 240, 0.88));
+}
+.npc-parchment-box {
+  background: linear-gradient(155deg, rgba(255, 248, 231, 0.94), rgba(250, 238, 209, 0.88));
+}
+.npc-green-box {
+  background: linear-gradient(155deg, rgba(236, 253, 245, 0.9), rgba(248, 252, 246, 0.9));
+}
+.npc-compass-box {
+  background: linear-gradient(155deg, rgba(255, 249, 235, 0.92), rgba(242, 248, 255, 0.9));
+}
+.npc-fade-in {
+  animation: npcFadeSlide 0.24s ease;
+}
+@keyframes npcFadeSlide {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.npc-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.npc-sub-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: #1f2937;
+  background: color-mix(in srgb, var(--npc-card-accent) 22%, #fff 78%);
+}
+.npc-counter-pill {
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: #7c674f;
+}
+.npc-feature-title {
+  margin: 0 0 8px;
+  font-size: 1.08rem;
+  font-weight: 900;
+  color: #24190e;
+  line-height: 1.45;
+}
+.npc-feature-text {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 500;
+  line-height: 1.68;
+  color: #3d2f21;
+}
+.npc-fortune-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.npc-fortune-luck {
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffd166, #ffb703);
+  color: #3b2300;
+  font-size: 0.88rem;
+  font-weight: 900;
+  box-shadow: 0 3px 10px rgba(245, 158, 11, 0.28);
+}
+.npc-fortune-quote {
+  margin: 8px 0 10px;
+  padding: 10px 14px;
+  border-left: 4px solid var(--npc-card-accent);
+  border-radius: 0 12px 12px 0;
+  background: rgba(255, 255, 255, 0.72);
+  font-size: 1rem;
+  font-weight: 800;
+  color: #1e293b;
+  line-height: 1.55;
+}
+.npc-quiz-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+@media (max-width: 520px) {
+  .npc-quiz-options { grid-template-columns: 1fr; }
+}
+.npc-quiz-opt {
+  padding: 11px 14px;
+  border-radius: 14px;
+  border: 2px solid #dec89f;
+  background: #fffdf8;
+  color: #3b2a1a;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+.npc-quiz-opt:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--npc-card-accent);
+  background: #ffffff;
+}
+.npc-quiz-opt.is-correct {
+  background: #dcfce7;
+  border-color: #16a34a;
+  color: #14532d;
+}
+.npc-quiz-opt.is-wrong {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #7f1d1d;
+}
+.npc-quiz-feedback {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 0.88rem;
+  line-height: 1.58;
+}
+.npc-quiz-feedback.is-ok {
+  background: #ecfdf5;
+  border: 1.5px solid #34d399;
+  color: #064e3b;
+}
+.npc-quiz-feedback.is-warn {
+  background: #fff7ed;
+  border: 1.5px solid #fb923c;
+  color: #7c2d12;
+}
+.npc-fb-head {
+  font-weight: 900;
+  margin-bottom: 4px;
+}
+.npc-quiz-feedback p {
+  margin: 0;
+  font-weight: 600;
+}
+.npc-sparkle {
+  animation: npcSparklePop 0.4s ease;
+}
+@keyframes npcSparklePop {
+  0% { transform: scale(0.96); box-shadow: 0 0 0 rgba(52, 211, 153, 0); }
+  50% { transform: scale(1.02); box-shadow: 0 0 22px rgba(52, 211, 153, 0.45); }
+  100% { transform: scale(1); box-shadow: 0 0 0 rgba(52, 211, 153, 0); }
+}
+.npc-music-visualizer {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 8px;
+  border-radius: 12px;
+  background: rgba(236, 72, 153, 0.08);
+  font-size: 1.25rem;
+}
+.npc-music-visualizer span {
+  display: inline-block;
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.npc-music-visualizer.is-playing span {
+  opacity: 1;
+  animation: npcNoteBounce 0.65s ease-in-out infinite alternate;
+}
+.npc-music-visualizer.is-playing span:nth-child(2) { animation-delay: 0.12s; }
+.npc-music-visualizer.is-playing span:nth-child(3) { animation-delay: 0.24s; }
+.npc-music-visualizer.is-playing span:nth-child(4) { animation-delay: 0.36s; }
+.npc-music-visualizer.is-playing span:nth-child(5) { animation-delay: 0.48s; }
+@keyframes npcNoteBounce {
+  from { transform: translateY(0) scale(1); }
+  to { transform: translateY(-6px) scale(1.18); }
+}
+.npc-compass-headline {
+  margin: 0 0 6px;
+  font-size: 0.98rem;
+  font-weight: 800;
+  line-height: 1.58;
+  color: #1e293b;
+}
+.npc-compass-sub {
+  margin: 0 0 12px;
+  font-size: 0.83rem;
+  font-weight: 600;
+  color: #6b5b47;
+}
+.npc-compass-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(156px, 1fr));
+  gap: 8px;
+}
+.npc-compass-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1.5px solid #e2d1b3;
+  background: rgba(255, 255, 255, 0.85);
+  color: #3b2a1a;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+.npc-compass-item:hover {
+  transform: translateY(-2px);
+  border-color: #f59e0b;
+}
+.npc-compass-item.is-target {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+}
+.nci-top {
+  font-size: 0.84rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nci-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #6b5b47;
+}
+.nci-stage {
+  color: #0f766e;
+}
+.npc-card-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+.npc-action-btn {
+  padding: 11px 22px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  background: linear-gradient(135deg, var(--npc-card-accent), color-mix(in srgb, var(--npc-card-accent) 72%, #0f172a 28%));
+  color: #ffffff;
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  font-size: 0.96rem;
+  font-weight: 900;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.2);
+  transition: transform 0.15s ease, filter 0.15s ease;
+}
+.npc-action-btn:hover {
+  transform: translateY(-2px) scale(1.02);
+  filter: brightness(1.06);
+}
+.npc-action-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+.npc-music-btn.is-playing {
+  background: linear-gradient(135deg, #f43f5e, #be123c);
+}

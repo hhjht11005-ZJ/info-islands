@@ -18,6 +18,7 @@ import "./js/store.js";
 import "./js/audio_manager.js";
 import "./js/cloud_task.js";
 import "./app.js";
+import "./js/npc_islands_ui.js";
 import "./js/island_3d.js";
 import "./js/quiz.js";
 import "./js/user.js";
