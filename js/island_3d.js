@@ -10785,6 +10785,9 @@
 
   document.addEventListener("ii:config-updated", (e) => {
     setTargetIslandHighlight(e && e.detail ? e.detail.targetIsland : "");
+    if (stage.classList.contains("is-ready") && typeof renderSceneFrame === "function") {
+      renderSceneFrame();
+    }
   });
   if (window.CloudConfig && typeof window.CloudConfig.get === "function") {
     setTargetIslandHighlight(window.CloudConfig.get().targetIsland);

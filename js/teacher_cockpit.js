@@ -97,6 +97,7 @@
   /* ---- 狀態 ---- */
   let state = {
     data: { roster: [], students: [], wrongLogs: [], config: null },
+    teacherPassword: "",
     selectedClass: "",
     isPrivacyMode: true,
     activeTab: "radar", // "radar" | "wrong" | "dispatch"
@@ -106,9 +107,33 @@
     luckyResult: null,
     luckyOnlineOnly: true,
     dispatchDraft: null,
-    dispatchDirty: false
+    dispatchDirty: false,
+    dispatchSaving: false,
+    dispatchStatus: { text: "", kind: "", showReauth: false },
+    pendingReauthOnly: false
   };
   let luckyTimer = null;
+
+  function setTeacherPassword(pwd) {
+    state.teacherPassword = String(pwd || "");
+    try {
+      if (state.teacherPassword) sessionStorage.setItem(SESSION_KEY, state.teacherPassword);
+      else sessionStorage.removeItem(SESSION_KEY);
+    } catch {}
+  }
+
+  function getTeacherPassword() {
+    if (state.teacherPassword) return state.teacherPassword;
+    let stored = "";
+    try { stored = sessionStorage.getItem(SESSION_KEY) || ""; } catch {}
+    if (stored) state.teacherPassword = stored;
+    return state.teacherPassword;
+  }
+
+  function clearTeacherPassword() {
+    state.teacherPassword = "";
+    try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+  }
 
   function isFormFieldTarget(el) {
     if (typeof window.isFormInputTarget === "function") return window.isFormInputTarget(el);
@@ -198,10 +223,25 @@
         <button type="button" class="tc-tab" data-tab="dispatch" role="tab" aria-selected="false">📢 雲端任務派發</button>
       </nav>
 
+      <div class="tc-global-status" id="tcGlobalStatus" role="status" aria-live="polite" hidden></div>
       <main class="tc-main" id="tcMainBody"></main>
     </div>
   `;
   document.body.appendChild(cockpitWrap);
+
+  function setGlobalStatus(text = "", kind = "") {
+    const el = cockpitWrap.querySelector("#tcGlobalStatus");
+    if (!el) return;
+    if (!text) {
+      el.hidden = true;
+      el.textContent = "";
+      el.className = "tc-global-status";
+      return;
+    }
+    el.hidden = false;
+    el.textContent = text;
+    el.className = `tc-global-status${kind ? ` ${kind}` : ""}`;
+  }
 
   /* ---- DOM 建置：右下角懸浮返回膠囊 ---- */
   const restorePill = document.createElement("button");
@@ -221,6 +261,16 @@
   document.body.appendChild(projWrap);
 
   /* ---- API 驗證與資料取得 ---- */
+  async function parseJsonResponse(res) {
+    if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
+    const text = await res.text();
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error("伺服器回傳非 JSON 格式回應，請檢查 GAS 部署權限與網址");
+    }
+  }
+
   async function fetchTeacherDashboard(password) {
     const url = getGasUrl();
     if (!url) throw new Error("尚未設定 GAS_LEADERBOARD_URL");
@@ -229,11 +279,10 @@
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "teacher_dashboard", password })
     });
-    if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
-    return await res.json();
+    return await parseJsonResponse(res);
   }
 
-  function applyDashboardData(json) {
+  function applyDashboardData(json, { preserveDispatchDraft = false } = {}) {
     state.data = {
       roster: Array.isArray(json.roster) ? json.roster : [],
       students: Array.isArray(json.students) ? json.students : [],
@@ -243,11 +292,14 @@
     if (state.data.config && window.CloudConfig && typeof window.CloudConfig.set === "function") {
       window.CloudConfig.set(state.data.config);
     }
-    const baseCfg = state.data.config
-      || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
-      || {};
-    state.dispatchDraft = createDraftFromConfig(baseCfg);
-    state.dispatchDirty = false;
+    if (!preserveDispatchDraft || !state.dispatchDraft || !state.dispatchDirty) {
+      const baseCfg = state.data.config
+        || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
+        || {};
+      state.dispatchDraft = createDraftFromConfig(baseCfg);
+      state.dispatchDirty = false;
+    }
+    state.dispatchStatus = { text: "", kind: "", showReauth: false };
     const classes = getAllClasses();
     if (!state.selectedClass || !classes.includes(state.selectedClass)) {
       state.selectedClass = classes[0] || "";
@@ -263,8 +315,7 @@
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify({ action: "save_config", password, config })
     });
-    if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
-    return await res.json();
+    return await parseJsonResponse(res);
   }
 
   function getAllClasses() {
@@ -442,6 +493,7 @@
               </label>
             </div>
             <div class="tc-lucky-stage" id="tcLuckyStage">${luckyDisplay}</div>
+            <p class="tc-inline-status" id="tcLuckyStatus" role="status" aria-live="polite" hidden></p>
             <button type="button" id="tcLuckyBtn" class="btn-primary tc-lucky-btn" ${state.luckyRunning ? "disabled" : ""}>
               ${state.luckyRunning ? "🎰 輪盤轉動中…" : "🎲 隨機抽籤"}
             </button>
@@ -457,21 +509,27 @@
         </section>
       </div>
     `;
-
-    body.querySelector("#tcLuckyOnlineOnly").onchange = (e) => {
-      state.luckyOnlineOnly = !!e.target.checked;
-    };
-    body.querySelector("#tcLuckyBtn").onclick = () => startLuckyDraw(snap);
   }
 
   function startLuckyDraw(snap) {
     if (state.luckyRunning) return;
+    const statusEl = cockpitWrap.querySelector("#tcLuckyStatus");
+    if (statusEl) {
+      statusEl.hidden = true;
+      statusEl.textContent = "";
+    }
     const pool = state.luckyOnlineOnly
       ? snap.classStudents.map((s) => ({ seatNum: s.seatNum, name: s.name }))
       : snap.expectedRoster.map((r) => ({ seatNum: r.seatNum, name: r.name }));
 
     if (pool.length === 0) {
-      alert(state.luckyOnlineOnly ? "目前該班尚無已上線學生，請取消勾選「僅從已上線學生中抽取」或等待學生作答上傳。" : "目前沒有可抽取的名單。");
+      if (statusEl) {
+        statusEl.hidden = false;
+        statusEl.className = "tc-inline-status err";
+        statusEl.textContent = state.luckyOnlineOnly
+          ? "⚠️ 目前該班尚無已上線學生，請取消勾選「僅從已上線學生中抽取」或等待學生作答上傳。"
+          : "⚠️ 目前沒有可抽取的名單。";
+      }
       return;
     }
 
@@ -572,10 +630,6 @@
         }).join("")}
       </div>
     `;
-
-    body.querySelectorAll(".tc-project-btn").forEach((btn) => {
-      btn.onclick = () => openProjectorModal(btn.dataset.qkey, Number(btn.dataset.count) || 0);
-    });
   }
 
   /* ---- 超大字體題目檢討投影視窗 ---- */
@@ -678,11 +732,140 @@
 
   function closeProjectorModal() {
     projWrap.classList.remove("show");
-    projWrap.classList.add("pointer-events-none");
+    projWrap.classList.add("hidden", "pointer-events-none");
+    projWrap.hidden = true;
     notifyCockpitToggle();
   }
 
   /* ---- 渲染分頁三：📢 雲端任務派發 ---- */
+  function getDispatchElements() {
+    return {
+      form: cockpitWrap.querySelector("#tcDispatchForm"),
+      statusEl: cockpitWrap.querySelector("#tcDispatchStatus"),
+      saveBtn: cockpitWrap.querySelector("#tcDispatchSubmit"),
+      clearBtn: cockpitWrap.querySelector("#tcDispatchClear"),
+      announcementEl: cockpitWrap.querySelector("#tcCfgAnnouncement"),
+      targetIslandEl: cockpitWrap.querySelector("#tcCfgTargetIsland"),
+      linkTitleEl: cockpitWrap.querySelector("#tcCfgLinkTitle"),
+      linkUrlEl: cockpitWrap.querySelector("#tcCfgLinkUrl")
+    };
+  }
+
+  function renderDispatchStatus(statusEl) {
+    if (!statusEl) return;
+    const { text, kind, showReauth } = state.dispatchStatus || {};
+    if (!text) {
+      statusEl.textContent = "";
+      statusEl.className = "tc-df-status";
+      return;
+    }
+    statusEl.className = `tc-df-status${kind ? ` ${kind}` : ""}`;
+    if (showReauth) {
+      statusEl.innerHTML = `${esc(text)} <button type="button" id="tcDispatchReauth" class="tc-inline-reauth-btn">🔑 重新登入</button>`;
+    } else {
+      statusEl.textContent = text;
+    }
+  }
+
+  function setDispatchStatus(text = "", kind = "", showReauth = false) {
+    state.dispatchStatus = { text, kind, showReauth: !!showReauth };
+    const { statusEl } = getDispatchElements();
+    renderDispatchStatus(statusEl);
+  }
+
+  function syncDispatchDraftFromDom() {
+    const { announcementEl, targetIslandEl, linkTitleEl, linkUrlEl } = getDispatchElements();
+    if (!announcementEl && !targetIslandEl && !linkTitleEl && !linkUrlEl) return;
+    state.dispatchDirty = true;
+    state.dispatchDraft = {
+      announcement: announcementEl ? announcementEl.value : "",
+      targetIsland: targetIslandEl ? targetIslandEl.value : "",
+      taskLinkTitle: linkTitleEl ? linkTitleEl.value : "",
+      taskLinkUrl: linkUrlEl ? linkUrlEl.value : ""
+    };
+  }
+
+  function handleDispatchClear() {
+    if (state.dispatchSaving) return;
+    const { announcementEl, targetIslandEl, linkTitleEl, linkUrlEl } = getDispatchElements();
+    if (announcementEl) announcementEl.value = "";
+    if (targetIslandEl) {
+      targetIslandEl.value = "";
+      targetIslandEl.selectedIndex = 0;
+    }
+    if (linkTitleEl) linkTitleEl.value = "";
+    if (linkUrlEl) linkUrlEl.value = "";
+
+    state.dispatchDirty = true;
+    state.dispatchDraft = createDraftFromConfig(null);
+    setDispatchStatus("🧹 已清空表單欄位（請點擊「發布至全校海島」以同步清除雲端與學生端公告）", "warn");
+  }
+
+  async function handleDispatchPublish() {
+    if (state.dispatchSaving) return;
+    const { saveBtn, announcementEl, targetIslandEl, linkTitleEl, linkUrlEl } = getDispatchElements();
+    const pwd = getTeacherPassword();
+    if (!pwd) {
+      setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err", true);
+      return;
+    }
+
+    const nextConfig = {
+      announcement: (announcementEl ? announcementEl.value : "").trim(),
+      targetIsland: (targetIslandEl ? targetIslandEl.value : "").trim(),
+      taskLinkTitle: (linkTitleEl ? linkTitleEl.value : "").trim(),
+      taskLinkUrl: (linkUrlEl ? linkUrlEl.value : "").trim()
+    };
+
+    state.dispatchSaving = true;
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "⏳ 發布同步中...";
+    }
+    setDispatchStatus("", "");
+
+    try {
+      const res = await saveCloudConfig(pwd, nextConfig);
+      if (res && res.status === "ok") {
+        const saved = createDraftFromConfig(res.config || nextConfig);
+        state.data.config = saved;
+        state.dispatchDraft = createDraftFromConfig(saved);
+        state.dispatchDirty = false;
+
+        if (announcementEl) announcementEl.value = saved.announcement;
+        if (targetIslandEl) targetIslandEl.value = saved.targetIsland;
+        if (linkTitleEl) linkTitleEl.value = saved.taskLinkTitle;
+        if (linkUrlEl) linkUrlEl.value = saved.taskLinkUrl;
+
+        if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
+          window.CloudConfig.set(saved);
+        } else {
+          document.dispatchEvent(new CustomEvent("ii:config-updated", { detail: { ...saved } }));
+        }
+        if (window.__island3D && typeof window.__island3D.setTargetIslandHighlight === "function") {
+          window.__island3D.setTargetIslandHighlight(saved.targetIsland);
+        }
+
+        setDispatchStatus("✅ 已成功發布至全校海島！", "ok");
+      } else if (res && res.status === "unauthorized") {
+        clearTeacherPassword();
+        setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err", true);
+      } else {
+        const reason = (res && (res.message || res.error)) || "伺服器未回傳成功狀態，請稍後再試";
+        setDispatchStatus(`❌ 發布失敗：${reason}`, "err");
+      }
+    } catch (err) {
+      setDispatchStatus(`❌ 連線失敗：${(err && err.message) || "請檢查網路連線或 GAS 部署"}`, "err");
+    } finally {
+      state.dispatchSaving = false;
+      const { saveBtn: currentSaveBtn } = getDispatchElements();
+      if (currentSaveBtn) {
+        currentSaveBtn.disabled = false;
+        currentSaveBtn.textContent = "💾 發布至全校海島";
+      }
+    }
+  }
+
   function renderDispatchTab(body) {
     if (!state.dispatchDraft) {
       const fallbackCfg = state.data.config
@@ -699,7 +882,7 @@
           <h3>📢 雲端動態公告與任務派發設定</h3>
           <small>發布後全校學生重整或載入網頁即自動同步（亦可直接於試算表 <code>Config</code> 分頁編輯）</small>
         </div>
-        <form id="tcDispatchForm" class="tc-dispatch-form">
+        <form id="tcDispatchForm" class="tc-dispatch-form" novalidate>
           <label class="tc-df-field">
             <span>📣 今日公告文字</span>
             <textarea id="tcCfgAnnouncement" rows="3" placeholder="例如：今天請大家先完成「電腦探險島」挑戰，下課前要交卷喔！">${esc(cfg.announcement || "")}</textarea>
@@ -721,99 +904,25 @@
             <span>🔗 任務網址</span>
             <input id="tcCfgLinkUrl" type="url" value="${esc(cfg.taskLinkUrl || "")}" placeholder="https://..." />
           </label>
-          <p class="tc-df-status" id="tcDispatchStatus" role="status"></p>
           <div class="tc-df-actions">
-            <button type="submit" id="tcDispatchSubmit" class="btn-primary tc-df-save-btn">💾 發布至全校海島</button>
+            <button type="submit" id="tcDispatchSubmit" class="btn-primary tc-df-save-btn"${state.dispatchSaving ? " disabled" : ""}>
+              ${state.dispatchSaving ? "⏳ 發布同步中..." : "💾 發布至全校海島"}
+            </button>
             <button type="button" id="tcDispatchClear" class="tc-icon-btn">🧹 清空表單</button>
           </div>
+          <p class="tc-df-status" id="tcDispatchStatus" role="status" aria-live="polite"></p>
         </form>
       </section>
     `;
 
-    const form = body.querySelector("#tcDispatchForm");
-    const statusEl = body.querySelector("#tcDispatchStatus");
-    const saveBtn = body.querySelector("#tcDispatchSubmit");
-    const announcementEl = body.querySelector("#tcCfgAnnouncement");
-    const targetIslandEl = body.querySelector("#tcCfgTargetIsland");
-    const linkTitleEl = body.querySelector("#tcCfgLinkTitle");
-    const linkUrlEl = body.querySelector("#tcCfgLinkUrl");
-
-    const fields = [announcementEl, targetIslandEl, linkTitleEl, linkUrlEl].filter(Boolean);
-    const syncDraftFromInputs = () => {
-      state.dispatchDirty = true;
-      state.dispatchDraft = {
-        announcement: announcementEl ? announcementEl.value : "",
-        targetIsland: targetIslandEl ? targetIslandEl.value : "",
-        taskLinkTitle: linkTitleEl ? linkTitleEl.value : "",
-        taskLinkUrl: linkUrlEl ? linkUrlEl.value : ""
-      };
-    };
-
-    fields.forEach((fieldEl) => {
+    const { statusEl, announcementEl, targetIslandEl, linkTitleEl, linkUrlEl } = getDispatchElements();
+    [announcementEl, targetIslandEl, linkTitleEl, linkUrlEl].filter(Boolean).forEach((fieldEl) => {
       fieldEl.disabled = false;
       fieldEl.readOnly = false;
       fieldEl.removeAttribute("disabled");
       fieldEl.removeAttribute("readonly");
-      fieldEl.addEventListener("input", syncDraftFromInputs);
-      fieldEl.addEventListener("change", syncDraftFromInputs);
     });
-
-    body.querySelector("#tcDispatchClear").onclick = () => {
-      if (announcementEl) announcementEl.value = "";
-      if (targetIslandEl) targetIslandEl.value = "";
-      if (linkTitleEl) linkTitleEl.value = "";
-      if (linkUrlEl) linkUrlEl.value = "";
-      state.dispatchDirty = true;
-      state.dispatchDraft = createDraftFromConfig(null);
-      statusEl.textContent = "已清空欄位，請點擊「💾 發布至全校海島」套用變更。";
-      statusEl.className = "tc-df-status";
-    };
-
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      let pwd = "";
-      try { pwd = sessionStorage.getItem(SESSION_KEY) || ""; } catch {}
-      if (!pwd) {
-        openAuthModal("請重新驗證教師密碼");
-        return;
-      }
-      const nextConfig = {
-        announcement: (announcementEl ? announcementEl.value : "").trim(),
-        targetIsland: (targetIslandEl ? targetIslandEl.value : "").trim(),
-        taskLinkTitle: (linkTitleEl ? linkTitleEl.value : "").trim(),
-        taskLinkUrl: (linkUrlEl ? linkUrlEl.value : "").trim()
-      };
-      saveBtn.disabled = true;
-      saveBtn.textContent = "⏳ 正在發布至雲端…";
-      statusEl.textContent = "";
-      statusEl.className = "tc-df-status";
-      try {
-        const res = await saveCloudConfig(pwd, nextConfig);
-        if (res && res.status === "ok") {
-          const saved = res.config || nextConfig;
-          state.data.config = saved;
-          state.dispatchDraft = createDraftFromConfig(saved);
-          state.dispatchDirty = false;
-          if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
-            window.CloudConfig.set(saved);
-          }
-          statusEl.textContent = "✅ 已發布至全校海島！目前畫面已同步預覽 3D 島嶼標記與今日任務公告牌。";
-          statusEl.className = "tc-df-status ok";
-        } else if (res && res.status === "unauthorized") {
-          try { sessionStorage.removeItem(SESSION_KEY); } catch {}
-          openAuthModal("密碼錯誤，請重新驗證");
-        } else {
-          statusEl.textContent = `⚠ 發布失敗：${(res && res.message) || "請稍後再試"}`;
-          statusEl.className = "tc-df-status err";
-        }
-      } catch (err) {
-        statusEl.textContent = `⚠ 連線失敗：${err.message || "請檢查網路或 GAS 部署"}`;
-        statusEl.className = "tc-df-status err";
-      } finally {
-        saveBtn.disabled = false;
-        saveBtn.textContent = "💾 發布至全校海島";
-      }
-    };
+    renderDispatchStatus(statusEl);
   }
 
   function renderMainBody() {
@@ -883,7 +992,8 @@
     notifyCockpitToggle();
   }
 
-  function openAuthModal(prefillErr = "") {
+  function openAuthModal(prefillErr = "", { preserveDispatchDraft = false } = {}) {
+    state.pendingReauthOnly = !!preserveDispatchDraft;
     const errEl = authWrap.querySelector("#tcAuthErr");
     const input = authWrap.querySelector("#tcPasswordInput");
     errEl.textContent = prefillErr;
@@ -896,18 +1006,18 @@
   }
 
   async function openTeacherCockpit() {
-    let savedPwd = "";
-    try { savedPwd = sessionStorage.getItem(SESSION_KEY) || ""; } catch {}
+    const savedPwd = getTeacherPassword();
     if (savedPwd) {
       try {
         const res = await fetchTeacherDashboard(savedPwd);
         if (res && res.status === "ok") {
+          setTeacherPassword(savedPwd);
           applyDashboardData(res);
           showCockpitWorkspace();
           return;
         }
         if (res && res.status === "unauthorized") {
-          try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+          clearTeacherPassword();
           openAuthModal("密碼已變更，請重新輸入教師密碼");
           return;
         }
@@ -918,7 +1028,44 @@
     openAuthModal();
   }
 
-  /* ---- 事件綁定 ---- */
+  async function handleRefreshClick() {
+    const btn = cockpitWrap.querySelector("#tcRefreshBtn");
+    const pwd = getTeacherPassword();
+    if (!pwd) {
+      setGlobalStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err");
+      openAuthModal("教師驗證已逾時，請重新登入");
+      return;
+    }
+    setGlobalStatus("");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "⏳ 同步中…";
+    }
+    try {
+      const res = await fetchTeacherDashboard(pwd);
+      if (res && res.status === "ok") {
+        applyDashboardData(res);
+        renderMainBody();
+        setGlobalStatus("✅ 已同步雲端最新班級與設定資料", "ok");
+        setTimeout(() => setGlobalStatus(""), 3200);
+      } else if (res && res.status === "unauthorized") {
+        clearTeacherPassword();
+        closeCockpit();
+        openAuthModal("密碼錯誤，請重新驗證");
+      } else {
+        setGlobalStatus(`❌ 同步失敗：${(res && res.message) || "請稍後再試"}`, "err");
+      }
+    } catch (err) {
+      setGlobalStatus(`❌ 同步失敗：${(err && err.message) || "請檢查網路或 GAS 部署"}`, "err");
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "🔄 同步";
+      }
+    }
+  }
+
+  /* ---- 事件綁定（外層容器事件委派） ---- */
   const stopBubble = (e) => { e.stopPropagation(); };
   [cockpitWrap, authWrap, projWrap].forEach((container) => {
     container.addEventListener("click", stopBubble);
@@ -954,9 +1101,11 @@
     try {
       const res = await fetchTeacherDashboard(pwd);
       if (res && res.status === "ok") {
-        try { sessionStorage.setItem(SESSION_KEY, pwd); } catch {}
+        setTeacherPassword(pwd);
+        const preserveDraft = state.pendingReauthOnly;
+        state.pendingReauthOnly = false;
         closeAuthModal();
-        applyDashboardData(res);
+        applyDashboardData(res, { preserveDispatchDraft: preserveDraft });
         showCockpitWorkspace();
       } else if (res && res.status === "unauthorized") {
         errEl.textContent = "密碼錯誤";
@@ -972,57 +1121,92 @@
     }
   };
 
-  cockpitWrap.querySelector("#tcClassSelect").onchange = (e) => {
-    state.selectedClass = e.target.value;
-    state.luckyResult = null;
-    renderMainBody();
-  };
+  cockpitWrap.addEventListener("click", (e) => {
+    const target = e.target;
+    if (!target || typeof target.closest !== "function") return;
 
-  cockpitWrap.querySelector("#tcPrivacyBtn").onclick = () => {
-    state.isPrivacyMode = !state.isPrivacyMode;
-    renderMainBody();
-  };
-
-  cockpitWrap.querySelectorAll(".tc-stage-btn").forEach((btn) => {
-    btn.onclick = () => minimizeFor3DStage(Number(btn.dataset.stage));
-  });
-
-  cockpitWrap.querySelectorAll(".tc-tab").forEach((tab) => {
-    tab.onclick = () => {
-      state.activeTab = tab.dataset.tab;
-      renderMainBody();
-    };
-  });
-
-  cockpitWrap.querySelector("#tcRefreshBtn").onclick = async () => {
-    const btn = cockpitWrap.querySelector("#tcRefreshBtn");
-    let pwd = "";
-    try { pwd = sessionStorage.getItem(SESSION_KEY) || ""; } catch {}
-    if (!pwd) {
-      openAuthModal();
+    if (target.closest("#tcDispatchClear")) {
+      e.preventDefault();
+      handleDispatchClear();
       return;
     }
-    btn.disabled = true;
-    btn.textContent = "⏳ 同步中…";
-    try {
-      const res = await fetchTeacherDashboard(pwd);
-      if (res && res.status === "ok") {
-        applyDashboardData(res);
-        renderMainBody();
-      } else if (res && res.status === "unauthorized") {
-        try { sessionStorage.removeItem(SESSION_KEY); } catch {}
-        closeCockpit();
-        openAuthModal("密碼錯誤，請重新驗證");
-      }
-    } catch (err) {
-      alert(`同步失敗：${err.message || "請稍後再試"}`);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "🔄 同步";
+    if (target.closest("#tcDispatchSubmit")) {
+      e.preventDefault();
+      handleDispatchPublish();
+      return;
     }
-  };
+    if (target.closest("#tcDispatchReauth")) {
+      e.preventDefault();
+      openAuthModal("請重新驗證教師密碼", { preserveDispatchDraft: true });
+      return;
+    }
+    if (target.closest("#tcLuckyBtn")) {
+      e.preventDefault();
+      startLuckyDraw(getClassSnapshot());
+      return;
+    }
+    const projBtn = target.closest(".tc-project-btn");
+    if (projBtn) {
+      openProjectorModal(projBtn.dataset.qkey, Number(projBtn.dataset.count) || 0);
+      return;
+    }
+    if (target.closest("#tcPrivacyBtn")) {
+      state.isPrivacyMode = !state.isPrivacyMode;
+      renderMainBody();
+      return;
+    }
+    const stageBtn = target.closest(".tc-stage-btn");
+    if (stageBtn) {
+      minimizeFor3DStage(Number(stageBtn.dataset.stage));
+      return;
+    }
+    const tabBtn = target.closest(".tc-tab");
+    if (tabBtn) {
+      state.activeTab = tabBtn.dataset.tab;
+      renderMainBody();
+      return;
+    }
+    if (target.closest("#tcRefreshBtn")) {
+      handleRefreshClick();
+      return;
+    }
+    if (target.closest("#tcCloseBtn")) {
+      closeCockpit();
+    }
+  });
 
-  cockpitWrap.querySelector("#tcCloseBtn").onclick = closeCockpit;
+  cockpitWrap.addEventListener("submit", (e) => {
+    if (e.target && e.target.id === "tcDispatchForm") {
+      e.preventDefault();
+      handleDispatchPublish();
+    }
+  });
+
+  cockpitWrap.addEventListener("input", (e) => {
+    const id = e.target && e.target.id;
+    if (id === "tcCfgAnnouncement" || id === "tcCfgTargetIsland" || id === "tcCfgLinkTitle" || id === "tcCfgLinkUrl") {
+      syncDispatchDraftFromDom();
+    }
+  });
+
+  cockpitWrap.addEventListener("change", (e) => {
+    const target = e.target;
+    if (!target) return;
+    if (target.id === "tcClassSelect") {
+      state.selectedClass = target.value;
+      state.luckyResult = null;
+      renderMainBody();
+      return;
+    }
+    if (target.id === "tcLuckyOnlineOnly") {
+      state.luckyOnlineOnly = !!target.checked;
+      return;
+    }
+    if (target.id === "tcCfgAnnouncement" || target.id === "tcCfgTargetIsland" || target.id === "tcCfgLinkTitle" || target.id === "tcCfgLinkUrl") {
+      syncDispatchDraftFromDom();
+    }
+  });
+
   restorePill.onclick = showCockpitWorkspace;
   projWrap.addEventListener("click", (e) => { if (e.target === projWrap) closeProjectorModal(); });
 
