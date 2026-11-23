@@ -216,18 +216,18 @@
       fireflyOpacity: 0
     },
     night: {
-      skyBg: new THREE.Color(0x061024),           // 夜晚：深邃背景
-      fogColor: new THREE.Color(0x08152e),
-      waterColor: new THREE.Color(0x28567a),      // 夜晚深海藍綠乘色
-      waterEmissive: new THREE.Color(0x04182b),
-      deepSeaColor: new THREE.Color(0x041526),
-      ambientColor: new THREE.Color(0x1e3566),
-      ambientIntensity: 0.42,
-      hemiSky: new THREE.Color(0x3a66b8),
-      hemiGround: new THREE.Color(0x08182b),
-      hemiIntensity: 0.38,
-      dirColor: new THREE.Color(0x5282ff),        // 夜晚：深藍月光
-      dirIntensity: 0.62,
+      skyBg: new THREE.Color(0x030a18),           // 夜晚：深邃星空背景
+      fogColor: new THREE.Color(0x051026),
+      waterColor: new THREE.Color(0x16395c),      // 夜晚深海藍綠乘色
+      waterEmissive: new THREE.Color(0x031122),
+      deepSeaColor: new THREE.Color(0x020b18),
+      ambientColor: new THREE.Color(0x1e386b),
+      ambientIntensity: 0.24,
+      hemiSky: new THREE.Color(0x4777c9),
+      hemiGround: new THREE.Color(0x0d1830),
+      hemiIntensity: 0.30,
+      dirColor: new THREE.Color(0x88b0ff),        // 夜晚：清澈銀藍月光（保留建築與角色輪廓並凸顯暖光對比）
+      dirIntensity: 0.48,
       dirPos: new THREE.Vector3(-42, 74, -36),
       rippleOpacity: 0.12,
       foamOpacity: 0.3,
@@ -238,9 +238,106 @@
   };
 
   let isNight = false;
+  let nightBlend = 0;
   let oceanEnv = null; // 四層大環境生態模組（js/oceanEnvironment.js），於島群建置完成後初始化
   scene.background = THEME.day.skyBg.clone();
   scene.fog = new THREE.FogExp2(THEME.day.fogColor.getHex(), 0.0042);
+
+  // 程式生成柔和徑向漸層光暈貼圖（零 PointLight 模擬草地／木棧道／水面受光光斑）
+  function createRadialGlowTexture(size = 128) {
+    const cv = document.createElement("canvas");
+    cv.width = size;
+    cv.height = size;
+    const ctx = cv.getContext("2d");
+    const c = size * 0.5;
+    const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+    grad.addColorStop(0.0, "rgba(255, 255, 255, 1.0)");
+    grad.addColorStop(0.22, "rgba(255, 255, 255, 0.72)");
+    grad.addColorStop(0.5, "rgba(255, 255, 255, 0.28)");
+    grad.addColorStop(0.78, "rgba(255, 255, 255, 0.07)");
+    grad.addColorStop(1.0, "rgba(255, 255, 255, 0.0)");
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, size, size);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    return tex;
+  }
+  const radialGlowTex = createRadialGlowTexture(128);
+
+  // 柔和體積感半透明光錐（頂點色平滑漸隱至透明，無硬邊）
+  function buildSoftLightConeGeo(rTop, rBot, height, segs = 14, topTint = 0xffe48a, botTint = 0x000000) {
+    const raw = new THREE.CylinderGeometry(rTop, rBot, height, segs, 1, true);
+    const g = raw.index ? raw.toNonIndexed() : raw;
+    if (raw !== g) raw.dispose();
+    const pa = g.attributes.position;
+    const cols = new Float32Array(pa.count * 3);
+    const halfH = height * 0.5;
+    const cTop = new THREE.Color(topTint);
+    const cBot = new THREE.Color(botTint);
+    const cMix = new THREE.Color();
+    for (let i = 0; i < pa.count; i++) {
+      const u = Math.max(0, Math.min(1, (pa.getY(i) + halfH) / height));
+      cMix.copy(cBot).lerp(cTop, u);
+      cols[i * 3] = cMix.r;
+      cols[i * 3 + 1] = cMix.g;
+      cols[i * 3 + 2] = cMix.b;
+    }
+    g.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+    return g;
+  }
+
+  function makeGroundGlowPlane(w, h, colorHex, y = 0.04, renderOrder = 2) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: radialGlowTex,
+      color: colorHex,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide
+    });
+    const geo = new THREE.PlaneGeometry(w, h);
+    geo.rotateX(-Math.PI / 2);
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.y = y;
+    mesh.renderOrder = renderOrder;
+    mesh.visible = false;
+    mesh.userData.skipDimClone = true;
+    return { mesh, mat };
+  }
+
+  function makeNightGlowSprite(colorHex, scale = 1.4) {
+    const mat = new THREE.SpriteMaterial({
+      map: radialGlowTex,
+      color: colorHex,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.setScalar(scale);
+    sprite.renderOrder = 4;
+    sprite.visible = false;
+    sprite.userData.skipDimClone = true;
+    return { sprite, mat };
+  }
+
+  const nightMatConfigs = [];
+  const nightMatMap = new Map();
+  const clonedNightMatLinks = [];
+  const nightGlowUpdaters = [];
+
+  function registerNightMat(mat, cfg) {
+    if (!mat) return mat;
+    const rec = Object.assign({ mat }, cfg);
+    nightMatConfigs.push(rec);
+    nightMatMap.set(mat, rec);
+    return mat;
+  }
 
   // 透視相機設定 (PerspectiveCamera) - FOV 40 度微縮玩具箱質感，Near 0.2 避免近距穿面裁切
   const initWidth = window.innerWidth || stage.clientWidth || 1200;
@@ -425,25 +522,35 @@
   const ropeThinMat = new THREE.MeshStandardMaterial({ color: 0xc89868, roughness: 0.9, flatShading: true });
   const whiteMarbleMat = new THREE.MeshStandardMaterial({ color: 0xfbfbfd, roughness: 0.32, metalness: 0.05, flatShading: true });
   const stoneReliefMat = new THREE.MeshStandardMaterial({ color: 0xe8ecf1, roughness: 0.42, metalness: 0.08, flatShading: true });
-  const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xd97706, emissiveIntensity: 0.35, roughness: 0.28, metalness: 0.45, flatShading: true });
-  const cyanGlowMat = new THREE.MeshStandardMaterial({ color: 0x90e0ef, emissive: 0x00b4d8, emissiveIntensity: 0.85, roughness: 0.2, flatShading: true });
-  const goldenCoreGlowMat = new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffb703, emissiveIntensity: 1.5, roughness: 0.15, flatShading: true });
-  const torchFlameMat = new THREE.MeshStandardMaterial({ color: 0xff9f1c, emissive: 0xff7b00, emissiveIntensity: 1.2, roughness: 0.2, flatShading: true });
+  const goldTrimMat = registerNightMat(new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xd97706, emissiveIntensity: 0.28, roughness: 0.28, metalness: 0.45, flatShading: true }), { dayEi: 0.28, nightEi: 0.85 });
+  const cyanGlowMat = registerNightMat(new THREE.MeshStandardMaterial({ color: 0x90e0ef, emissive: 0x00b4d8, emissiveIntensity: 0.55, roughness: 0.2, flatShading: true }), { dayEi: 0.55, nightEi: 1.9 });
+  const goldenCoreGlowMat = registerNightMat(new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffb703, emissiveIntensity: 0.95, roughness: 0.15, flatShading: true }), { dayEi: 0.95, nightEi: 2.4 });
+  const torchFlameMat = registerNightMat(new THREE.MeshStandardMaterial({ color: 0xff9f1c, emissive: 0xff7b00, emissiveIntensity: 0.85, roughness: 0.2, flatShading: true }), { dayEi: 0.85, nightEi: 2.5 });
   const torchStoneMat = new THREE.MeshStandardMaterial({ color: 0x5a6578, roughness: 0.75, flatShading: true });
   const roofTileWarmMat = new THREE.MeshStandardMaterial({ color: 0xd96b43, roughness: 0.7, flatShading: true });
   const roofTileBlueMat = new THREE.MeshStandardMaterial({ color: 0x3a6073, roughness: 0.7, flatShading: true });
   const roofTileGreenMat = new THREE.MeshStandardMaterial({ color: 0x2d6a4f, roughness: 0.7, flatShading: true });
   const windowFrameMat = new THREE.MeshStandardMaterial({ color: 0x6e431f, roughness: 0.75, flatShading: true });
-  const windowWarmGlowMat = new THREE.MeshStandardMaterial({ color: 0xffec99, emissive: 0xffaa00, emissiveIntensity: 0.85, roughness: 0.25, flatShading: true });
-  const lanternWarmMat = new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffbe0b, emissiveIntensity: 1.0, roughness: 0.2, flatShading: true });
-  const bridgeLampCoreMat = new THREE.MeshStandardMaterial({ color: 0xffedd5, emissive: 0xffaa00, emissiveIntensity: 2.0, roughness: 0.3 });
+  const windowWarmGlowMat = registerNightMat(
+    new THREE.MeshStandardMaterial({ color: 0xfef3c7, emissive: 0xffa812, emissiveIntensity: 0.15, roughness: 0.22, flatShading: true }),
+    { dayEi: 0.15, nightEi: 2.05 }
+  );
+  const lanternWarmMat = registerNightMat(
+    new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffbe0b, emissiveIntensity: 0.25, roughness: 0.2, flatShading: true }),
+    { dayEi: 0.25, nightEi: 2.2 }
+  );
+  const bridgeLampCoreMat = registerNightMat(
+    new THREE.MeshStandardMaterial({ color: 0xffedd5, emissive: 0xffaa00, emissiveIntensity: 0.3, roughness: 0.3 }),
+    { dayEi: 0.3, nightEi: 2.55 }
+  );
   const bridgeLampCapMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1f, roughness: 0.5, metalness: 0.6, flatShading: true });
   const bridgeLampHaloMat = new THREE.MeshBasicMaterial({
     color: 0xffb347,
     transparent: true,
-    opacity: 0.28,
+    opacity: 0.0,
     blending: THREE.AdditiveBlending,
-    depthWrite: false
+    depthWrite: false,
+    fog: false
   });
   const lanternCapMat = new THREE.MeshStandardMaterial({ color: 0x4a3b32, roughness: 0.6, metalness: 0.4, flatShading: true });
   const doorStepMat = new THREE.MeshStandardMaterial({ color: 0xc89666, roughness: 0.78, flatShading: true });
@@ -485,52 +592,52 @@
   const stageMat = {
     // 通用
     glass: SM(0x9bd7ff, { transparent: true, opacity: 0.32, roughness: 0.1, metalness: 0.2, depthWrite: false }),
-    glassDome: SM(0xbfe8ff, { transparent: true, opacity: 0.26, roughness: 0.08, side: THREE.DoubleSide, depthWrite: false }),
+    glassDome: registerNightMat(SM(0xbfe8ff, { emissive: 0x38bdf8, emissiveIntensity: 0.08, transparent: true, opacity: 0.28, roughness: 0.08, side: THREE.DoubleSide, depthWrite: false }), { dayEi: 0.08, nightEi: 0.65 }),
     metalDark: SM(0x2b3340, { metalness: 0.5, roughness: 0.45 }),
     metalLight: SM(0xc3ccd8, { metalness: 0.55, roughness: 0.35 }),
     white: SM(0xf4f7fb),
-    gold: SG(0xffd166, 0xd97706, 0.55, { metalness: 0.6 }),
-    goldBeam: SB(0xffe08a, { transparent: true, opacity: 0.42, depthWrite: false, blending: THREE.AdditiveBlending }),
+    gold: registerNightMat(SG(0xffd166, 0xd97706, 0.35, { metalness: 0.6 }), { dayEi: 0.35, nightEi: 1.35 }),
+    goldBeam: registerNightMat(SB(0xffe08a, { transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), { dayOp: 0.26, nightOp: 0.62 }),
     holo: SB(0x7fe9ff, { wireframe: true, transparent: true, opacity: 0.85 }),
-    holoSolid: SB(0x7fe9ff, { transparent: true, opacity: 0.35, depthWrite: false, blending: THREE.AdditiveBlending }),
-    cyanGlow: SG(0x7ff0ff, 0x00b4d8, 1.2),
+    holoSolid: registerNightMat(SB(0x7fe9ff, { transparent: true, opacity: 0.28, depthWrite: false, blending: THREE.AdditiveBlending, fog: false }), { dayOp: 0.26, nightOp: 0.56 }),
+    cyanGlow: registerNightMat(SG(0x7ff0ff, 0x00b4d8, 0.7), { dayEi: 0.7, nightEi: 2.25 }),
     // 電腦探險島
-    screen: SB(0x7ff0ff),
+    screen: registerNightMat(SG(0x7ff0ff, 0x00d4ff, 0.55), { dayEi: 0.55, nightEi: 2.15 }),
     pcb: SM(0x0b3d91, { roughness: 0.6 }),
-    pcbTrace: SG(0x4fd0ff, 0x1e90ff, 1.4),
+    pcbTrace: registerNightMat(SG(0x4fd0ff, 0x1e90ff, 0.75), { dayEi: 0.75, nightEi: 2.3 }),
     ramGreen: SM(0x1f8a4c),
     chip: SM(0x15171c, { metalness: 0.4 }),
-    coolBlue: SG(0x4fb3ff, 0x1d6fd0, 0.8),
+    coolBlue: registerNightMat(SG(0x4fb3ff, 0x1d6fd0, 0.5), { dayEi: 0.5, nightEi: 1.85 }),
     // 數位公民島
-    shieldBlue: SG(0x2d7bd8, 0x0b3d91, 0.35),
+    shieldBlue: registerNightMat(SG(0x2d7bd8, 0x0b3d91, 0.25), { dayEi: 0.25, nightEi: 0.85 }),
     shieldWhite: SM(0xf2f7ff, { roughness: 0.35 }),
-    fireRed: SG(0xff5a36, 0xff2a00, 1.1),
+    fireRed: registerNightMat(SG(0xff5a36, 0xff2a00, 0.65), { dayEi: 0.65, nightEi: 2.1 }),
     // 創作協作島
     camBody: SM(0x2e323d, { roughness: 0.6 }),
-    lensGlass: SG(0x3b6cff, 0x1237a8, 0.9, { metalness: 0.4 }),
-    red: SG(0xff5964, 0x7a1220, 0.35),
-    yellow: SG(0xffd166, 0x8a6200, 0.35),
-    blue: SG(0x4fb3ff, 0x0b4a8f, 0.35),
-    green: SG(0x5fd18b, 0x0f6b3a, 0.35),
-    purple: SG(0xc58bff, 0x5a2fa8, 0.4),
-    orange: SG(0xff8a3d, 0x9a3a00, 0.4),
+    lensGlass: registerNightMat(SG(0x3b6cff, 0x1237a8, 0.55, { metalness: 0.4 }), { dayEi: 0.55, nightEi: 1.8 }),
+    red: registerNightMat(SG(0xff5964, 0x7a1220, 0.25), { dayEi: 0.25, nightEi: 0.9 }),
+    yellow: registerNightMat(SG(0xffd166, 0x8a6200, 0.25), { dayEi: 0.25, nightEi: 0.9 }),
+    blue: registerNightMat(SG(0x4fb3ff, 0x0b4a8f, 0.25), { dayEi: 0.25, nightEi: 0.9 }),
+    green: registerNightMat(SG(0x5fd18b, 0x0f6b3a, 0.25), { dayEi: 0.25, nightEi: 0.9 }),
+    purple: registerNightMat(SG(0xc58bff, 0x5a2fa8, 0.3), { dayEi: 0.3, nightEi: 1.0 }),
+    orange: registerNightMat(SG(0xff8a3d, 0x9a3a00, 0.3), { dayEi: 0.3, nightEi: 1.0 }),
     water: SM(0x5cc8ff, { transparent: true, opacity: 0.72, roughness: 0.15, depthWrite: false }),
     // 程式森林島
-    woodScreen: SG(0x1b2a24, 0x0a3b26, 0.5),
-    codeGreen: SB(0x7dffb0),
+    woodScreen: registerNightMat(SG(0x1b2a24, 0x0a5c38, 0.35), { dayEi: 0.35, nightEi: 1.45 }),
+    codeGreen: registerNightMat(SG(0x7dffb0, 0x10b981, 0.55), { dayEi: 0.55, nightEi: 2.1 }),
     leaf: SM(0x3f9d62),
     // 演算法山
     templeStone: SM(0xe9dfc9, { roughness: 0.7 }),
     // 資料海灣
     siloBody: SM(0x5aa9d6, { metalness: 0.3, roughness: 0.4 }),
-    siloBand: SG(0x2ec4b6, 0x0c9a8c, 1.0),
-    crystalTeal: SG(0x2ec4b6, 0x0c6a62, 0.8, { transparent: true, opacity: 0.88 }),
-    neonPink: SG(0xff6fb5, 0xff2f93, 1.0),
+    siloBand: registerNightMat(SG(0x2ec4b6, 0x0c9a8c, 0.6), { dayEi: 0.6, nightEi: 2.1 }),
+    crystalTeal: registerNightMat(SG(0x2ec4b6, 0x0c6a62, 0.5, { transparent: true, opacity: 0.88 }), { dayEi: 0.5, nightEi: 1.85 }),
+    neonPink: registerNightMat(SG(0xff6fb5, 0xff2f93, 0.6), { dayEi: 0.6, nightEi: 2.2 }),
     // AI 智慧島
-    aiPink: SG(0xff6fb5, 0xff2f93, 0.9),
-    aiPurple: SG(0x9b5cff, 0x5a1fd1, 1.0),
-    aiGold: SG(0xffc83d, 0xd98a00, 1.0),
-    aiFiber: SB(0xffa8dd, { transparent: true, opacity: 0.85 }),
+    aiPink: registerNightMat(SG(0xff6fb5, 0xff2f93, 0.55), { dayEi: 0.55, nightEi: 2.1 }),
+    aiPurple: registerNightMat(SG(0x9b5cff, 0x5a1fd1, 0.65), { dayEi: 0.65, nightEi: 2.2 }),
+    aiGold: registerNightMat(SG(0xffc83d, 0xd98a00, 0.65), { dayEi: 0.65, nightEi: 2.1 }),
+    aiFiber: registerNightMat(SB(0xffa8dd, { transparent: true, opacity: 0.68 }), { dayOp: 0.68, nightOp: 1.0 }),
     // 二進位文字貼圖（0 / 1）
     bin0: stageCanvasMat((x, w, h) => { x.fillStyle = "#0b3b2a"; x.fillRect(0, 0, w, h); x.fillStyle = "#7dffb0"; x.font = "bold 92px monospace"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("0", w / 2, h / 2 + 4); }),
     bin1: stageCanvasMat((x, w, h) => { x.fillStyle = "#0b3b2a"; x.fillRect(0, 0, w, h); x.fillStyle = "#ffe08a"; x.font = "bold 92px monospace"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("1", w / 2, h / 2 + 4); }),
@@ -608,9 +715,9 @@
   const isletMat = {
     lighthouseRed: SM(0xe5484d),
     lighthouseWhite: SM(0xf8fafc),
-    lighthouseLantern: SG(0xfff1a8, 0xffb703, 1.45),
+    lighthouseLantern: registerNightMat(SG(0xfff1a8, 0xffb703, 0.35), { dayEi: 0.35, nightEi: 3.1 }),
     lighthouseRim: SM(0x3a4252),
-    lighthouseBeam: SM(0xffe680, { emissive: 0xffc83d, emissiveIntensity: 1.15, transparent: true, opacity: 0.24, depthWrite: false, side: THREE.DoubleSide, roughness: 0.25 }),
+    lighthouseBeam: SM(0xffe680, { emissive: 0xffc83d, emissiveIntensity: 0.4, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide, roughness: 0.25 }),
     windmillWall: SM(0xf3e5c8),
     windmillRoof: SM(0xd96b43),
     windmillSail: SM(0xfff7e0),
@@ -621,12 +728,12 @@
     tentYellow: SM(0xffca3a),
     tentDoor: SM(0x7c4f28),
     campfireStone: SM(0x7b8794),
-    campfireOuter: SG(0xff8a1d, 0xff5400, 1.15),
-    campfireInner: SG(0xffe066, 0xffc300, 1.35),
+    campfireOuter: registerNightMat(SG(0xff8a1d, 0xff5400, 0.85), { dayEi: 0.85, nightEi: 2.2 }),
+    campfireInner: registerNightMat(SG(0xffe066, 0xffc300, 1.05), { dayEi: 1.05, nightEi: 2.6 }),
     gazeboWhite: SM(0xf4f7fb),
     gazeboRoof: SM(0x3a6073),
     brassGold: SM(0xffb703, { metalness: 0.6, roughness: 0.28 }),
-    starLens: SG(0x7ff0ff, 0x00b4d8, 1.0),
+    starLens: registerNightMat(SG(0x7ff0ff, 0x00b4d8, 0.5), { dayEi: 0.5, nightEi: 2.1 }),
     palmTrunk: SM(0x8d5b3c),
     palmLeaf: SM(0x4cc970),
     coconut: SM(0x5c3a21),
@@ -644,45 +751,45 @@
     cafeSand: SM(0xfbf2da, { roughness: 0.78 }),
     cafeTurf: SM(0x7ad680, { roughness: 0.68 }),
     mintRoof: SM(0x52d6a6, { roughness: 0.52 }),
-    crystalCyan: SG(0x7fe9ff, 0x00c2ff, 0.95, { transparent: true, opacity: 0.68, roughness: 0.14, metalness: 0.12 }),
-    starGoldEmissive: SG(0xffe066, 0xffb703, 1.15, { metalness: 0.45, roughness: 0.22 }),
-    buoyGlow: SG(0x7ff0ff, 0x00d4ff, 1.35),
-    lampEmissive: SG(0xfff0a8, 0xffaa00, 1.25),
+    crystalCyan: registerNightMat(SG(0x7fe9ff, 0x00d4ff, 0.45, { transparent: true, opacity: 0.68, roughness: 0.14, metalness: 0.12 }), { dayEi: 0.45, nightEi: 2.45 }),
+    starGoldEmissive: registerNightMat(SG(0xffe066, 0xffb703, 0.45, { metalness: 0.45, roughness: 0.22 }), { dayEi: 0.45, nightEi: 1.85 }),
+    buoyGlow: registerNightMat(SG(0x7ff0ff, 0x00d4ff, 0.6), { dayEi: 0.6, nightEi: 2.35 }),
+    lampEmissive: registerNightMat(SG(0xfff0a8, 0xffaa00, 0.2), { dayEi: 0.2, nightEi: 2.25 }),
     coffeeCeramic: SM(0xfffdf8, { roughness: 0.28 }),
     coffeeLiquid: SM(0x5c3a21, { roughness: 0.35 }),
     observatoryWall: SM(0xf8fafc, { roughness: 0.48 }),
     observatoryDome: SM(0x2563eb, { roughness: 0.44 }),
     postRed: SM(0xe11d48, { roughness: 0.52 }),
-    bottleGlass: SG(0x9be7ff, 0x38bdf8, 0.4, { transparent: true, opacity: 0.65, roughness: 0.14 }),
-    corkGlow: SG(0xffd166, 0xff9f1c, 1.2),
+    bottleGlass: SG(0x9be7ff, 0x38bdf8, 0.3, { transparent: true, opacity: 0.65, roughness: 0.14 }),
+    corkGlow: registerNightMat(SG(0xffd166, 0xff9f1c, 0.35), { dayEi: 0.35, nightEi: 2.0 }),
     parchment: SM(0xfef3c7, { roughness: 0.65 }),
-    koiOrange: SG(0xff7b3a, 0xff4d00, 0.9),
-    koiCyan: SG(0x5eead4, 0x14b8a6, 0.9),
+    koiOrange: registerNightMat(SG(0xff7b3a, 0xff5a00, 0.35), { dayEi: 0.35, nightEi: 2.55 }),
+    koiCyan: registerNightMat(SG(0x5eead4, 0x14f1d9, 0.35), { dayEi: 0.35, nightEi: 2.45 }),
     vinylBlack: SM(0x1e293b, { roughness: 0.32, metalness: 0.2 }),
-    noteNeonPink: SG(0xff70a6, 0xff2e88, 1.15),
-    noteNeonCyan: SG(0x64dfdf, 0x00bbf9, 1.15),
-    greenhouseGlass: SG(0xc8f7ff, 0x38bdf8, 0.28, { transparent: true, opacity: 0.42, roughness: 0.12, side: THREE.DoubleSide, depthWrite: false }),
-    glowFlowerCyan: SG(0x7ff0ff, 0x00d4ff, 1.05),
-    glowFlowerPink: SG(0xff9ecd, 0xff4791, 1.05),
-    headphoneGlow: SG(0x38bdf8, 0x0ea5e9, 1.2),
-    gogglesLens: SG(0x67e8f9, 0x06b6d4, 1.1),
+    noteNeonPink: SG(0xff70a6, 0xff2e88, 0.5),
+    noteNeonCyan: SG(0x64dfdf, 0x00bbf9, 0.5),
+    greenhouseGlass: registerNightMat(SG(0xc8f7ff, 0x5eead4, 0.16, { transparent: true, opacity: 0.4, roughness: 0.12, side: THREE.DoubleSide, depthWrite: false }), { dayEi: 0.16, nightEi: 1.15, dayOp: 0.4, nightOp: 0.56 }),
+    glowFlowerCyan: SG(0x7ff0ff, 0x00e5a8, 0.45),
+    glowFlowerPink: SG(0xff9ecd, 0xe855ff, 0.45),
+    headphoneGlow: registerNightMat(SG(0x38bdf8, 0x0ea5e9, 0.55), { dayEi: 0.55, nightEi: 2.1 }),
+    gogglesLens: registerNightMat(SG(0x67e8f9, 0x06b6d4, 0.5), { dayEi: 0.5, nightEi: 1.85 }),
     apronCoffee: SM(0x6f4e37, { roughness: 0.72 })
   };
 
   // 中央神殿升級 + 終極通關特效材質庫
   const sanctExtraMat = {
     starTileDark: SM(0x253252, { roughness: 0.42, metalness: 0.12 }),
-    starTileGold: SG(0xffd166, 0xd97706, 0.4, { metalness: 0.5 }),
-    chaliceGold: SG(0xffd166, 0xd97706, 0.5, { metalness: 0.62, roughness: 0.22 }),
-    chaliceCore: SG(0xfff3b0, 0xffb703, 1.6, { roughness: 0.12 }),
+    starTileGold: registerNightMat(SG(0xffd166, 0xd97706, 0.32, { metalness: 0.5 }), { dayEi: 0.32, nightEi: 1.15 }),
+    chaliceGold: registerNightMat(SG(0xffd166, 0xd97706, 0.4, { metalness: 0.62, roughness: 0.22 }), { dayEi: 0.4, nightEi: 1.3 }),
+    chaliceCore: registerNightMat(SG(0xfff3b0, 0xffb703, 1.1, { roughness: 0.12 }), { dayEi: 1.1, nightEi: 2.6 }),
     altarMarble: SM(0xf4f6fb, { roughness: 0.35 }),
     brazierBronze: SM(0x9a6b32, { metalness: 0.48, roughness: 0.38 }),
-    runeMote: SG(0x7ff0ff, 0x00e5ff, 1.25),
-    finaleGoldStar: SG(0xffe066, 0xffaa00, 1.15, { metalness: 0.55 }),
-    finalePillarBeam: SB(0xffd166, { transparent: true, opacity: 0.36, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
-    finaleRayMat: SB(0xffe680, { transparent: true, opacity: 0.52, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+    runeMote: registerNightMat(SG(0x7ff0ff, 0x00e5ff, 0.7), { dayEi: 0.7, nightEi: 2.25 }),
+    finaleGoldStar: registerNightMat(SG(0xffe066, 0xffaa00, 0.75, { metalness: 0.55 }), { dayEi: 0.75, nightEi: 2.0 }),
+    finalePillarBeam: registerNightMat(SB(0xffd166, { transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }), { dayOp: 0.28, nightOp: 0.55 }),
+    finaleRayMat: registerNightMat(SB(0xffe680, { transparent: true, opacity: 0.42, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false }), { dayOp: 0.4, nightOp: 0.75 }),
     finaleCrownRainbow: [0x4fb3ff, 0xff8a65, 0xc58bff, 0x5fd18b, 0xffd166, 0x2ec4b6, 0xff6fb5].map(
-      (hex) => SG(hex, hex, 1.1, { roughness: 0.22 })
+      (hex) => registerNightMat(SG(hex, hex, 0.65, { roughness: 0.22 }), { dayEi: 0.65, nightEi: 1.85 })
     )
   };
   const npcClothRaincoatMat = new THREE.MeshStandardMaterial({ color: 0xff9f1c, roughness: 0.55, flatShading: true });
@@ -2433,7 +2540,15 @@
         // Stage 1：藍白聖盾守護主堡 (高 3.2)
         bx(s1, 3.0, 0.3, 2.2, M.shieldWhite, 0, 0.15, 0);
         bx(s1, 2.6, 1.7, 1.8, M.shieldBlue, 0, 1.15, 0);
-        [-1.35, 1.35].forEach((x) => { cy(s1, 0.38, 0.42, 2.3, M.shieldWhite, x, 1.45, -0.55, 10); co(s1, 0.5, 0.6, M.shieldBlue, x, 2.9, -0.55, 10); });
+        [-1.35, 1.35].forEach((x) => {
+          cy(s1, 0.38, 0.42, 2.3, M.shieldWhite, x, 1.45, -0.55, 10);
+          co(s1, 0.5, 0.6, M.shieldBlue, x, 2.9, -0.55, 10);
+          // 塔樓暖黃窗光
+          bx(s1, 0.24, 0.38, 0.08, windowWarmGlowMat, x, 1.75, -0.15);
+        });
+        // 主堡正面與側面暖黃燈窗
+        [-0.86, 0.86].forEach((x) => bx(s1, 0.36, 0.44, 0.06, windowWarmGlowMat, x, 1.25, 0.91));
+        [-1.31, 1.31].forEach((x) => bx(s1, 0.06, 0.44, 0.44, windowWarmGlowMat, x, 1.25, 0.15));
         [-0.9, -0.3, 0.3, 0.9].forEach((x) => bx(s1, 0.3, 0.3, 0.3, M.shieldWhite, x, 2.15, 0.75));
         const sh = new THREE.Shape();
         sh.moveTo(0, 0.55); sh.lineTo(0.42, 0.4); sh.lineTo(0.42, -0.05);
@@ -2486,6 +2601,9 @@
         bx(s1, 1.0, 0.55, 0.9, M.camBody, 0, 2.23, -0.05);
         bx(s1, 0.5, 0.14, 0.4, M.metalLight, 0.9, 2.03, 0);
         bx(s1, 0.5, 1.4, 0.1, M.red, -1.1, 1.0, 0.72);
+        // 工作室側窗與背面觀景窗暖光
+        [-1.46, 1.46].forEach((x) => bx(s1, 0.06, 0.52, 0.56, windowWarmGlowMat, x, 1.05, 0));
+        bx(s1, 1.1, 0.62, 0.06, windowWarmGlowMat, 0, 1.05, -0.71);
         cy(s1, 0.14, 0.14, 0.12, M.red, 1.0, 2.0, 0.2, 10);
         const lens = cy(s1, 0.78, 0.78, 1.0, M.metalDark, 0.1, 1.1, 1.1, 20); lens.rotation.x = Math.PI / 2;
         const lensRing = to(s1, 0.66, 0.06, M.yellow, 0.1, 1.1, 1.6); 
@@ -2581,6 +2699,8 @@
         bx(s1, 0.6, 0.5, 0.06, M.cyanGlow, 0, 0.78, 0.92).rotation.z = Math.PI / 4;
         [-0.65, 0.65].forEach((x) => bx(s1, 0.4, 0.28, 0.06, M.orange, x, 0.78, 0.92));
         [-0.6, 0.6].forEach((x) => [-0.4, 0.4].forEach((z) => cy(s1, 0.1, 0.1, 0.9, M.templeStone, x, 1.95, z - 0.1, 10)));
+        // 古閣殿內暖黃窗光與觀測台圓頂星光縫隙
+        bx(s1, 0.72, 0.58, 0.48, windowWarmGlowMat, 0, 1.9, -0.1);
         bx(s1, 1.9, 0.18, 1.5, M.gold, 0, 2.5, -0.1);
         co(s1, 1.1, 0.5, M.gold, 0, 2.84, -0.1, 4).rotation.y = Math.PI / 4;
         // Stage 2 左：高低排序石柱陣 (高 2.2)
@@ -2588,6 +2708,7 @@
         [0.7, 1.0, 1.3, 1.6, 1.9, 2.2].forEach((h, i) => bx(wingL, 0.28, h, 0.28, [M.green, M.green, M.yellow, M.orange, M.red, M.purple][i], -0.8 + i * 0.32, 0.15 + h / 2, 0));
         // Stage 2 右：二分搜尋觀測台 (高 2.3)
         cy(wingR, 0.75, 0.85, 1.5, stoneGrayMat, 0, 0.75, 0, 14);
+        bx(wingR, 0.32, 0.42, 0.08, windowWarmGlowMat, 0, 0.82, 0.78);
         const dome = put(wingR, new THREE.SphereGeometry(0.75, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), M.metalLight, 0, 1.5, 0);
         bx(wingR, 0.25, 0.6, 0.3, M.metalDark, 0, 1.75, 0.6);
         const scope = cy(wingR, 0.09, 0.11, 1.0, M.metalDark, 0, 1.95, 0.5, 8); scope.rotation.x = -0.9;
@@ -2714,11 +2835,113 @@
 
     stageAnims.push((t) => upd.forEach((f) => f(t)));
 
+    // ---- 各建築正下方草地投影暖黃光暈（零 PointLight 模擬照明）----
+    const s1GroundGlow = makeGroundGlowPlane(6.8, 6.2, 0xffbe55, 0.035);
+    s1.add(s1GroundGlow.mesh);
+    const wingLGlow = makeGroundGlowPlane(4.4, 4.0, 0xffbe55, 0.035);
+    wingL.add(wingLGlow.mesh);
+    const wingRGlow = makeGroundGlowPlane(4.4, 4.0, 0xffbe55, 0.035);
+    wingR.add(wingRGlow.mesh);
+    const yardGlow = makeGroundGlowPlane(4.8, 4.2, 0xffcf6b, 0.035);
+    yard.add(yardGlow.mesh);
+
     // ---- 組裝三個階段群組（皆位於草皮頂面 y = STAGE_BASE_Y，初始隱藏）----
     const stage1Group = grp(null, 0, STAGE_BASE_Y, 0); stage1Group.name = "stage1Group"; stage1Group.add(s1);
     const stage2Group = grp(null, 0, STAGE_BASE_Y, 0); stage2Group.name = "stage2Group"; stage2Group.add(wingL, wingR);
     const stage3Group = grp(null, 0, STAGE_BASE_Y, 0); stage3Group.name = "stage3Group"; stage3Group.add(crown, yard);
     [stage1Group, stage2Group, stage3Group].forEach((g) => { g.visible = false; });
+
+    // ---- 2/3 & 3/3 高階段解鎖夜間能量流光環與向上微光光束 ----
+    const stageAuraGroup = grp(null, 0, STAGE_BASE_Y, -3.5);
+    stageAuraGroup.visible = false;
+    stageAuraGroup.userData.dimFactor = 1;
+    stageAuraGroup.userData.effectiveStage = 0;
+
+    const flowRingMat = new THREE.MeshBasicMaterial({
+      color: islandId === "data" || islandId === "sys" || islandId === "citizen" ? 0x38e5ff : 0xffd166,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false
+    });
+    const flowRingGeo = new THREE.RingGeometry(2.1, 2.95, 32);
+    flowRingGeo.rotateX(-Math.PI / 2);
+    const flowRingMesh = new THREE.Mesh(flowRingGeo, flowRingMat);
+    flowRingMesh.position.y = 0.06;
+    flowRingMesh.renderOrder = 2;
+    flowRingMesh.userData.skipDimClone = true;
+    stageAuraGroup.add(flowRingMesh);
+
+    const riseRingMat = new THREE.MeshBasicMaterial({
+      color: 0x7ff0ff,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const riseRingMesh = new THREE.Mesh(new THREE.TorusGeometry(2.05, 0.05, 6, 32), riseRingMat);
+    riseRingMesh.rotation.x = Math.PI / 2;
+    riseRingMesh.renderOrder = 3;
+    riseRingMesh.userData.skipDimClone = true;
+    stageAuraGroup.add(riseRingMesh);
+
+    const beamColor = islandId === "sys" || islandId === "data" || islandId === "citizen" ? 0x7ff0ff : 0xffe48a;
+    const beamMeshMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false
+    });
+    const beamMesh = new THREE.Mesh(buildSoftLightConeGeo(0.45, 2.05, 11.5, 16, 0x000000, beamColor), beamMeshMat);
+    beamMesh.position.y = 5.75;
+    beamMesh.renderOrder = 3;
+    beamMesh.visible = false;
+    beamMesh.userData.skipDimClone = true;
+    stageAuraGroup.add(beamMesh);
+
+    nightGlowUpdaters.push((nb, t) => {
+      const df = stageAuraGroup.userData.dimFactor ?? 1;
+      const showBase = nb > 0.01;
+      s1GroundGlow.mesh.visible = showBase;
+      wingLGlow.mesh.visible = showBase;
+      wingRGlow.mesh.visible = showBase;
+      yardGlow.mesh.visible = showBase;
+      if (showBase) {
+        const op = 0.44 * nb * df;
+        s1GroundGlow.mat.opacity = op;
+        wingLGlow.mat.opacity = op * 0.88;
+        wingRGlow.mat.opacity = op * 0.88;
+        yardGlow.mat.opacity = op * 0.9;
+      }
+
+      const effStage = Math.max(api.stage || 0, stageAuraGroup.userData.effectiveStage || 0);
+      const showAura = nb > 0.01 && effStage >= 2;
+      stageAuraGroup.visible = showAura;
+      if (showAura) {
+        const breath = 0.5 + 0.5 * Math.sin(t * 2.2);
+        const fScale = 0.96 + breath * 0.1;
+        flowRingMesh.scale.set(fScale, 1, fScale);
+        flowRingMat.opacity = (0.34 + breath * 0.22) * nb * df;
+
+        const cycle = (t * 0.42) % 1;
+        riseRingMesh.position.y = 0.25 + cycle * 4.4;
+        const rSc = 0.92 + cycle * 0.3;
+        riseRingMesh.scale.set(rSc, rSc, 1);
+        riseRingMat.opacity = Math.sin(cycle * Math.PI) * 0.48 * nb * df;
+
+        const showBeam = effStage >= 3;
+        beamMesh.visible = showBeam;
+        if (showBeam) {
+          beamMeshMat.opacity = (0.28 + 0.08 * Math.sin(t * 2.5)) * nb * df;
+        }
+      }
+    });
 
     // ---- 施工地基（半透明框線）+ 前庭施工預告小立牌 + 低矮鵝卵石步道 ----
     const foundation = grp(null, 0, STAGE_BASE_Y, 0);
@@ -2755,7 +2978,7 @@
     });
 
     const api = {
-      stage1Group, stage2Group, stage3Group, foundation,
+      stage1Group, stage2Group, stage3Group, foundation, stageAuraGroup,
       stage: 0,
       setStage(n, animate) {
         n = Math.max(0, Math.min(3, n | 0));
@@ -2795,7 +3018,7 @@
   const sharedDockLampArmGeo = new THREE.BoxGeometry(0.55, 0.09, 0.09);
   const sharedDockLampBulbGeo = new THREE.OctahedronGeometry(0.32, 1);
   const sharedDockLampGlowGeo = new THREE.SphereGeometry(0.75, 10, 8);
-  const sharedDockWaterGlowGeo = new THREE.CircleGeometry(2.6, 16);
+  const sharedDockWaterGlowGeo = new THREE.PlaneGeometry(5.8, 5.8);
   sharedDockWaterGlowGeo.rotateX(-Math.PI / 2);
 
   const foamMat = new THREE.MeshBasicMaterial({
@@ -2841,6 +3064,12 @@
     rail: new THREE.BoxGeometry(1, 0.06, 0.05),
     pole: new THREE.CylinderGeometry(0.045, 0.065, 1.5, 5),
     lantern: new THREE.OctahedronGeometry(0.15, 0),
+    lampGround: (() => {
+      const g = new THREE.PlaneGeometry(3.6, 3.6);
+      g.rotateX(-Math.PI / 2);
+      return g;
+    })(),
+    lampHalo: new THREE.SphereGeometry(0.42, 8, 6),
     trunk: new THREE.CylinderGeometry(0.1, 0.16, 0.7, 5),
     crownLo: new THREE.ConeGeometry(0.58, 0.95, 6),
     crownHi: new THREE.ConeGeometry(0.42, 0.85, 6)
@@ -2848,10 +3077,41 @@
   const decorMat = {
     fence: new THREE.MeshLambertMaterial({ color: 0xb98150 }),
     pole: new THREE.MeshLambertMaterial({ color: 0x5b4636 }),
-    lantern: new THREE.MeshBasicMaterial({ color: 0xffd98a }),
+    lantern: registerNightMat(
+      new THREE.MeshStandardMaterial({ color: 0xffe8a3, emissive: 0xffb703, emissiveIntensity: 0.2, roughness: 0.25 }),
+      { dayEi: 0.2, nightEi: 2.35 }
+    ),
+    lampGround: new THREE.MeshBasicMaterial({
+      map: radialGlowTex,
+      color: 0xffc652,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide
+    }),
+    lampHalo: new THREE.MeshBasicMaterial({
+      color: 0xffc652,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    }),
     trunk: new THREE.MeshLambertMaterial({ color: 0x8d5b3c }),
     crown: new THREE.MeshLambertMaterial({ color: 0xffffff })
   };
+  const islandDecorLampGlowMeshes = [];
+  nightGlowUpdaters.push((nb, t) => {
+    const show = nb > 0.01;
+    islandDecorLampGlowMeshes.forEach((m) => { m.visible = show; });
+    if (show) {
+      const flicker = 0.92 + 0.08 * Math.sin(t * 3.1);
+      decorMat.lampGround.opacity = 0.54 * nb * flicker;
+      decorMat.lampHalo.opacity = 0.36 * nb * flicker;
+    }
+  });
   const decorTreePalette = [0x4cc970, 0x68d886, 0x3ab764, 0x7bdc6e, 0x2fa65a].map((c) => new THREE.Color(c));
 
   function decorRand(a, b) {
@@ -2919,6 +3179,16 @@
     }
     const poles = makeDecorInstanced(decorGeo.pole, decorMat.pole, lampAngles.length, islandRoot, true);
     const lanterns = makeDecorInstanced(decorGeo.lantern, decorMat.lantern, lampAngles.length, islandRoot);
+    const lampGrounds = makeDecorInstanced(decorGeo.lampGround, decorMat.lampGround, lampAngles.length, islandRoot);
+    lampGrounds.renderOrder = 2;
+    lampGrounds.visible = false;
+    lampGrounds.userData.skipDimClone = true;
+    const lampHalos = makeDecorInstanced(decorGeo.lampHalo, decorMat.lampHalo, lampAngles.length, islandRoot);
+    lampHalos.renderOrder = 3;
+    lampHalos.visible = false;
+    lampHalos.userData.skipDimClone = true;
+    islandDecorLampGlowMeshes.push(lampGrounds, lampHalos);
+
     lampAngles.forEach((a, i) => {
       const lx = Math.cos(a) * 6.4;
       const lz = Math.sin(a) * 6.4;
@@ -2930,6 +3200,10 @@
       decorTmp.position.set(lx, ledgeY + 1.58, lz);
       decorTmp.updateMatrix();
       lanterns.setMatrixAt(i, decorTmp.matrix);
+      lampHalos.setMatrixAt(i, decorTmp.matrix);
+      decorTmp.position.set(lx, ledgeY + 0.035, lz);
+      decorTmp.updateMatrix();
+      lampGrounds.setMatrixAt(i, decorTmp.matrix);
     });
 
     // 低多邊形樹林（兩層錐形樹冠 + 實例顏色，配置於中層邊緣）
@@ -2945,9 +3219,11 @@
     const trunks = makeDecorInstanced(decorGeo.trunk, decorMat.trunk, treeSpots.length, islandRoot, true);
     const crownsLo = makeDecorInstanced(decorGeo.crownLo, decorMat.crown, treeSpots.length, islandRoot, true);
     const crownsHi = makeDecorInstanced(decorGeo.crownHi, decorMat.crown, treeSpots.length, islandRoot, true);
+    const treeCoords = [];
     treeSpots.forEach((ts, i) => {
       const x = Math.cos(ts.a) * ts.rr;
       const z = Math.sin(ts.a) * ts.rr;
+      treeCoords.push({ x, z, y: ledgeY + 0.1 + 1.9 * ts.s });
       const baseY = ledgeY + 0.1;
       decorTmp.rotation.set(0, ts.a * 3, 0);
       decorTmp.scale.setScalar(ts.s);
@@ -2963,7 +3239,8 @@
       crownsHi.setMatrixAt(i, decorTmp.matrix);
       crownsHi.setColorAt(i, decorTreePalette[(ts.c + 1) % decorTreePalette.length]);
     });
-    [posts, rails, poles, lanterns, trunks, crownsLo, crownsHi].forEach((m) => {
+    islandRoot.userData.treeCoords = treeCoords;
+    [posts, rails, poles, lanterns, lampGrounds, lampHalos, trunks, crownsLo, crownsHi].forEach((m) => {
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
     });
@@ -4935,6 +5212,7 @@
     islandRoot.add(stageSys.stage1Group);
     islandRoot.add(stageSys.stage2Group);
     islandRoot.add(stageSys.stage3Group);
+    islandRoot.add(stageSys.stageAuraGroup);
     islandRoot.userData.stageSys = stageSys;
     islandRoot.userData.level1Props = level1Props;
     islandRoot.userData.level2Props = level2Props;
@@ -5150,25 +5428,40 @@
       transparent: true,
       opacity: isNight ? 0.42 : 0.08,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false
     });
     dockLampGlowMaterials.push(dockGlowMat);
     const dockGlowMesh = new THREE.Mesh(sharedDockLampGlowGeo, dockGlowMat);
     dockGlowMesh.position.set(0.24, 2.48, 9.45);
+    dockGlowMesh.userData.skipDimClone = true;
     dockGroup.add(dockGlowMesh);
 
-    // 碼頭水面暖橘色光暈倒影
+    // 碼頭水面暖橘色柔和徑向光暈倒影 + 木板地面光斑
     const waterGlowMat = new THREE.MeshBasicMaterial({
+      map: radialGlowTex,
       color: 0xff9f38,
       transparent: true,
       opacity: 0,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide
     });
     dockWaterGlowMaterials.push(waterGlowMat);
     const waterGlowMesh = new THREE.Mesh(sharedDockWaterGlowGeo, waterGlowMat);
     waterGlowMesh.position.set(0.24, 0.18, 9.45);
+    waterGlowMesh.userData.skipDimClone = true;
     dockGroup.add(waterGlowMesh);
+
+    const dockPlankGlow = makeGroundGlowPlane(3.2, 3.2, 0xffbe4d, 1.11);
+    dockPlankGlow.mesh.position.set(0.24, 1.11, 9.45);
+    dockGroup.add(dockPlankGlow.mesh);
+    nightGlowUpdaters.push((nb) => {
+      const show = nb > 0.01;
+      dockPlankGlow.mesh.visible = show;
+      if (show) dockPlankGlow.mat.opacity = 0.48 * nb;
+    });
 
     islandRoot.add(dockGroup);
 
@@ -5388,7 +5681,7 @@
       flame.position.y = 1.32;
       torchGroup.add(flame);
 
-      // 向上微光光柱
+      // 向上微光光柱與火炬石座暖光光暈
       const beamGeo = new THREE.CylinderGeometry(0.08, 0.32, 2.8, 8, 1, true);
       const beamMat = new THREE.MeshBasicMaterial({
         color: 0xffa200,
@@ -5396,11 +5689,20 @@
         opacity: 0.25,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        fog: false,
         side: THREE.DoubleSide
       });
       const beam = new THREE.Mesh(beamGeo, beamMat);
       beam.position.y = 2.65;
       torchGroup.add(beam);
+
+      const torchGroundGlow = makeGroundGlowPlane(3.6, 3.6, 0xffae3d, 0.04);
+      torchGroup.add(torchGroundGlow.mesh);
+      nightGlowUpdaters.push((nb, t) => {
+        const show = nb > 0.01 && sanctuarySubgroup.visible;
+        torchGroundGlow.mesh.visible = show;
+        if (show) torchGroundGlow.mat.opacity = (0.48 + 0.1 * Math.sin(t * 7.5 + ti)) * nb;
+      });
 
       detailsGroup.add(torchGroup);
       torches.push({ flame, beam, phase: ti * 1.1 });
@@ -5665,14 +5967,35 @@
       opacity: 0,
       side: THREE.DoubleSide,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false
     });
     const haloRing = new THREE.Mesh(pillarHaloGeo, haloMat);
     haloRing.position.y = 0.08;
     pillarHolder.add(haloRing);
 
+    const pillarBeamMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const pillarBeam = new THREE.Mesh(
+      buildSoftLightConeGeo(0.24, 0.72, 6.0, 10, 0x000000, islColor.getHex()),
+      pillarBeamMat
+    );
+    pillarBeam.position.y = 5.4;
+    pillarBeam.visible = false;
+    pillarHolder.add(pillarBeam);
+
+    const pillarGroundGlow = makeGroundGlowPlane(3.2, 3.2, islColor.getHex(), 0.06);
+    pillarHolder.add(pillarGroundGlow.mesh);
+
     sealPillarsGroup.add(pillarHolder);
-    sealPillars.push({
+    const pillarRec = {
       id: isl.id,
       name: isl.name,
       emoji: isl.emoji,
@@ -5684,8 +6007,22 @@
       runeBandMat,
       haloRing,
       haloMat,
+      pillarBeam,
+      pillarBeamMat,
+      pillarGroundGlow,
       isLit: false,
       phase: idx * 0.85
+    };
+    sealPillars.push(pillarRec);
+    nightGlowUpdaters.push((nb, t) => {
+      const showLit = nb > 0.01 && pillarRec.isLit && sealedReefSubgroup.visible;
+      pillarBeam.visible = showLit;
+      pillarGroundGlow.mesh.visible = showLit;
+      if (showLit) {
+        const pulse = 0.85 + 0.15 * Math.sin(t * 2.5 + pillarRec.phase);
+        pillarBeamMat.opacity = 0.42 * nb * pulse;
+        pillarGroundGlow.mat.opacity = 0.56 * nb * pulse;
+      }
     });
   });
 
@@ -5701,21 +6038,27 @@
     metalness: 0.08,
     flatShading: true
   });
-  const sanctGoldMat = new THREE.MeshStandardMaterial({
-    color: 0xffd166,
-    emissive: 0xd97706,
-    emissiveIntensity: 0.45,
-    roughness: 0.24,
-    metalness: 0.46,
-    flatShading: true
-  });
-  const sanctCyanMat = new THREE.MeshStandardMaterial({
-    color: 0x90e0ef,
-    emissive: 0x00b4d8,
-    emissiveIntensity: 0.85,
-    roughness: 0.2,
-    flatShading: true
-  });
+  const sanctGoldMat = registerNightMat(
+    new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      emissive: 0xd97706,
+      emissiveIntensity: 0.35,
+      roughness: 0.24,
+      metalness: 0.46,
+      flatShading: true
+    }),
+    { dayEi: 0.35, nightEi: 1.25 }
+  );
+  const sanctCyanMat = registerNightMat(
+    new THREE.MeshStandardMaterial({
+      color: 0x90e0ef,
+      emissive: 0x00b4d8,
+      emissiveIntensity: 0.6,
+      roughness: 0.2,
+      flatShading: true
+    }),
+    { dayEi: 0.6, nightEi: 2.15 }
+  );
 
   /* -------------------------------------------------------------
    * 1. Tier 1: 低層宏偉白玉基座台地 (放大 1.65 倍, y=2.8 ~ 5.6)
@@ -5777,6 +6120,14 @@
     );
     archCurve.position.set(0, 10.2, 0);
     archGroup.add(archCurve);
+
+    const archFloorGlow = makeGroundGlowPlane(3.6, 3.6, 0xffcf66, 6.45);
+    archGroup.add(archFloorGlow.mesh);
+    nightGlowUpdaters.push((nb) => {
+      const show = nb > 0.01 && sanctuarySubgroup.visible;
+      archFloorGlow.mesh.visible = show;
+      if (show) archFloorGlow.mat.opacity = 0.38 * nb;
+    });
 
     sanctuarySubgroup.add(archGroup);
   }
@@ -5968,7 +6319,8 @@
     opacity: 0.42,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
-    depthWrite: false
+    depthWrite: false,
+    fog: false
   });
   const outerBeam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.85, 3.8, 54, 16, 1, true),
@@ -5983,7 +6335,8 @@
     opacity: 0.82,
     side: THREE.DoubleSide,
     blending: THREE.AdditiveBlending,
-    depthWrite: false
+    depthWrite: false,
+    fog: false
   });
   const innerBeam = new THREE.Mesh(
     new THREE.CylinderGeometry(0.28, 1.3, 54, 12, 1, true),
@@ -5992,6 +6345,29 @@
   innerBeam.position.y = 27;
   goldenBeamGroup.add(innerBeam);
 
+  // 夜晚神殿主殿環繞上升金色能量流光錐與地面星芒大光暈
+  const sanctAuraConeMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false
+  });
+  const sanctAuraCone = new THREE.Mesh(
+    buildSoftLightConeGeo(3.2, 7.6, 26, 20, 0x000000, 0xffd466),
+    sanctAuraConeMat
+  );
+  sanctAuraCone.position.y = GROUND_TOP_Y.SANCT_TIER3 + 13;
+  sanctAuraCone.visible = false;
+  sanctuarySubgroup.add(sanctAuraCone);
+  nightGlowUpdaters.push((nb, t) => {
+    const show = nb > 0.01 && sanctuarySubgroup.visible;
+    sanctAuraCone.visible = show;
+    if (show) sanctAuraConeMat.opacity = (0.28 + 0.08 * Math.sin(t * 2.0)) * nb;
+  });
+
   const beamHaloRings = [];
   for (let r = 0; r < 3; r++) {
     const hMat = new THREE.MeshBasicMaterial({
@@ -5999,7 +6375,8 @@
       transparent: true,
       opacity: 0.75,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false
     });
     const hMesh = new THREE.Mesh(new THREE.TorusGeometry(1.85, 0.12, 6, 24), hMat);
     hMesh.rotation.x = Math.PI / 2;
@@ -6092,6 +6469,14 @@
   starRimRing.position.y = 0.03;
   sanctDaisFloorDeco.add(starRimRing);
 
+  const sanctDaisFloorGlow = makeGroundGlowPlane(13.0, 13.0, 0xffd15c, 0.05);
+  sanctDaisFloorDeco.add(sanctDaisFloorGlow.mesh);
+  nightGlowUpdaters.push((nb, t) => {
+    const show = nb > 0.01 && sanctuarySubgroup.visible;
+    sanctDaisFloorGlow.mesh.visible = show;
+    if (show) sanctDaisFloorGlow.mat.opacity = (0.48 + 0.1 * Math.sin(t * 2.4)) * nb;
+  });
+
   // 中央「榮耀聖盃」祭壇 (y = 15.04 起往上疊加，上方懸浮 infoOrbGroup 光核)
   const gloryChaliceGroup = new THREE.Group();
   gloryChaliceGroup.position.set(0, GROUND_TOP_Y.SANCT_TIER3, 0);
@@ -6139,6 +6524,13 @@
     mk(new THREE.CylinderGeometry(0.44, 0.24, 0.24, 8), sanctExtraMat.brazierBronze, 0, 0.56, 0, brazier);
     const bFlame = mk(new THREE.OctahedronGeometry(0.2, 0), isletMat.campfireOuter, 0, 0.78, 0, brazier);
     bFlame.scale.set(0.85, 1.35, 0.85);
+    const bGroundGlow = makeGroundGlowPlane(3.4, 3.4, 0xffa838, 0.04);
+    brazier.add(bGroundGlow.mesh);
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01 && sanctuarySubgroup.visible;
+      bGroundGlow.mesh.visible = show;
+      if (show) bGroundGlow.mat.opacity = (0.45 + 0.08 * Math.sin(t * 7.2 + b)) * nb;
+    });
     sanctuarySubgroup.add(brazier);
     sanctBraziers.push({ flame: bFlame, phase: b * 1.1 });
 
@@ -6280,6 +6672,14 @@
     const totem = buildMicroIslandShrineTotem(isl.id);
     totem.position.y = 0.66;
     shrineGroup.add(totem);
+
+    const shrineGroundGlow = makeGroundGlowPlane(2.4, 2.4, isl.color || 0xffd166, 0.04);
+    shrineGroup.add(shrineGroundGlow.mesh);
+    nightGlowUpdaters.push((nb) => {
+      const show = nb > 0.01 && sanctuarySubgroup.visible;
+      shrineGroundGlow.mesh.visible = show;
+      if (show) shrineGroundGlow.mat.opacity = 0.42 * nb;
+    });
 
     // 【終極特效 2】7 座微縮聖壇升起金色光柱 + 能量光束匯聚至中央聖盃
     const pillarBeam = new THREE.Mesh(
@@ -6908,6 +7308,15 @@
     labelSprite.position.set(0, spec.labelY || 6.4, 0);
     g.add(labelSprite);
 
+    // 夜晚專屬水面環繞柔光光暈（零 PointLight）
+    const isletWaterHalo = makeGroundGlowPlane(isCafe ? 15.2 : 13.8, isCafe ? 15.2 : 13.8, spec.accent || 0x38bdf8, 0.14);
+    g.add(isletWaterHalo.mesh);
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      isletWaterHalo.mesh.visible = show;
+      if (show) isletWaterHalo.mat.opacity = (0.2 + 0.05 * Math.sin(t * 1.8 + pos.x)) * nb;
+    });
+
     spec.build(content, g, pos);
 
     const rec = {
@@ -6950,6 +7359,26 @@
       [0.56, -0.15]
     ].forEach(([sx, sz]) => {
       mk(sharedStoolGeo, woodM, sx, 0.13, sz, grp, true);
+    });
+
+    // 咖啡桌小風燈與木棧道／草地投影暖光圈
+    mk(new THREE.CylinderGeometry(0.055, 0.07, 0.03, 6), woodDarkM, 0.25, 0.495, 0.16, grp);
+    mk(new THREE.CylinderGeometry(0.05, 0.05, 0.11, 6), isletMat.lampEmissive, 0.25, 0.565, 0.16, grp);
+    mk(new THREE.ConeGeometry(0.075, 0.055, 6), woodDarkM, 0.25, 0.64, 0.16, grp);
+    const tableGlowSprite = makeNightGlowSprite(0xffcb4d, 0.95);
+    tableGlowSprite.sprite.position.set(0.25, 0.57, 0.16);
+    grp.add(tableGlowSprite.sprite);
+    const seatGroundGlow = makeGroundGlowPlane(2.9, 2.9, 0xffc34d, 0.035);
+    grp.add(seatGroundGlow.mesh);
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      tableGlowSprite.sprite.visible = show;
+      seatGroundGlow.mesh.visible = show;
+      if (show) {
+        const pulse = 0.92 + 0.08 * Math.sin(t * 3.6 + x);
+        tableGlowSprite.mat.opacity = 0.62 * nb * pulse;
+        seatGroundGlow.mat.opacity = 0.52 * nb * pulse;
+      }
     });
 
     // 紅白條紋遮陽傘（共用傘骨與 6 片錐形傘瓣幾何）
@@ -7008,19 +7437,44 @@
       mk(sharedRailPostGeo, woodFenceMat, mx, 0.32, mz, c);
     }
 
-    // 薄荷綠八角錐頂 + 金色簷環
+    // 薄荷綠八角錐頂 + 金色簷環 + 涼亭屋簷暖黃小串燈
     const roof = mk(new THREE.ConeGeometry(2.06, 0.95, 8), isletMat.mintRoof, pavX, 2.25, pavZ, c, true);
     roof.rotation.y = Math.PI / 8;
     const eave = mk(new THREE.TorusGeometry(1.86, 0.055, 6, 16), isletMat.starGoldEmissive, pavX, 1.78, pavZ, c);
     eave.rotation.x = Math.PI / 2;
 
-    // 兩盞涼亭入口旁發光小風燈（使用 emissive，零 PointLight）
+    const stringBulbMat = registerNightMat(
+      new THREE.MeshStandardMaterial({ color: 0xfff3b0, emissive: 0xffb703, emissiveIntensity: 0.2, roughness: 0.2 }),
+      { dayEi: 0.2, nightEi: 2.55 }
+    );
+    const stringBulbGeo = new THREE.SphereGeometry(0.052, 6, 5);
+    for (let sb = 0; sb < 16; sb++) {
+      const sa = (sb / 16) * Math.PI * 2;
+      const dip = sb % 2 === 1 ? 0.06 : 0.0;
+      mk(stringBulbGeo, stringBulbMat, pavX + Math.cos(sa) * 1.9, 1.73 - dip, pavZ + Math.sin(sa) * 1.9, c);
+    }
+    const pavGroundGlow = makeGroundGlowPlane(4.4, 4.4, 0xffc652, 0.18);
+    pavGroundGlow.mesh.position.set(pavX, 0.18, pavZ);
+    c.add(pavGroundGlow.mesh);
+    const stairGlow = makeGroundGlowPlane(2.8, 2.8, 0xffc34d, -0.36);
+    stairGlow.mesh.position.set(0, -0.36, 3.65);
+    c.add(stairGlow.mesh);
+
+    // 兩盞涼亭入口旁發光小風燈（使用 emissive，零 PointLight ＋ 地面光斑）
+    const cafeLampHalos = [];
     [-0.95, 0.95].forEach((lx) => {
       mk(sharedLampPostGeo, woodDarkM, lx, 0.55, 1.55, c);
       mk(sharedLampGlobeGeo, isletMat.lampEmissive, lx, 1.15, 1.55, c);
+      const lSp = makeNightGlowSprite(0xffcb4d, 1.45);
+      lSp.sprite.position.set(lx, 1.15, 1.55);
+      c.add(lSp.sprite);
+      const lGr = makeGroundGlowPlane(2.7, 2.7, 0xffc652, 0.035);
+      lGr.mesh.position.set(lx, 0.035, 1.55);
+      c.add(lGr.mesh);
+      cafeLampHalos.push({ lSp, lGr });
     });
 
-    // 涼亭屋頂上方懸浮「雙錐水晶沙漏」＋金色星軌環＋4 顆發光金色數據方塊
+    // 涼亭屋頂上方懸浮「雙錐水晶沙漏」＋金色星軌環＋4 顆發光金色數據方塊＋星塵粒子
     const hgPivot = new THREE.Group();
     hgPivot.position.set(pavX, 3.62, pavZ);
     c.add(hgPivot);
@@ -7029,6 +7483,9 @@
     const upperCone = mk(coneGeo, isletMat.crystalCyan, 0, 0.34, 0, hgPivot);
     upperCone.rotation.x = Math.PI;
     mk(coneGeo, isletMat.crystalCyan, 0, -0.34, 0, hgPivot);
+
+    const hgGlowSprite = makeNightGlowSprite(0x00e5ff, 3.2);
+    hgPivot.add(hgGlowSprite.sprite);
 
     const capRingGeo = new THREE.TorusGeometry(0.52, 0.045, 6, 16);
     const capTop = mk(capRingGeo, isletMat.starGoldEmissive, 0, 0.68, 0, hgPivot);
@@ -7048,6 +7505,21 @@
       dc.scale.setScalar(0.85);
       dataCubes.push({ mesh: dc, phase: (i / 4) * Math.PI * 2 });
     }
+    // 沙漏內部金色星塵微粒（隨時間閃爍旋轉）
+    const stardustGeo = new THREE.OctahedronGeometry(0.048, 0);
+    const stardustList = [];
+    for (let s = 0; s < 10; s++) {
+      const sm = new THREE.MeshBasicMaterial({ color: 0xffe478, transparent: true, opacity: 0.9, fog: false });
+      const sp = mk(stardustGeo, sm, 0, 0, 0, hgPivot);
+      stardustList.push({
+        mesh: sp,
+        mat: sm,
+        r: 0.1 + (s % 3) * 0.08,
+        yBase: ((s / 9) - 0.5) * 0.95,
+        ph: s * 0.92,
+        speed: 1.8 + (s % 4) * 0.5
+      });
+    }
 
     expansionAnims.push((t) => {
       hgPivot.position.y = 3.62 + Math.sin(t * 1.8) * 0.18;
@@ -7059,6 +7531,34 @@
         d.mesh.position.set(Math.cos(a) * r, Math.sin(t * 2.4 + d.phase) * 0.38, Math.sin(a) * r);
         d.mesh.rotation.set(t * 1.4, t * 1.8, 0);
       });
+      stardustList.forEach((st) => {
+        const sa = t * st.speed + st.ph;
+        st.mesh.position.set(Math.cos(sa) * st.r, st.yBase + Math.sin(t * 3.0 + st.ph) * 0.08, Math.sin(sa) * st.r);
+        const tw = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 5.2 + st.ph));
+        st.mesh.scale.setScalar((0.65 + tw * 0.65) * (0.55 + 0.45 * nightBlend));
+        st.mat.opacity = 0.35 + 0.65 * tw * (0.3 + 0.7 * nightBlend);
+      });
+    });
+
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      pavGroundGlow.mesh.visible = show;
+      stairGlow.mesh.visible = show;
+      hgGlowSprite.sprite.visible = show;
+      cafeLampHalos.forEach(({ lSp, lGr }) => {
+        lSp.sprite.visible = show;
+        lGr.mesh.visible = show;
+      });
+      if (show) {
+        pavGroundGlow.mat.opacity = 0.42 * nb;
+        stairGlow.mat.opacity = 0.38 * nb;
+        hgGlowSprite.mat.opacity = (0.55 + 0.14 * Math.sin(t * 2.4)) * nb;
+        cafeLampHalos.forEach(({ lSp, lGr }, idx) => {
+          const fl = 0.92 + 0.08 * Math.sin(t * 3.8 + idx);
+          lSp.mat.opacity = 0.62 * nb * fl;
+          lGr.mat.opacity = 0.5 * nb * fl;
+        });
+      }
     });
 
     // 2 組露天咖啡座
@@ -7098,7 +7598,7 @@
     c.add(navigator.root);
     addNpcIdle(navigator, 3.2, { wave: true });
 
-    // 周圍海面 2 顆發光導航浮標（使用 emissive 材質）
+    // 周圍海面 2 顆發光導航浮標（使用 emissive 材質 ＋ 海面青色投影光暈）
     const buoySpots = [
       [-5.35, 2.1, 0.2],
       [5.35, -1.9, 2.5]
@@ -7110,11 +7610,27 @@
       mk(sharedBuoyBaseGeo, isletMat.umbrellaRed, 0, 0.16, 0, buoyRoot, true);
       mk(sharedBuoyMastGeo, isletMat.lighthouseWhite, 0, 0.55, 0, buoyRoot);
       const beacon = mk(sharedBuoyGlowGeo, isletMat.buoyGlow, 0, 0.9, 0, buoyRoot);
+      const bWaterGlow = makeGroundGlowPlane(3.6, 3.6, 0x00e5ff, 0.14);
+      bWaterGlow.mesh.position.set(bx, 0.14, bz);
+      g.add(bWaterGlow.mesh);
+      const bGlowSp = makeNightGlowSprite(0x00e5ff, 1.5);
+      bGlowSp.sprite.position.set(0, 0.9, 0);
+      buoyRoot.add(bGlowSp.sprite);
       expansionAnims.push((t) => {
         buoyRoot.position.y = 0.08 + Math.sin(t * 2.1 + phase) * 0.12;
         buoyRoot.rotation.z = Math.sin(t * 1.7 + phase) * 0.1;
         buoyRoot.rotation.x = Math.cos(t * 1.5 + phase) * 0.08;
         beacon.rotation.y = t * 1.4;
+      });
+      nightGlowUpdaters.push((nb, t) => {
+        const show = nb > 0.01;
+        bWaterGlow.mesh.visible = show;
+        bGlowSp.sprite.visible = show;
+        if (show) {
+          const p = 0.72 + 0.28 * Math.sin(t * 2.6 + phase);
+          bWaterGlow.mat.opacity = 0.48 * nb * p;
+          bGlowSp.mat.opacity = 0.58 * nb * p;
+        }
       });
     });
 
@@ -7144,6 +7660,22 @@
     mk(cubeGeo, woodDarkM, -0.72, 0.34, 0.68, c).scale.set(0.42, 0.65, 0.08);
     mk(sharedLampGlobeGeo, isletMat.starLens, -0.72, 2.25, -0.48, c);
 
+    // 天文台圓頂縫隙：神祕紫藍色星光 ＋ 地面紫藍光暈
+    const obsSlitMat = registerNightMat(
+      new THREE.MeshStandardMaterial({ color: 0xa78bfa, emissive: 0x6366f1, emissiveIntensity: 0.25, roughness: 0.2 }),
+      { dayEi: 0.25, nightEi: 2.6 }
+    );
+    const domeSlit = mk(new THREE.TorusGeometry(1.145, 0.048, 6, 16, Math.PI * 0.52), obsSlitMat, -0.72, 1.05, -0.48, c);
+    domeSlit.rotation.set(0, Math.PI / 2, 0.08);
+    const domeSlitRim = mk(new THREE.TorusGeometry(1.155, 0.025, 5, 24), obsSlitMat, -0.72, 1.08, -0.48, c);
+    domeSlitRim.rotation.x = Math.PI / 2;
+    const obsGlowSprite = makeNightGlowSprite(0x7c5cff, 2.2);
+    obsGlowSprite.sprite.position.set(-0.72, 1.82, 0.28);
+    c.add(obsGlowSprite.sprite);
+    const obsGroundGlow = makeGroundGlowPlane(4.4, 4.4, 0x7c5cff, 0.04);
+    obsGroundGlow.mesh.position.set(-0.72, 0.04, -0.48);
+    c.add(obsGroundGlow.mesh);
+
     // 伸出的黃銅色望遠鏡筒（緩慢左右巡天轉動）
     const scopeGroup = new THREE.Group();
     scopeGroup.position.set(1.08, 0, 0.45);
@@ -7168,8 +7700,43 @@
       Math.PI / 2;
     mk(new THREE.CylinderGeometry(0.125, 0.125, 0.14, 10), isletMat.starLens, 0, 0, 0.56, barrelPivot).rotation.x =
       Math.PI / 2;
+
+    // 望遠鏡鏡頭射向夜空的微弱星象雷射光束
+    const laserGeo = buildSoftLightConeGeo(0.015, 0.11, 9.2, 8, 0x9bf0ff, 0x000000);
+    laserGeo.rotateX(-Math.PI / 2);
+    laserGeo.translate(0, 0, 5.2);
+    const laserMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false
+    });
+    const laserBeam = new THREE.Mesh(laserGeo, laserMat);
+    laserBeam.visible = false;
+    barrelPivot.add(laserBeam);
+    const lensGlowSp = makeNightGlowSprite(0x7fe9ff, 1.15);
+    lensGlowSp.sprite.position.set(0, 0, 0.62);
+    barrelPivot.add(lensGlowSp.sprite);
+
     expansionAnims.push((t) => {
       barrelPivot.rotation.y = -0.3 + Math.sin(t * 0.65) * 0.45;
+    });
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      obsGlowSprite.sprite.visible = show;
+      obsGroundGlow.mesh.visible = show;
+      laserBeam.visible = show;
+      lensGlowSp.sprite.visible = show;
+      if (show) {
+        const pulse = 0.85 + 0.15 * Math.sin(t * 2.3);
+        obsGlowSprite.mat.opacity = 0.45 * nb * pulse;
+        obsGroundGlow.mat.opacity = 0.46 * nb * pulse;
+        laserMat.opacity = (0.36 + 0.08 * Math.sin(t * 3.1)) * nb;
+        lensGlowSp.mat.opacity = 0.62 * nb;
+      }
     });
 
     // 星象木牌
@@ -7196,13 +7763,19 @@
 
   // 2) 📮 海風瓶中信郵局（Bottle Post Islet）
   function buildBottlePostIslet(c, g, pos) {
-    // 紅屋頂原木小郵局小屋
+    // 紅屋頂原木小郵局小屋（前後左右暖光窗戶 ＋ 草地投影暖光圈）
     mk(cubeGeo, woodPlankMat, -0.78, 0.52, -0.52, c, true).scale.set(1.55, 1.04, 1.28);
     const roof = mk(new THREE.ConeGeometry(1.32, 0.82, 4), isletMat.postRed, -0.78, 1.44, -0.52, c, true);
     roof.rotation.y = Math.PI / 4;
     mk(cubeGeo, woodDarkM, -0.78, 0.34, 0.14, c).scale.set(0.38, 0.66, 0.06);
     mk(cubeGeo, isletMat.lampEmissive, -0.25, 0.58, 0.14, c).scale.set(0.28, 0.28, 0.05);
     mk(cubeGeo, isletMat.lampEmissive, -1.3, 0.58, 0.14, c).scale.set(0.28, 0.28, 0.05);
+    mk(cubeGeo, isletMat.lampEmissive, -1.56, 0.58, -0.52, c).scale.set(0.05, 0.28, 0.32);
+    mk(cubeGeo, isletMat.lampEmissive, 0.0, 0.58, -0.52, c).scale.set(0.05, 0.28, 0.32);
+
+    const postCabinGlow = makeGroundGlowPlane(3.8, 3.8, 0xffbe4d, 0.04);
+    postCabinGlow.mesh.position.set(-0.65, 0.04, 0.35);
+    c.add(postCabinGlow.mesh);
 
     // 門口超大紅色動森風郵筒
     const mb = new THREE.Group();
@@ -7215,23 +7788,62 @@
     mk(cubeGeo, isletMat.lighthouseWhite, 0, 0.94, 0.3, mb).scale.set(0.32, 0.07, 0.04);
     mk(cubeGeo, isletMat.starGoldEmissive, 0.27, 1.05, 0, mb).scale.set(0.05, 0.24, 0.12);
 
-    // 島邊海面漂浮 2 個帶發光軟木塞的玻璃瓶中信（於 g 局部水面上）
-    [
-      [3.3, 2.8, 0.3],
-      [-3.5, 3.0, 2.1]
-    ].forEach(([bx, bz, phase]) => {
+    // 島邊海面漂浮 2 個玻璃瓶中信（螢光綠與暖橘微光 ＋ 隨波浪晃動的水面投影光暈）
+    const bottleThemes = [
+      { bx: 3.3, bz: 2.8, phase: 0.3, color: 0x34ff9e, emissive: 0x10e87a },
+      { bx: -3.5, bz: 3.0, phase: 2.1, color: 0xff9436, emissive: 0xff6200 }
+    ];
+    const bottleVisuals = bottleThemes.map(({ bx, bz, phase, color, emissive }) => {
       const bPivot = new THREE.Group();
       bPivot.position.set(bx, 0.1, bz);
       bPivot.rotation.set(0.55, phase, 0.35);
       g.add(bPivot);
-      mk(sharedBottleBodyGeo, isletMat.bottleGlass, 0, 0, 0, bPivot);
-      mk(sharedBottleNeckGeo, isletMat.bottleGlass, 0, 0.23, 0, bPivot);
+      const bGlassMat = registerNightMat(
+        new THREE.MeshStandardMaterial({ color, emissive, emissiveIntensity: 0.25, transparent: true, opacity: 0.68, roughness: 0.14 }),
+        { dayEi: 0.25, nightEi: 1.9 }
+      );
+      const bScrollMat = registerNightMat(
+        new THREE.MeshStandardMaterial({ color: 0xfef3c7, emissive, emissiveIntensity: 0.15, roughness: 0.5 }),
+        { dayEi: 0.15, nightEi: 1.75 }
+      );
+      mk(sharedBottleBodyGeo, bGlassMat, 0, 0, 0, bPivot);
+      mk(sharedBottleNeckGeo, bGlassMat, 0, 0.23, 0, bPivot);
       mk(sharedBottleCorkGeo, isletMat.corkGlow, 0, 0.32, 0, bPivot);
-      mk(sharedBottleBodyGeo, isletMat.parchment, 0, -0.02, 0, bPivot).scale.set(0.55, 0.65, 0.55);
+      mk(sharedBottleBodyGeo, bScrollMat, 0, -0.02, 0, bPivot).scale.set(0.55, 0.65, 0.55);
+
+      const bSprite = makeNightGlowSprite(color, 1.85);
+      bSprite.sprite.position.set(0, 0.08, 0);
+      bPivot.add(bSprite.sprite);
+
+      const bWaterGlow = makeGroundGlowPlane(4.0, 4.0, color, 0.14);
+      bWaterGlow.mesh.position.set(bx, 0.14, bz);
+      g.add(bWaterGlow.mesh);
+
       expansionAnims.push((t) => {
-        bPivot.position.y = 0.1 + Math.sin(t * 2.2 + phase) * 0.11;
+        const wy = Math.sin(t * 2.2 + phase);
+        bPivot.position.y = 0.1 + wy * 0.11;
         bPivot.rotation.z = 0.35 + Math.sin(t * 1.8 + phase) * 0.14;
         bPivot.rotation.x = 0.55 + Math.cos(t * 1.5 + phase) * 0.12;
+        bWaterGlow.mesh.position.x = bx + Math.sin(t * 1.8 + phase) * 0.12;
+        bWaterGlow.mesh.position.z = bz + Math.cos(t * 1.5 + phase) * 0.12;
+      });
+      return { bSprite, bWaterGlow, phase };
+    });
+
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      postCabinGlow.mesh.visible = show;
+      if (show) postCabinGlow.mat.opacity = 0.45 * nb;
+      bottleVisuals.forEach(({ bSprite, bWaterGlow, phase }) => {
+        bSprite.sprite.visible = show;
+        bWaterGlow.mesh.visible = show;
+        if (show) {
+          const p = 0.78 + 0.22 * Math.sin(t * 2.6 + phase);
+          bSprite.mat.opacity = 0.68 * nb * p;
+          bWaterGlow.mat.opacity = 0.54 * nb * p;
+          const sc = 0.94 + 0.14 * Math.sin(t * 2.2 + phase);
+          bWaterGlow.mesh.scale.set(sc, 1, sc);
+        }
       });
     });
 
@@ -7289,6 +7901,28 @@
       mk(sharedLampPostGeo, woodDarkM, px, -1.1, pz, c).scale.set(1.2, 1.2, 1.2);
     });
 
+    // 棧橋盡頭暖橘色漁火燈籠（照亮木棧橋與下方水面）
+    const fishLanternMat = registerNightMat(
+      new THREE.MeshStandardMaterial({ color: 0xffb36b, emissive: 0xff6e1a, emissiveIntensity: 0.25, roughness: 0.2 }),
+      { dayEi: 0.25, nightEi: 2.7 }
+    );
+    mk(sharedLampPostGeo, woodDarkM, -0.48, 0.0, 5.28, c).scale.set(0.85, 1.05, 0.85);
+    mk(cubeGeo, woodDarkM, -0.34, 0.55, 5.34, c).scale.set(0.32, 0.05, 0.05);
+    mk(new THREE.ConeGeometry(0.14, 0.09, 6), woodDarkM, -0.22, 0.48, 5.4, c);
+    mk(new THREE.SphereGeometry(0.13, 8, 6), fishLanternMat, -0.22, 0.35, 5.4, c);
+    const pierLanternSp = makeNightGlowSprite(0xff8a2e, 2.0);
+    pierLanternSp.sprite.position.set(-0.22, 0.35, 5.4);
+    c.add(pierLanternSp.sprite);
+    const pierWaterGlow = makeGroundGlowPlane(4.8, 4.8, 0xff8a2e, -1.4);
+    pierWaterGlow.mesh.position.set(-0.1, -1.4, 5.3);
+    c.add(pierWaterGlow.mesh);
+    const pierDeckGlow = makeGroundGlowPlane(2.4, 2.4, 0xff9a3d, -0.52);
+    pierDeckGlow.mesh.position.set(-0.15, -0.52, 5.0);
+    c.add(pierDeckGlow.mesh);
+    const canopyGroundGlow = makeGroundGlowPlane(3.0, 3.0, 0xffbe55, 0.04);
+    canopyGroundGlow.mesh.position.set(-0.85, 0.04, -0.45);
+    c.add(canopyGroundGlow.mesh);
+
     // 坐姿釣魚 NPC（坐在棧橋末端，腳貼於木棧板表面 y = -0.55）
     const angler = makeMiniNPC(0x2ec4b6, 0xe9c46a, 0xf3c9a0);
     angler.root.position.set(0, -0.55, 4.95);
@@ -7305,19 +7939,22 @@
     const bobber = mk(sphereGeo8, isletMat.bobberRed, 0, -0.94, 1.28, rodPivot);
     bobber.scale.setScalar(0.075);
 
-    // 棧橋下水中的發光錦鯉/像素魚剪影繞圈游動
+    // 棧橋下水中的發光錦鯉/像素魚剪影繞圈游動（夜晚轉為發光錦鯉剪影）
     const fishGroup = new THREE.Group();
     fishGroup.position.set(0, -1.42, 4.35);
     c.add(fishGroup);
     const fishes = [0, 1, 2].map((fi) => {
       const fPivot = new THREE.Group();
-      const mat = fi % 2 === 0 ? isletMat.koiOrange : isletMat.koiCyan;
+      const isOrange = fi % 2 === 0;
+      const mat = isOrange ? isletMat.koiOrange : isletMat.koiCyan;
       const body = mk(sharedFishBodyGeo, mat, 0, 0, 0, fPivot);
       body.rotation.x = Math.PI / 2;
       const tail = mk(sharedFishTailGeo, mat, 0, 0, -0.22, fPivot);
       tail.rotation.x = -Math.PI / 2;
+      const koiGlow = makeGroundGlowPlane(1.15, 1.45, isOrange ? 0xff6e2b : 0x2bf5dc, -0.02);
+      fPivot.add(koiGlow.mesh);
       fishGroup.add(fPivot);
-      return { fPivot, radius: 0.95 + fi * 0.32, phase: fi * 2.1, speed: 1.05 + fi * 0.18 };
+      return { fPivot, koiGlow, radius: 0.95 + fi * 0.32, phase: fi * 2.1, speed: 1.05 + fi * 0.18 };
     });
 
     expansionAnims.push((t) => {
@@ -7330,6 +7967,25 @@
       });
     });
 
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      pierLanternSp.sprite.visible = show;
+      pierWaterGlow.mesh.visible = show;
+      pierDeckGlow.mesh.visible = show;
+      canopyGroundGlow.mesh.visible = show;
+      fishes.forEach((f) => { f.koiGlow.mesh.visible = show; });
+      if (show) {
+        const fl = 0.9 + 0.1 * Math.sin(t * 4.2);
+        pierLanternSp.mat.opacity = 0.72 * nb * fl;
+        pierWaterGlow.mat.opacity = 0.62 * nb * fl;
+        pierDeckGlow.mat.opacity = 0.45 * nb * fl;
+        canopyGroundGlow.mat.opacity = 0.34 * nb;
+        fishes.forEach((f, idx) => {
+          f.koiGlow.mat.opacity = (0.48 + 0.16 * Math.sin(t * 3.0 + idx)) * nb;
+        });
+      }
+    });
+
     [
       [-1.95, -1.1, 0.82],
       [1.85, -1.25, 0.85]
@@ -7338,36 +7994,53 @@
 
   // 4) 🎵 芯片音樂八音盒島（Chiptune Music Box Islet）
   function buildMusicBoxIslet(c, g, pos) {
-    // 黑膠唱片造型圓形木舞台 (頂面 y = 0.30)
+    // 黑膠唱片造型圓形木舞台 (頂面 y = 0.30) ＋ 邊緣霓虹粉與電光藍環形燈條
     mk(new THREE.CylinderGeometry(1.9, 2.06, 0.24, 16), woodPlankMat, 0, 0.12, 0.25, c, true);
     mk(new THREE.CylinderGeometry(1.72, 1.72, 0.06, 20), isletMat.vinylBlack, 0, 0.27, 0.25, c, true);
     mk(new THREE.CylinderGeometry(0.55, 0.55, 0.07, 16), isletMat.umbrellaRed, 0, 0.275, 0.25, c);
     const groove = mk(new THREE.TorusGeometry(1.16, 0.025, 4, 24), isletMat.starGoldEmissive, 0, 0.305, 0.25, c);
     groove.rotation.x = Math.PI / 2;
 
-    // 舞台後方巨大的金色發條鑰匙雕塑（持續緩慢旋轉）
+    const neonStripBlueMat = SG(0x38e8ff, 0x00d9ff, 0.25);
+    const neonStripPinkMat = SG(0xff6eb8, 0xff2e93, 0.25);
+    const neonOuterStrip = mk(new THREE.TorusGeometry(1.93, 0.045, 6, 32), neonStripBlueMat, 0, 0.24, 0.25, c);
+    neonOuterStrip.rotation.x = Math.PI / 2;
+    const neonInnerStrip = mk(new THREE.TorusGeometry(1.74, 0.038, 6, 32), neonStripPinkMat, 0, 0.295, 0.25, c);
+    neonInnerStrip.rotation.x = Math.PI / 2;
+
+    const stagePinkGlow = makeGroundGlowPlane(5.2, 5.2, 0xff3898, 0.04);
+    stagePinkGlow.mesh.position.set(0, 0.04, 0.25);
+    c.add(stagePinkGlow.mesh);
+    const stageCyanGlow = makeGroundGlowPlane(4.4, 4.4, 0x00d9ff, 0.045);
+    stageCyanGlow.mesh.position.set(0, 0.045, 0.25);
+    c.add(stageCyanGlow.mesh);
+
+    // 舞台後方巨大的金色發條鑰匙雕塑（持續緩慢旋轉 ＋ 夜色節奏閃耀）
+    const musicKeyMat = SG(0xffe066, 0xffb703, 0.45, { metalness: 0.45, roughness: 0.22 });
     const keyPivot = new THREE.Group();
     keyPivot.position.set(0, 0, -1.78);
     c.add(keyPivot);
-    mk(new THREE.CylinderGeometry(0.11, 0.13, 2.0, 8), isletMat.starGoldEmissive, 0, 1.0, 0, keyPivot, true);
+    mk(new THREE.CylinderGeometry(0.11, 0.13, 2.0, 8), musicKeyMat, 0, 1.0, 0, keyPivot, true);
     [-0.48, 0.48].forEach((kx) => {
-      mk(new THREE.TorusGeometry(0.46, 0.1, 6, 14), isletMat.starGoldEmissive, kx, 2.25, 0, keyPivot, true);
+      mk(new THREE.TorusGeometry(0.46, 0.1, 6, 14), musicKeyMat, kx, 2.25, 0, keyPivot, true);
     });
 
-    // 發光音符方塊（共用幾何體與材質）
+    // 發光音符方塊（共用幾何體與材質 ＋ 光暈點綴）
     const noteSpecs = [
-      [-1.55, 1.25, 0.8, isletMat.noteNeonPink, 0.0],
-      [1.6, 1.4, 0.65, isletMat.noteNeonCyan, 1.6],
-      [-1.1, 1.75, -0.85, isletMat.noteNeonCyan, 3.1],
-      [1.25, 1.65, -0.75, isletMat.noteNeonPink, 4.4]
+      [-1.55, 1.25, 0.8, isletMat.noteNeonPink, 0.0, 0xff3898],
+      [1.6, 1.4, 0.65, isletMat.noteNeonCyan, 1.6, 0x00d9ff],
+      [-1.1, 1.75, -0.85, isletMat.noteNeonCyan, 3.1, 0x00d9ff],
+      [1.25, 1.65, -0.75, isletMat.noteNeonPink, 4.4, 0xff3898]
     ];
-    const notes = noteSpecs.map(([nx, ny, nz, nMat, phase]) => {
+    const notes = noteSpecs.map(([nx, ny, nz, nMat, phase, glowCol]) => {
       const ng = new THREE.Group();
       ng.position.set(nx, ny, nz);
       mk(sharedDataCubeGeo, nMat, 0, 0, 0, ng).scale.set(1.2, 0.9, 1.2);
       mk(sharedNoteStemGeo, nMat, 0.08, 0.22, 0, ng);
+      const nSp = makeNightGlowSprite(glowCol, 1.35);
+      ng.add(nSp.sprite);
       c.add(ng);
-      return { ng, baseY: ny, phase };
+      return { ng, nSp, baseY: ny, phase };
     });
 
     expansionAnims.push((t) => {
@@ -7376,6 +8049,29 @@
         n.ng.position.y = n.baseY + Math.sin(t * 3.1 + n.phase) * 0.16;
         n.ng.rotation.y = Math.sin(t * 1.4 + n.phase) * 0.35;
       });
+    });
+
+    nightGlowUpdaters.push((nb, t) => {
+      const beatA = 0.5 + 0.5 * Math.sin(t * 5.2);
+      const beatB = 0.5 + 0.5 * Math.sin(t * 5.2 + Math.PI);
+      neonStripPinkMat.emissiveIntensity = 0.25 + (1.6 + beatA * 1.2) * nb;
+      neonStripBlueMat.emissiveIntensity = 0.25 + (1.6 + beatB * 1.2) * nb;
+      isletMat.noteNeonPink.emissiveIntensity = 0.45 + (1.4 + beatA * 1.25) * nb;
+      isletMat.noteNeonCyan.emissiveIntensity = 0.45 + (1.4 + beatB * 1.25) * nb;
+      musicKeyMat.emissiveIntensity = 0.45 + (1.35 + beatA * 0.9) * nb;
+
+      const show = nb > 0.01;
+      stagePinkGlow.mesh.visible = show;
+      stageCyanGlow.mesh.visible = show;
+      notes.forEach((n) => { n.nSp.sprite.visible = show; });
+      if (show) {
+        stagePinkGlow.mat.opacity = (0.34 + 0.2 * beatA) * nb;
+        stageCyanGlow.mat.opacity = (0.34 + 0.2 * beatB) * nb;
+        notes.forEach((n, idx) => {
+          const b = idx % 2 === 0 ? beatA : beatB;
+          n.nSp.mat.opacity = (0.45 + 0.32 * b) * nb;
+        });
+      }
     });
 
     // 戴耳機的 DJ NPC 站在黑膠舞台頂面 (y = 0.30) 隨節奏點頭擺動
@@ -7411,6 +8107,32 @@
       rib.rotation.y = ry;
     });
 
+    // 夜晚溫室水晶球夢幻內光暈與地面粉紫／青綠交織光斑
+    const ghCrystalAuraMat = new THREE.MeshBasicMaterial({
+      color: 0x5eead4,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      fog: false
+    });
+    const ghCrystalAura = mk(
+      new THREE.SphereGeometry(1.42, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      ghCrystalAuraMat,
+      ghX,
+      0.06,
+      ghZ,
+      c
+    );
+    ghCrystalAura.visible = false;
+    const ghCyanGround = makeGroundGlowPlane(4.4, 4.4, 0x2ee6b8, 0.045);
+    ghCyanGround.mesh.position.set(ghX, 0.045, ghZ);
+    c.add(ghCyanGround.mesh);
+    const ghPinkGround = makeGroundGlowPlane(3.6, 3.6, 0xe879f9, 0.05);
+    ghPinkGround.mesh.position.set(ghX, 0.05, ghZ);
+    c.add(ghPinkGround.mesh);
+
     // 內部與門前發光的青藍色與暖粉色奇幻花叢（共用花莖與花冠幾何體）
     const flowerCoords = [
       [-0.9, -0.65, true],
@@ -7421,9 +8143,14 @@
       [0.45, 0.95, true],
       [0.85, 1.2, false]
     ];
-    flowerCoords.forEach(([fx, fz, isCyan]) => {
+    const flowerSprites = [];
+    flowerCoords.forEach(([fx, fz, isCyan], fi) => {
       mk(sharedFlowerStemGeo, flowerBushGreenMat, fx, 0.11, fz, c);
       mk(sharedFlowerHeadGeo, isCyan ? isletMat.glowFlowerCyan : isletMat.glowFlowerPink, fx, 0.28, fz, c);
+      const fSp = makeNightGlowSprite(isCyan ? 0x2ee6b8 : 0xe879f9, 0.85);
+      fSp.sprite.position.set(fx, 0.3, fz);
+      c.add(fSp.sprite);
+      flowerSprites.push({ fSp, isCyan, fi });
     });
 
     // 小噴泉
@@ -7431,13 +8158,37 @@
     mk(new THREE.CylinderGeometry(0.14, 0.18, 0.45, 8), stoneReliefMat, 1.38, 0.34, 0.62, c);
     const waterJet = mk(sharedLampGlobeGeo, isletMat.crystalCyan, 1.38, 0.72, 0.62, c);
     waterJet.scale.set(1.2, 1.5, 1.2);
+    const fountainGroundGlow = makeGroundGlowPlane(2.4, 2.4, 0x38bdf8, 0.04);
+    fountainGroundGlow.mesh.position.set(1.38, 0.04, 0.62);
+    c.add(fountainGroundGlow.mesh);
 
-    // 花叢光暈柔和明滅呼吸動畫
+    // 花叢生物螢光呼吸動畫與水晶花房夜光連動
     expansionAnims.push((t) => {
-      isletMat.glowFlowerCyan.emissiveIntensity = 0.65 + 0.75 * (0.5 + 0.5 * Math.sin(t * 2.1));
-      isletMat.glowFlowerPink.emissiveIntensity = 0.65 + 0.75 * (0.5 + 0.5 * Math.sin(t * 2.1 + Math.PI * 0.8));
+      const bioC = 0.5 + 0.5 * Math.sin(t * 2.1);
+      const bioP = 0.5 + 0.5 * Math.sin(t * 2.1 + Math.PI * 0.8);
+      isletMat.glowFlowerCyan.emissiveIntensity = 0.35 + 0.45 * bioC + (1.3 + 1.0 * bioC) * nightBlend;
+      isletMat.glowFlowerPink.emissiveIntensity = 0.35 + 0.45 * bioP + (1.3 + 1.0 * bioP) * nightBlend;
       waterJet.scale.y = 1.35 + Math.sin(t * 4.2) * 0.25;
       waterJet.rotation.y = t * 1.4;
+    });
+    nightGlowUpdaters.push((nb, t) => {
+      const show = nb > 0.01;
+      ghCrystalAura.visible = show;
+      ghCyanGround.mesh.visible = show;
+      ghPinkGround.mesh.visible = show;
+      fountainGroundGlow.mesh.visible = show;
+      flowerSprites.forEach(({ fSp }) => { fSp.sprite.visible = show; });
+      if (show) {
+        const bioC = 0.5 + 0.5 * Math.sin(t * 2.1);
+        const bioP = 0.5 + 0.5 * Math.sin(t * 2.1 + Math.PI * 0.8);
+        ghCrystalAuraMat.opacity = (0.18 + 0.08 * bioC) * nb;
+        ghCyanGround.mat.opacity = (0.36 + 0.18 * bioC) * nb;
+        ghPinkGround.mat.opacity = (0.32 + 0.18 * bioP) * nb;
+        fountainGroundGlow.mat.opacity = 0.36 * nb;
+        flowerSprites.forEach(({ fSp, isCyan }) => {
+          fSp.mat.opacity = (0.45 + 0.3 * (isCyan ? bioC : bioP)) * nb;
+        });
+      }
     });
 
     // 拿著澆水壺照料植物的園丁 NPC（腳底貼地 y = 0）
@@ -7488,22 +8239,68 @@
     mk(new THREE.CylinderGeometry(0.025, 0.025, 0.35, 5), isletMat.starGoldEmissive, 0, -0.05, 0, vanePivot);
     mk(cubeGeo, isletMat.starGoldEmissive, 0, 0.08, 0, vanePivot).scale.set(0.55, 0.04, 0.04);
 
-    // 燈塔頂部一對半透明金色探照光錐（emissive 材質，360 度旋轉掃射，無 PointLight）
-    const beamGeo = new THREE.ConeGeometry(0.95, 5.5, 12, 1, true);
-    beamGeo.translate(0, -2.75, 0);
-    beamGeo.rotateZ(Math.PI / 2);
+    // 燈塔頂部玻璃燈室光暈 ＋ 兩道半透明金色探照光錐在海面上緩慢 360 度掃射
+    const lhLanternSp = makeNightGlowSprite(0xffd866, 3.2);
+    lhLanternSp.sprite.position.set(-0.68, 3.7, -0.52);
+    c.add(lhLanternSp.sprite);
+    const lhBaseGlow = makeGroundGlowPlane(3.8, 3.8, 0xffd15c, 0.04);
+    lhBaseGlow.mesh.position.set(-0.68, 0.04, -0.52);
+    c.add(lhBaseGlow.mesh);
+
+    const searchGeo = buildSoftLightConeGeo(0.24, 3.4, 21.0, 16, 0xffcf56, 0x000000);
+    searchGeo.rotateX(-Math.PI / 2);
+    searchGeo.translate(0, 0, 10.5);
+    const searchBeamMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.FrontSide,
+      fog: false
+    });
+
     const beamPivot = new THREE.Group();
     beamPivot.position.set(-0.68, 3.7, -0.52);
     c.add(beamPivot);
-    mk(beamGeo, isletMat.lighthouseBeam, 0, 0, 0, beamPivot);
-    const beam2 = mk(beamGeo, isletMat.lighthouseBeam, 0, 0, 0, beamPivot);
+    const beam1 = mk(searchGeo, searchBeamMat, 0, 0, 0, beamPivot);
+    beam1.rotation.x = 0.21; // 微微向下傾角照向海面
+    const beam2 = mk(searchGeo, searchBeamMat, 0, 0, 0, beamPivot);
     beam2.rotation.y = Math.PI;
+    beam2.rotation.x = -0.21; // 旋轉 180 度後向另一側海面微傾
+
+    // 同步於海面上 360 度掃射的兩塊金色受光水斑
+    const waterBeamPivot = new THREE.Group();
+    waterBeamPivot.position.set(-0.68, 0.18, -0.52);
+    g.add(waterBeamPivot);
+    const waterSpot1 = makeGroundGlowPlane(8.6, 12.2, 0xffd866, 0.0);
+    waterSpot1.mesh.position.set(0, 0, 13.5);
+    waterBeamPivot.add(waterSpot1.mesh);
+    const waterSpot2 = makeGroundGlowPlane(8.6, 12.2, 0xffd866, 0.0);
+    waterSpot2.mesh.position.set(0, 0, -13.5);
+    waterBeamPivot.add(waterSpot2.mesh);
 
     expansionAnims.push((t) => {
-      beamPivot.rotation.y = t * 1.1;
+      const sweepY = t * 0.52;
+      beamPivot.rotation.y = sweepY;
+      waterBeamPivot.rotation.y = sweepY;
       vanePivot.rotation.y = Math.sin(t * 1.2) * 0.45;
-      isletMat.lighthouseBeam.opacity = isNight ? 0.34 : 0.18;
-      isletMat.lighthouseBeam.emissiveIntensity = isNight ? 1.55 : 0.95;
+    });
+    nightGlowUpdaters.push((nb) => {
+      const show = nb > 0.01;
+      lhLanternSp.sprite.visible = show;
+      lhBaseGlow.mesh.visible = show;
+      beam1.visible = show;
+      beam2.visible = show;
+      waterSpot1.mesh.visible = show;
+      waterSpot2.mesh.visible = show;
+      if (show) {
+        lhLanternSp.mat.opacity = 0.78 * nb;
+        lhBaseGlow.mat.opacity = 0.48 * nb;
+        searchBeamMat.opacity = 0.25 * nb;
+        waterSpot1.mat.opacity = 0.45 * nb;
+        waterSpot2.mat.opacity = 0.45 * nb;
+      }
     });
 
     // 觀海矮護欄（共用幾何體）
@@ -8040,6 +8837,109 @@
   fireflyPoints.visible = false;
   scene.add(fireflyPoints);
 
+  // =========================================================================
+  // 2.6b 七大主島樹林螢火蟲群 (35 顆暖黃綠色呼吸微粒，夜晚緩慢漂浮)
+  // =========================================================================
+  const GROVE_FIREFLIES_PER_ISLAND = 5;
+  const groveCount = Math.max(1, islandRecords.length) * GROVE_FIREFLIES_PER_ISLAND;
+  const grovePositions = new Float32Array(groveCount * 3);
+  const groveColors = new Float32Array(groveCount * 3);
+  const grovePalette = [
+    new THREE.Color(0xc8ff4d),
+    new THREE.Color(0xa3e635),
+    new THREE.Color(0xeaff7b),
+    new THREE.Color(0xfde047)
+  ];
+  const groveFireflyData = [];
+  for (let i = 0; i < islandRecords.length; i++) {
+    const rec = islandRecords[i];
+    const tc = rec.group && rec.group.userData && rec.group.userData.treeCoords;
+    for (let k = 0; k < GROVE_FIREFLIES_PER_ISLAND; k++) {
+      let lx, ly, lz;
+      if (tc && tc.length > 0) {
+        const pt = tc[Math.floor((k * tc.length) / GROVE_FIREFLIES_PER_ISLAND) % tc.length];
+        lx = Array.isArray(pt) ? pt[0] : (pt.x || 0);
+        lz = Array.isArray(pt) ? (pt.length > 2 ? pt[2] : pt[1]) : (pt.z || 0);
+        const rawY = Array.isArray(pt) ? (pt.length > 2 ? pt[1] : 3.2) : (typeof pt.y === "number" ? pt.y : 3.2);
+        ly = Math.max(3.85, rawY + 0.95) + ((k * 0.37) % 1.15);
+        lx += Math.sin(k * 2.4 + i) * 0.65;
+        lz += Math.cos(k * 2.1 + i) * 0.65;
+      } else {
+        const ang = (k / GROVE_FIREFLIES_PER_ISLAND) * Math.PI * 2 + i * 0.5;
+        const rad = 3.2 + (k % 2) * 1.1;
+        lx = Math.cos(ang) * rad;
+        lz = Math.sin(ang) * rad;
+        ly = 4.35 + (k % 3) * 0.45;
+      }
+      const col = grovePalette[(i * 3 + k) % grovePalette.length];
+      const idx = groveFireflyData.length;
+      grovePositions[idx * 3] = (rec.group ? rec.group.position.x : 0) + lx;
+      grovePositions[idx * 3 + 1] = (rec.group ? rec.group.position.y : 0) + ly;
+      grovePositions[idx * 3 + 2] = (rec.group ? rec.group.position.z : 0) + lz;
+      groveColors[idx * 3] = col.r;
+      groveColors[idx * 3 + 1] = col.g;
+      groveColors[idx * 3 + 2] = col.b;
+      groveFireflyData.push({
+        rec,
+        lx,
+        ly,
+        lz,
+        ampX: 0.45 + (k % 3) * 0.16,
+        ampY: 0.28 + ((k + i) % 3) * 0.12,
+        ampZ: 0.45 + ((k + 1) % 3) * 0.16,
+        speed: 0.45 + ((i * 5 + k) % 7) * 0.08,
+        blinkSpeed: 1.45 + ((i + k * 2) % 5) * 0.32,
+        phase: (i * 1.7 + k * 1.29) % (Math.PI * 2),
+        baseR: col.r,
+        baseG: col.g,
+        baseB: col.b
+      });
+    }
+  }
+  const groveGeo = new THREE.BufferGeometry();
+  const grovePosAttr = new THREE.BufferAttribute(grovePositions, 3);
+  const groveColAttr = new THREE.BufferAttribute(groveColors, 3);
+  groveGeo.setAttribute("position", grovePosAttr);
+  groveGeo.setAttribute("color", groveColAttr);
+  const groveFireflyMat = new THREE.PointsMaterial({
+    size: 1.08,
+    sizeAttenuation: true,
+    map: createFireflyTexture(),
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    fog: false
+  });
+  const groveFireflyPoints = new THREE.Points(groveGeo, groveFireflyMat);
+  groveFireflyPoints.visible = false;
+  groveFireflyPoints.userData.skipDimClone = true;
+  scene.add(groveFireflyPoints);
+
+  nightGlowUpdaters.push((nb, t) => {
+    groveFireflyPoints.visible = nb > 0.01 && groveFireflyData.length > 0;
+    groveFireflyMat.opacity = nb * 0.94;
+    if (!groveFireflyPoints.visible) return;
+    for (let i = 0; i < groveFireflyData.length; i++) {
+      const d = groveFireflyData[i];
+      const gx = d.rec && d.rec.group ? d.rec.group.position.x : 0;
+      const gy = d.rec && d.rec.group ? d.rec.group.position.y : 0;
+      const gz = d.rec && d.rec.group ? d.rec.group.position.z : 0;
+      grovePositions[i * 3] = gx + d.lx + Math.sin(t * d.speed + d.phase) * d.ampX;
+      grovePositions[i * 3 + 1] = gy + d.ly + Math.sin(t * d.speed * 1.35 + d.phase * 1.7) * d.ampY;
+      grovePositions[i * 3 + 2] = gz + d.lz + Math.cos(t * d.speed * 0.92 + d.phase * 1.3) * d.ampZ;
+      const breath = 0.28 + 0.72 * (0.5 + 0.5 * Math.sin(t * d.blinkSpeed + d.phase * 2.1));
+      const dimMul = d.rec && d.rec.dimmed ? 0.35 : 1.0;
+      const lum = breath * dimMul;
+      groveColors[i * 3] = d.baseR * lum;
+      groveColors[i * 3 + 1] = d.baseG * lum;
+      groveColors[i * 3 + 2] = d.baseB * lum;
+    }
+    grovePosAttr.needsUpdate = true;
+    groveColAttr.needsUpdate = true;
+  });
+
   // 4b. 5 朵低多邊形緩慢飄動的白雲 (Low-poly Drifting Clouds)
   const skyCloudsGroup = new THREE.Group();
   scene.add(skyCloudsGroup);
@@ -8306,14 +9206,80 @@
     foreSail.castShadow = true;
     rockPivot.add(foreSail);
 
+    // 夜間航海燈火：桅杆暖黃頂燈、船身紅綠舷燈、船尾窗光與水面金色反光
+    const sailLanternMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      emissive: 0xffb703,
+      emissiveIntensity: 0.15,
+      roughness: 0.3
+    });
+    registerNightMat(sailLanternMat, { dayEi: 0.15, nightEi: 2.35 });
+    const mastLantern = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 8), sailLanternMat);
+    mastLantern.position.set(0, 2.86, 0.02);
+    rockPivot.add(mastLantern);
+    const mastGlow = makeNightGlowSprite(0xffcb5c, 1.45);
+    mastGlow.sprite.position.set(0, 2.86, 0.02);
+    rockPivot.add(mastGlow.sprite);
+
+    const sternWin = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.14, 0.22), sailLanternMat);
+    sternWin.position.set(0, 0.68, -0.78);
+    rockPivot.add(sternWin);
+
+    const portMat = new THREE.MeshStandardMaterial({
+      color: 0xff4d6d,
+      emissive: 0xff3355,
+      emissiveIntensity: 0.1,
+      roughness: 0.3
+    });
+    registerNightMat(portMat, { dayEi: 0.1, nightEi: 2.2 });
+    const portLight = new THREE.Mesh(new THREE.SphereGeometry(0.068, 8, 8), portMat);
+    portLight.position.set(0.6, 0.62, 0.32);
+    rockPivot.add(portLight);
+    const portGlow = makeNightGlowSprite(0xff4d6d, 0.92);
+    portGlow.sprite.position.set(0.6, 0.62, 0.32);
+    rockPivot.add(portGlow.sprite);
+
+    const stbdMat = new THREE.MeshStandardMaterial({
+      color: 0x2ee6a8,
+      emissive: 0x10b981,
+      emissiveIntensity: 0.1,
+      roughness: 0.3
+    });
+    registerNightMat(stbdMat, { dayEi: 0.1, nightEi: 2.2 });
+    const stbdLight = new THREE.Mesh(new THREE.SphereGeometry(0.068, 8, 8), stbdMat);
+    stbdLight.position.set(-0.6, 0.62, 0.32);
+    rockPivot.add(stbdLight);
+    const stbdGlow = makeNightGlowSprite(0x2ee6a8, 0.92);
+    stbdGlow.sprite.position.set(-0.6, 0.62, 0.32);
+    rockPivot.add(stbdGlow.sprite);
+
+    const sailWaterGlow = makeGroundGlowPlane(4.8, 6.8, 0xffc65c, 0.13, 2);
+    root.add(sailWaterGlow.mesh);
+
     // 船底水花尾跡圈
     const wakeGeo = new THREE.RingGeometry(0.68, 1.18, 16);
     wakeGeo.rotateX(-Math.PI / 2);
     const wakeMat = foamMat.clone();
+    const wakeDayColor = wakeMat.color.clone();
+    const wakeNightColor = new THREE.Color(0xbae6fd);
     const wakeRing = new THREE.Mesh(wakeGeo, wakeMat);
     wakeRing.scale.set(0.82, 1, 1.95);
     wakeRing.position.set(0, 0.12, -0.15);
     root.add(wakeRing);
+
+    const glowPhase = Math.random() * Math.PI * 2;
+    nightGlowUpdaters.push((nb, t) => {
+      const flicker = 0.9 + 0.1 * Math.sin(t * 4.1 + glowPhase);
+      mastGlow.sprite.visible = nb > 0.01;
+      mastGlow.mat.opacity = nb * 0.68 * flicker;
+      portGlow.sprite.visible = nb > 0.01;
+      portGlow.mat.opacity = nb * 0.48;
+      stbdGlow.sprite.visible = nb > 0.01;
+      stbdGlow.mat.opacity = nb * 0.48;
+      sailWaterGlow.mesh.visible = nb > 0.01;
+      sailWaterGlow.mat.opacity = nb * 0.42 * flicker;
+      wakeMat.color.copy(wakeDayColor).lerp(wakeNightColor, nb);
+    });
 
     root.scale.setScalar(scale);
     return { root, rockPivot, wakeRing, wakeMat };
@@ -8625,9 +9591,12 @@
     stripeWhite.position.y = 1.1;
     tiltPivot.add(stripeWhite);
 
-    // 頂端呼吸警示燈罩與點光源
+    // 頂端呼吸警示燈罩與點光源（暖黃 / 青綠雙色輪流閃爍）
+    const buoyIdx = createNavigationBuoy._seq = (createNavigationBuoy._seq || 0) + 1;
+    const isAmberBuoy = buoyIdx % 2 === 1;
+    const lampHex = isAmberBuoy ? 0xffd147 : 0x2bf5c5;
     const beaconMat = new THREE.MeshBasicMaterial({
-      color: 0xff5a5f,
+      color: lampHex,
       transparent: true,
       opacity: 0.95
     });
@@ -8636,15 +9605,19 @@
     tiltPivot.add(beaconBulb);
 
     const haloMat = new THREE.MeshBasicMaterial({
-      color: 0xff6b6b,
+      color: lampHex,
       transparent: true,
       opacity: 0.45,
       blending: THREE.AdditiveBlending,
-      depthWrite: false
+      depthWrite: false,
+      fog: false
     });
-    const haloSphere = new THREE.Mesh(new THREE.SphereGeometry(0.36, 10, 10), haloMat);
+    const haloSphere = new THREE.Mesh(new THREE.SphereGeometry(0.38, 10, 10), haloMat);
     haloSphere.position.y = 1.38;
     tiltPivot.add(haloSphere);
+
+    const waterGlow = makeGroundGlowPlane(4.6, 4.6, lampHex, 0.11, 2);
+    root.add(waterGlow.mesh);
 
     // 底部小水花圈
     const ringGeo = new THREE.RingGeometry(0.52, 0.85, 16);
@@ -8654,7 +9627,7 @@
     ringMesh.position.y = 0.1;
     root.add(ringMesh);
 
-    return { root, tiltPivot, beaconBulb, haloSphere, haloMat, ringMesh, ringMat };
+    return { root, tiltPivot, beaconBulb, beaconMat, haloSphere, haloMat, ringMesh, ringMat, waterGlow, isAmberBuoy };
   }
 
   const buoyCoords = [
@@ -8930,6 +9903,7 @@
 
   function buildSuspensionBridges() {
     const numIslands = 7;
+    const bridgeLampGroundPositions = [];
     // 共用吊橋結構與風燈幾何體池（7 座橋共用，大幅減少 GPU 記憶體與 Draw Call）
     const sharedBridgePostGeo = new THREE.CylinderGeometry(0.16, 0.19, 2.55, 8);
     const sharedBridgePostCapGeo = new THREE.SphereGeometry(0.18, 8, 6);
@@ -8971,6 +9945,7 @@
       [pA, pB].forEach((anchorPt) => {
         [-1.44, 1.44].forEach((wx) => {
           const postPos = anchorPt.clone().addScaledVector(normalW, wx);
+          bridgeLampGroundPositions.push(postPos.clone());
           const post = new THREE.Mesh(sharedBridgePostGeo, woodLogMat);
           post.position.set(postPos.x, postPos.y + 0.56, postPos.z);
           post.castShadow = true;
@@ -9101,6 +10076,37 @@
         curU: 0.12 + (i % 3) * 0.25,
         speed: spec.speed,
         phase: spec.phase
+      });
+    }
+
+    // 吊橋兩端 28 盞風燈的正下方草地投影暖光斑（單一 InstancedMesh 零掉幀渲染）
+    if (bridgeLampGroundPositions.length > 0) {
+      const bGroundGeo = new THREE.PlaneGeometry(4.0, 4.0);
+      bGroundGeo.rotateX(-Math.PI / 2);
+      const bGroundMat = new THREE.MeshBasicMaterial({
+        map: radialGlowTex,
+        color: 0xffbe3b,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false
+      });
+      const bGroundInst = new THREE.InstancedMesh(bGroundGeo, bGroundMat, bridgeLampGroundPositions.length);
+      const bDummy = new THREE.Object3D();
+      bridgeLampGroundPositions.forEach((p, idx) => {
+        bDummy.position.set(p.x, 3.05, p.z);
+        bDummy.updateMatrix();
+        bGroundInst.setMatrixAt(idx, bDummy.matrix);
+      });
+      bGroundInst.instanceMatrix.needsUpdate = true;
+      bGroundInst.renderOrder = 2;
+      bGroundInst.visible = false;
+      bGroundInst.userData.skipDimClone = true;
+      bridgesGroup.add(bGroundInst);
+      nightGlowUpdaters.push((nb, t) => {
+        bGroundInst.visible = nb > 0.01;
+        bGroundMat.opacity = nb * (0.58 + 0.05 * Math.sin(t * 2.4));
       });
     }
   }
@@ -9532,14 +10538,46 @@
     bobberFloat.position.set(0, -0.62, 1.18);
     rodPivot.add(bobberFloat);
 
+    // 釣魚熊木筏夜燈：船首提燈立柱、暖黃發光燈球與水面暖光暈
+    const raftPost = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.04, 0.56, 6), woodDarkMat);
+    raftPost.position.set(-0.56, 0.42, 0.72);
+    rockPivot.add(raftPost);
+    const raftLanternMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      emissive: 0xffb703,
+      emissiveIntensity: 0.14,
+      roughness: 0.3
+    });
+    registerNightMat(raftLanternMat, { dayEi: 0.14, nightEi: 2.35 });
+    const raftLanternBulb = new THREE.Mesh(new THREE.SphereGeometry(0.095, 10, 10), raftLanternMat);
+    raftLanternBulb.position.set(-0.56, 0.7, 0.72);
+    rockPivot.add(raftLanternBulb);
+    const raftLanternGlow = makeNightGlowSprite(0xffc04d, 1.18);
+    raftLanternGlow.sprite.position.set(-0.56, 0.7, 0.72);
+    rockPivot.add(raftLanternGlow.sprite);
+    const raftWaterGlow = makeGroundGlowPlane(4.5, 5.2, 0xffc44d, 0.09, 2);
+    raftWaterGlow.mesh.position.z = 0.12;
+    root.add(raftWaterGlow.mesh);
+
     // 木筏底部水波圈
     const wakeGeo = new THREE.RingGeometry(0.75, 1.32, 18);
     wakeGeo.rotateX(-Math.PI / 2);
     const wakeMat = foamMat.clone();
+    const raftWakeDayColor = wakeMat.color.clone();
+    const raftWakeNightColor = new THREE.Color(0xbae6fd);
     const wakeRing = new THREE.Mesh(wakeGeo, wakeMat);
     wakeRing.scale.set(0.95, 1, 1.35);
     wakeRing.position.set(0, 0.08, 0);
     root.add(wakeRing);
+
+    nightGlowUpdaters.push((nb, t) => {
+      const flicker = 0.93 + 0.07 * Math.sin(t * 5.2 + 0.7);
+      raftLanternGlow.sprite.visible = nb > 0.01;
+      raftLanternGlow.mat.opacity = nb * 0.65 * flicker;
+      raftWaterGlow.mesh.visible = nb > 0.01;
+      raftWaterGlow.mat.opacity = nb * 0.42 * flicker;
+      wakeMat.color.copy(raftWakeDayColor).lerp(raftWakeNightColor, nb);
+    });
 
     root.scale.setScalar(1.06);
     return {
@@ -10670,10 +11708,118 @@
     }
   }
 
+  let animFrameId = null;
+  let lastNightUpdateTime = null;
+
+  const dayFoamColor = foamMat.color.clone();
+  const nightBlueTearsFoamColor = new THREE.Color(0x38bdf8);
+  const mistDayColor = new THREE.Color(0xdce8f7);
+  const mistNightColor = new THREE.Color(0x6c7fa6);
+  const cloudDayColor = new THREE.Color(0xffffff);
+  const cloudNightColor = new THREE.Color(0x8ca8d6);
+  const cloudDayEmissive = new THREE.Color(0xd8eeff);
+  const cloudNightEmissive = new THREE.Color(0x1e3566);
+  const routeDayColor = new THREE.Color(0xffffff);
+  const routeNightColor = new THREE.Color(0xb8e2ff);
+  const stoneDayEmissive = new THREE.Color(0xd8f3ff);
+  const stoneNightEmissive = new THREE.Color(0x3b82c4);
+
+  function applyNightVisuals(nb, t) {
+    scene.background.copy(THEME.day.skyBg).lerp(THEME.night.skyBg, nb);
+    scene.fog.color.copy(THEME.day.fogColor).lerp(THEME.night.fogColor, nb);
+
+    oceanMat.color.copy(THEME.day.waterColor).lerp(THEME.night.waterColor, nb);
+    oceanMat.emissive.copy(THEME.day.waterEmissive).lerp(THEME.night.waterEmissive, nb);
+    deepSeaMat.color.copy(THEME.day.deepSeaColor).lerp(THEME.night.deepSeaColor, nb);
+    shallowLagoonMat.opacity = THREE.MathUtils.lerp(0.55, 0.25, nb);
+
+    ambientLight.color.copy(THEME.day.ambientColor).lerp(THEME.night.ambientColor, nb);
+    ambientLight.intensity = THREE.MathUtils.lerp(THEME.day.ambientIntensity, THEME.night.ambientIntensity, nb);
+
+    hemiLight.color.copy(THEME.day.hemiSky).lerp(THEME.night.hemiSky, nb);
+    hemiLight.groundColor.copy(THEME.day.hemiGround).lerp(THEME.night.hemiGround, nb);
+    hemiLight.intensity = THREE.MathUtils.lerp(THEME.day.hemiIntensity, THEME.night.hemiIntensity, nb);
+
+    mainDirLight.color.copy(THEME.day.dirColor).lerp(THEME.night.dirColor, nb);
+    mainDirLight.intensity = THREE.MathUtils.lerp(THEME.day.dirIntensity, THEME.night.dirIntensity, nb);
+    mainDirLight.position.lerpVectors(THEME.day.dirPos, THEME.night.dirPos, nb);
+
+    rippleMat.opacity = THREE.MathUtils.lerp(THEME.day.rippleOpacity, THEME.night.rippleOpacity, nb);
+    foamMat.opacity = THREE.MathUtils.lerp(THEME.day.foamOpacity, THEME.night.foamOpacity, nb);
+    foamMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nb);
+    for (let i = 0; i < islandRecords.length; i++) {
+      const r = islandRecords[i];
+      if (r.innerFoamMat) r.innerFoamMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nb);
+      if (r.outerFoamMat) r.outerFoamMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nb);
+    }
+    reefInnerFoamMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nb);
+    reefOuterFoamMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nb);
+
+    mistMat.color.copy(mistDayColor).lerp(mistNightColor, nb);
+    if (!sanctuaryState.awakeningActive) {
+      mistMat.opacity = THREE.MathUtils.lerp(0.56, 0.42, nb) * (1 - (sanctuaryState.mistDispersion || 0));
+    }
+
+    // 海島碼頭、橋燈光暈與投影水面光斑平滑連動
+    for (let i = 0; i < dockLampGlowMaterials.length; i++) {
+      const nightGlowOp = 0.36 + Math.sin(t * 3.5 + i) * 0.1;
+      dockLampGlowMaterials[i].opacity = THREE.MathUtils.lerp(0.08, nightGlowOp, nb);
+    }
+    bridgeLampHaloMat.opacity = THREE.MathUtils.lerp(0.14, 0.56 + Math.sin(t * 2.5) * 0.06, nb);
+    bridgeLampCoreMat.emissiveIntensity = THREE.MathUtils.lerp(1.4, 2.55, nb);
+    const targetBulbOp = THREE.MathUtils.lerp(THEME.day.bulbOpacity, THEME.night.bulbOpacity, nb);
+    for (let i = 0; i < dockBulbMaterials.length; i++) {
+      dockBulbMaterials[i].opacity = targetBulbOp;
+    }
+    for (let i = 0; i < dockWaterGlowMaterials.length; i++) {
+      dockWaterGlowMaterials[i].opacity = nb * (0.48 + 0.08 * Math.sin(t * 2.6 + i));
+    }
+
+    // 夜晚星空螢火蟲與白雲/航線/跳石色調
+    fireflyPoints.visible = nb > 0.01;
+    fireflyMat.opacity = THREE.MathUtils.lerp(THEME.day.fireflyOpacity, THEME.night.fireflyOpacity, nb);
+    cloudMat.color.copy(cloudDayColor).lerp(cloudNightColor, nb);
+    cloudMat.emissive.copy(cloudDayEmissive).lerp(cloudNightEmissive, nb);
+    cloudMat.opacity = THREE.MathUtils.lerp(0.94, 0.68, nb);
+
+    for (let i = 0; i < routeDashMaterials.length; i++) {
+      const dMat = routeDashMaterials[i];
+      dMat.opacity = THREE.MathUtils.lerp(0.52, 0.38, nb);
+      dMat.color.copy(routeDayColor).lerp(routeNightColor, nb);
+    }
+    stoneMat.emissive.copy(stoneDayEmissive).lerp(stoneNightEmissive, nb);
+    stoneMat.emissiveIntensity = THREE.MathUtils.lerp(0.25, 0.45, nb);
+
+    // 所有已註冊自發光材質 & 年級篩選複製材質
+    for (let i = 0; i < nightMatConfigs.length; i++) {
+      const cfg = nightMatConfigs[i];
+      if (cfg.dayEi !== undefined && cfg.nightEi !== undefined) {
+        cfg.mat.emissiveIntensity = THREE.MathUtils.lerp(cfg.dayEi, cfg.nightEi, nb);
+      }
+      if (cfg.dayOp !== undefined && cfg.nightOp !== undefined) {
+        cfg.mat.opacity = THREE.MathUtils.lerp(cfg.dayOp, cfg.nightOp, nb);
+      }
+    }
+    for (let i = 0; i < clonedNightMatLinks.length; i++) {
+      const link = clonedNightMatLinks[i];
+      const cfg = link.cfg;
+      if (cfg.dayEi !== undefined && cfg.nightEi !== undefined) {
+        link.cloneMat.emissiveIntensity = THREE.MathUtils.lerp(cfg.dayEi, cfg.nightEi, nb);
+      }
+      if (!link.rec.dimmed && cfg.dayOp !== undefined && cfg.nightOp !== undefined) {
+        link.cloneMat.opacity = THREE.MathUtils.lerp(cfg.dayOp, cfg.nightOp, nb);
+      }
+    }
+
+    // 全部夜間投影光暈、光束與動態粒子系統
+    for (let i = 0; i < nightGlowUpdaters.length; i++) {
+      nightGlowUpdaters[i](nb, t);
+    }
+  }
+
   function applyDayNightTheme(nightMode) {
-    isNight = nightMode;
+    isNight = !!nightMode;
     if (oceanEnv) oceanEnv.setNight(isNight);
-    const target = isNight ? THEME.night : THEME.day;
 
     toggleBtn.classList.toggle("is-night", isNight);
     if (resetCamBtn) resetCamBtn.classList.toggle("is-night", isNight);
@@ -10685,57 +11831,11 @@
       ? "#061024"
       : "linear-gradient(180deg, #0284c7 0%, #0369a1 100%)";
 
-    scene.background.copy(target.skyBg);
-    scene.fog.color.copy(target.fogColor);
-
-    oceanMat.color.copy(target.waterColor);
-    oceanMat.emissive.copy(target.waterEmissive);
-    deepSeaMat.color.copy(target.deepSeaColor);
-    shallowLagoonMat.opacity = isNight ? 0.25 : 0.55;
-
-    ambientLight.color.copy(target.ambientColor);
-    ambientLight.intensity = target.ambientIntensity;
-
-    hemiLight.color.copy(target.hemiSky);
-    hemiLight.groundColor.copy(target.hemiGround);
-    hemiLight.intensity = target.hemiIntensity;
-
-    mainDirLight.color.copy(target.dirColor);
-    mainDirLight.intensity = target.dirIntensity;
-    mainDirLight.position.copy(target.dirPos);
-
-    rippleMat.opacity = target.rippleOpacity;
-    foamMat.opacity = target.foamOpacity;
-    mistMat.color.setHex(isNight ? 0x6c7fa6 : 0xdce8f7);
-    mistMat.opacity = (isNight ? 0.42 : 0.56) * (1 - (sanctuaryState.mistDispersion || 0));
-
-    // 切換海島碼頭與吊橋風燈發光光暈
-    dockLampGlowMaterials.forEach((gMat) => {
-      gMat.opacity = isNight ? 0.42 : 0.08;
-    });
-    bridgeLampHaloMat.opacity = isNight ? 0.45 : 0.14;
-    bridgeLampCoreMat.emissiveIntensity = isNight ? 2.4 : 1.4;
-    dockBulbMaterials.forEach((bMat) => {
-      bMat.opacity = target.bulbOpacity;
-    });
-    dockWaterGlowMaterials.forEach((gMat) => {
-      gMat.opacity = isNight ? 0.55 : 0;
-    });
-
-    // 切換夜晚漂浮星光微粒與白雲色調
-    fireflyPoints.visible = isNight;
-    fireflyMat.opacity = target.fireflyOpacity;
-    cloudMat.color.setHex(isNight ? 0x8ca8d6 : 0xffffff);
-    cloudMat.emissive.setHex(isNight ? 0x1e3566 : 0xd8eeff);
-    cloudMat.opacity = isNight ? 0.68 : 0.94;
-
-    // 調整航線虛線與跳石於日夜模式的柔和光感
-    routeDashMaterials.forEach((dMat) => {
-      dMat.opacity = isNight ? 0.38 : 0.52;
-      dMat.color.setHex(isNight ? 0xb8e2ff : 0xffffff);
-    });
-    stoneMat.emissive.setHex(isNight ? 0x3b82c4 : 0xd8f3ff);
-    stoneMat.emissiveIntensity = isNight ? 0.45 : 0.25;
+    if (animFrameId === null) {
+      nightBlend = isNight ? 1 : 0;
+      if (oceanEnv && oceanEnv.snapNight) oceanEnv.snapNight(isNight);
+      applyNightVisuals(nightBlend, clock.getElapsedTime());
+    }
   }
 
   toggleBtn.addEventListener("click", () => {
@@ -11046,6 +12146,9 @@
 
       rec.currentLevel = newLevel;
       rec.progressPct = pct;
+      if (rec.stageSys && rec.stageSys.stageAuraGroup) {
+        rec.stageSys.stageAuraGroup.userData.effectiveStage = Math.max(rec.stageSys.stage || 0, newLevel || 0);
+      }
       summary[rec.id] = { pct, level: newLevel, leveledUp };
     });
 
@@ -11165,6 +12268,9 @@
       const prev = rec.stageLevel;
       rec.stageSys.setStage(target, animate && prev !== null && target > prev);
       rec.stageLevel = target;
+      if (rec.stageSys && rec.stageSys.stageAuraGroup) {
+        rec.stageSys.stageAuraGroup.userData.effectiveStage = Math.max(target || 0, rec.currentLevel || 0);
+      }
       result[rec.id] = target;
     });
     return result;
@@ -11334,13 +12440,18 @@
     const skipObjs = new Set([rec.shallowRing, rec.foamRing, rec.outerFoamRing, rec.upgradeRing, rec.beaconRing]);
     const list = [];
     rec.group.traverse((obj) => {
-      if (!obj.isMesh || obj.isSprite || skipObjs.has(obj) || obj.userData.isBeacon) return;
+      if (!obj.isMesh || obj.isSprite || obj.userData.skipDimClone || skipObjs.has(obj) || obj.userData.isBeacon) return;
       const m = obj.material;
       if (!m || Array.isArray(m) || skipMats.has(m)) return;
       // 材質多為跨島共用，首次篩選時為每個網格複製獨立材質，避免影響其他島嶼
-      obj.material = m.clone();
+      const cloned = m.clone();
+      obj.material = cloned;
+      const nightCfg = nightMatMap.get(m);
+      if (nightCfg) {
+        clonedNightMatLinks.push({ cloneMat: cloned, cfg: nightCfg, rec });
+      }
       list.push({
-        mat: obj.material,
+        mat: cloned,
         transparent: m.transparent,
         opacity: m.opacity
       });
@@ -11350,6 +12461,9 @@
   }
 
   function setIslandDim(rec, dim) {
+    if (rec.stageSys && rec.stageSys.stageAuraGroup) {
+      rec.stageSys.stageAuraGroup.userData.dimFactor = dim ? DIM_OPACITY : 1;
+    }
     if (!dim && !rec.dimMats) return;
     collectDimMaterials(rec).forEach((e) => {
       if (dim) {
@@ -11493,6 +12607,13 @@
 
   function renderSceneFrame() {
     const t = clock.getElapsedTime();
+    const dt = lastNightUpdateTime === null ? 0.016 : Math.min(0.1, Math.max(0.001, t - lastNightUpdateTime));
+    lastNightUpdateTime = t;
+    const targetNight = isNight ? 1 : 0;
+    nightBlend += (targetNight - nightBlend) * Math.min(1, dt * 4.5);
+    if (Math.abs(targetNight - nightBlend) < 0.002) nightBlend = targetNight;
+    applyNightVisuals(nightBlend, t);
+
     updateTargetIslandBeacon(t);
 
     // 更新 7 座動森風吊橋走動 NPC 與中央聖殿神聖雙環/火炬
@@ -11533,7 +12654,7 @@
     });
 
     // 3. 7 座小島隨海浪輕柔微幅浮動、岸邊與淺灘外緣浪花呼吸縮放與淡入淡出、滑鼠懸停回饋與建築動態
-    const baseFoamOp = isNight ? THEME.night.foamOpacity : THEME.day.foamOpacity;
+    const baseFoamOp = THREE.MathUtils.lerp(THEME.day.foamOpacity, THEME.night.foamOpacity, nightBlend);
     islandRecords.forEach((rec) => {
       const bob = Math.sin(t * 1.4 + rec.phase) * 0.12;
       rec.group.position.y = bob;
@@ -11800,7 +12921,7 @@
 
       // 迷霧向外吹散並淡出
       sanctuaryState.mistDispersion = easeOut;
-      const baseMistOpacity = isNight ? 0.42 : 0.56;
+      const baseMistOpacity = THREE.MathUtils.lerp(0.56, 0.42, nightBlend);
       mistMat.opacity = Math.max(0, baseMistOpacity * (1 - easeOut));
 
       // 金字塔/領航塔頂端金色光束向上射出展開
@@ -12380,19 +13501,32 @@
       fl.mesh.rotation.z = Math.cos(t * 1.7 + fl.phase) * 0.14;
     });
 
-    navBuoys.forEach((nb) => {
+    navBuoys.forEach((b) => {
       const waveY =
-        Math.sin(nb.x * 0.16 + t * 1.65) * 0.16 +
-        Math.cos(nb.z * 0.18 + t * 1.35) * 0.12;
-      nb.root.position.y = 0.06 + waveY;
-      nb.tiltPivot.rotation.z = Math.sin(t * 2.1 + nb.phase) * 0.13;
-      nb.tiltPivot.rotation.x = Math.cos(t * 1.8 + nb.phase) * 0.1;
+        Math.sin(b.x * 0.16 + t * 1.65) * 0.16 +
+        Math.cos(b.z * 0.18 + t * 1.35) * 0.12;
+      b.root.position.y = 0.06 + waveY;
+      b.tiltPivot.rotation.z = Math.sin(t * 2.1 + b.phase) * 0.13;
+      b.tiltPivot.rotation.x = Math.cos(t * 1.8 + b.phase) * 0.1;
 
-      // 頂端警示燈罩呼吸微光
-      const pulse = 0.5 + 0.5 * Math.sin(t * 3.4 + nb.phase);
-      nb.haloMat.opacity = (isNight ? 0.72 : 0.42) * (0.3 + 0.7 * pulse);
-      nb.haloSphere.scale.setScalar(0.85 + pulse * 0.45);
-      nb.ringMat.opacity = baseFoamOp * (0.35 + 0.55 * pulse);
+      // 頂端警示燈罩交替閃爍與水面投影同步亮滅
+      const rawPulse = 0.5 + 0.5 * Math.sin(t * 2.6 + b.phase);
+      const pulse = Math.pow(rawPulse, 1.35);
+      const dayHalo = 0.28 * (0.35 + 0.65 * pulse);
+      const nightHalo = 0.85 * (0.22 + 0.78 * pulse);
+      b.haloMat.opacity = THREE.MathUtils.lerp(dayHalo, nightHalo, nightBlend);
+      b.haloSphere.scale.setScalar(0.82 + pulse * 0.55 * (0.7 + 0.3 * nightBlend));
+      if (b.beaconMat) {
+        b.beaconMat.opacity = THREE.MathUtils.lerp(0.85, 0.45 + 0.55 * pulse, nightBlend);
+      }
+      if (b.waterGlow) {
+        b.waterGlow.mesh.visible = nightBlend > 0.01;
+        b.waterGlow.mat.opacity = nightBlend * (0.14 + 0.52 * pulse);
+        const wgScale = 0.88 + 0.24 * pulse;
+        b.waterGlow.mesh.scale.set(wgScale, 1, wgScale);
+      }
+      b.ringMat.color.copy(dayFoamColor).lerp(nightBlueTearsFoamColor, nightBlend * 0.75);
+      b.ringMat.opacity = baseFoamOp * (0.35 + 0.55 * pulse);
     });
 
     // 5. 低多邊形白雲緩慢飄動與海鷗拍翅盤旋
@@ -12545,8 +13679,8 @@
       }
     }
 
-    // 6. 夜晚星光與螢火蟲微粒漂浮、透明度/亮度微閃效果與碼頭燈光微幅閃爍
-    if (isNight) {
+    // 6. 夜晚星光與螢火蟲微粒漂浮、透明度/亮度微閃效果（碼頭光暈已由 applyNightVisuals 平滑接管）
+    if (nightBlend > 0.01) {
       const ffArr = fireflyGeo.attributes.position.array;
       const colArr = fireflyGeo.attributes.color.array;
       for (let i = 0; i < fireflyCount; i++) {
@@ -12564,10 +13698,6 @@
       }
       fireflyGeo.attributes.position.needsUpdate = true;
       fireflyGeo.attributes.color.needsUpdate = true;
-
-      dockLampGlowMaterials.forEach((gMat, idx) => {
-        gMat.opacity = 0.36 + Math.sin(t * 3.5 + idx) * 0.1;
-      });
     }
 
     controls.update();
@@ -12652,7 +13782,6 @@
     setTargetIslandHighlight
   };
 
-  let animFrameId = null;
   function isScenePaused() {
     if (document.hidden) return true;
     if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return true;

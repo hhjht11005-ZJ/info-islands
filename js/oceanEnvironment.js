@@ -136,6 +136,52 @@
       return geo;
     }
 
+    // 程式生成柔和徑向漸層光暈貼圖（零 PointLight 模擬地面／水面受光光斑）
+    function createRadialGlowTexture(size = 128) {
+      const cv = document.createElement("canvas");
+      cv.width = size;
+      cv.height = size;
+      const ctx = cv.getContext("2d");
+      const c = size * 0.5;
+      const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
+      grad.addColorStop(0.0, "rgba(255, 255, 255, 1.0)");
+      grad.addColorStop(0.22, "rgba(255, 255, 255, 0.72)");
+      grad.addColorStop(0.5, "rgba(255, 255, 255, 0.28)");
+      grad.addColorStop(0.78, "rgba(255, 255, 255, 0.07)");
+      grad.addColorStop(1.0, "rgba(255, 255, 255, 0.0)");
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, size, size);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      return tex;
+    }
+    const radialGlowTex = createRadialGlowTexture(128);
+
+    // 柔和體積感半透明光錐幾何（頂點色線性漸隱至透明邊緣，避免硬切邊）
+    function buildSoftConeGeometry(rTop, rBot, height, segs, topTint, botTint) {
+      const raw = new THREE.CylinderGeometry(rTop, rBot, height, segs, 1, true);
+      const g = raw.index ? raw.toNonIndexed() : raw;
+      if (raw !== g) raw.dispose();
+      const pa = g.attributes.position;
+      const cols = new Float32Array(pa.count * 3);
+      const halfH = height * 0.5;
+      const cTop = new THREE.Color(topTint);
+      const cBot = new THREE.Color(botTint);
+      const cMix = new THREE.Color();
+      for (let i = 0; i < pa.count; i++) {
+        const u = Math.max(0, Math.min(1, (pa.getY(i) + halfH) / height));
+        cMix.copy(cBot).lerp(cTop, u);
+        cols[i * 3] = cMix.r;
+        cols[i * 3 + 1] = cMix.g;
+        cols[i * 3 + 2] = cMix.b;
+      }
+      g.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+      return g;
+    }
+
+    let nightMix = night ? 1 : 0;
+
     /* ============================================================
      * 共用材質庫
      * ============================================================ */
@@ -350,7 +396,7 @@
     const waveRingGeo = new THREE.RingGeometry(0.972, 1.0, 56, 1);
     waveRingGeo.rotateX(-Math.PI / 2);
     const waveRingMat = additiveWhiteMat.clone();
-    waveRingMat.fog = true;
+    waveRingMat.fog = false;
     const waveRingMesh = makeInstanced(waveRingGeo, waveRingMat, waveRingEntries.length, true);
     waveRingMesh.renderOrder = 2;
     waveRingEntries.forEach((e, i) => {
@@ -360,14 +406,20 @@
     let waveBrightness = 0.5;
 
     function updateWaveRings(t) {
+      const dayGain = 0.5 * (1 - nightMix);
+      const nightGain = 0.28 * nightMix;
       for (let i = 0; i < waveRingEntries.length; i++) {
         const e = waveRingEntries[i];
         const p = ((t + e.phase) % e.period) / e.period;
         const s = e.r0 * (1 + e.grow * p);
         const fadeIn = Math.min(1, p / 0.12);
-        const a = fadeIn * Math.pow(1 - p, 1.6) * waveBrightness * e.gain;
+        const env = fadeIn * Math.pow(1 - p, 1.55) * e.gain;
+        const aD = env * dayGain;
+        const shimmer = 0.8 + 0.25 * Math.sin(t * 2.1 + e.phase);
+        const aN = env * nightGain * shimmer;
+        // 白天白色浪花，夜晚轉為「藍眼淚（生光藻）」青藍色微光
         waveRingMesh.setMatrixAt(i, setDummy(e.x, e.y, e.z, 0, 0, 0, s, 1, s));
-        waveRingMesh.setColorAt(i, tmpColor.setRGB(a, a, a));
+        waveRingMesh.setColorAt(i, tmpColor.setRGB(aD + aN * 0.16, aD + aN * 0.85, aD + aN * 1.0));
       }
       waveRingMesh.instanceMatrix.needsUpdate = true;
       if (waveRingMesh.instanceColor) waveRingMesh.instanceColor.needsUpdate = true;
@@ -449,7 +501,44 @@
       side: THREE.DoubleSide
     });
 
-    // 2a. 動森風木造小帆船（紅白條紋船帆）
+    function makeWaterGlowDisc(w, h, colorHex, x = 0, y = 0.15, z = 0) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: radialGlowTex,
+        color: colorHex,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false,
+        side: THREE.DoubleSide
+      });
+      const geo = new THREE.PlaneGeometry(w, h);
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      m.renderOrder = 2;
+      m.visible = false;
+      return { mesh: m, mat };
+    }
+
+    function makeGlowSprite(colorHex, scale) {
+      const mat = new THREE.SpriteMaterial({
+        map: radialGlowTex,
+        color: colorHex,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        fog: false
+      });
+      const sp = new THREE.Sprite(mat);
+      sp.scale.setScalar(scale);
+      sp.renderOrder = 4;
+      sp.visible = false;
+      return { sprite: sp, mat };
+    }
+
+    // 2a. 動森風木造小帆船（紅白條紋船帆 ＋ 桅杆夜航燈與船舷導航燈）
     function createStripeTexture() {
       const cv = document.createElement("canvas");
       cv.width = 8;
@@ -491,6 +580,25 @@
       roughness: 0.7,
       flatShading: true
     });
+    const sailWarmLampMat = new THREE.MeshStandardMaterial({
+      color: 0xffe8a3,
+      emissive: 0xffb703,
+      emissiveIntensity: 0.2,
+      roughness: 0.25
+    });
+    const sailPortMat = new THREE.MeshStandardMaterial({
+      color: 0xff6b6b,
+      emissive: 0xff3b4e,
+      emissiveIntensity: 0.15,
+      roughness: 0.3
+    });
+    const sailStarboardMat = new THREE.MeshStandardMaterial({
+      color: 0x5eead4,
+      emissive: 0x10e5a8,
+      emissiveIntensity: 0.15,
+      roughness: 0.3
+    });
+    const sailWakeMat = wakeMat.clone();
 
     function createWoodenSailboat() {
       const holder = new THREE.Group();
@@ -502,30 +610,68 @@
         { geo: new THREE.BoxGeometry(1.7, 0.12, 3.6), color: 0xe9c48a, pos: [0, 0.76, 0] },
         { geo: new THREE.BoxGeometry(0.95, 0.55, 0.95), color: 0xd64045, pos: [0, 1.1, -1.15] },
         { geo: new THREE.ConeGeometry(0.78, 0.42, 4), color: 0x7a4a2a, pos: [0, 1.58, -1.15], rot: [0, Math.PI / 4, 0] },
-        { geo: new THREE.BoxGeometry(0.4, 0.26, 0.04), color: 0x9ad8ff, pos: [0, 1.15, -0.66] },
         { geo: new THREE.CylinderGeometry(0.07, 0.09, 3.7, 6), color: 0x6b4423, pos: [0, 2.6, 0.32] },
         { geo: new THREE.CylinderGeometry(0.045, 0.045, 2.0, 5), color: 0x6b4423, pos: [0, 1.12, -0.6], rot: [Math.PI / 2, 0, 0] },
-        { geo: new THREE.BoxGeometry(0.03, 0.32, 0.55), color: 0xe63946, pos: [0, 4.5, 0.06] }
+        { geo: new THREE.BoxGeometry(0.03, 0.32, 0.55), color: 0xe63946, pos: [0, 4.5, 0.06] },
+        { geo: new THREE.BoxGeometry(0.18, 0.04, 0.04), color: 0x4a3525, pos: [0.1, 3.92, 0.38] }
       ]);
       pivot.add(new THREE.Mesh(hullGeo, vcMat));
       pivot.add(new THREE.Mesh(buildSailGeometry([0.02, 4.35, 0.3], [0.02, 1.1, 0.3], [0.02, 1.1, -1.55], 0.32), sailMat));
       pivot.add(new THREE.Mesh(buildSailGeometry([0.02, 3.9, 0.42], [0.02, 0.95, 0.42], [0.02, 0.95, 2.05], 0.24), sailMat));
-      const wake = new THREE.Mesh(wakeGeo, wakeMat);
+
+      // 船艙暖黃窗戶 + 桅杆夜航燈 + 兩側紅綠舷燈
+      const cabinWin = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.26, 0.06), sailWarmLampMat);
+      cabinWin.position.set(0, 1.15, -0.66);
+      pivot.add(cabinWin);
+
+      const mastLamp = new THREE.Mesh(new THREE.OctahedronGeometry(0.14, 0), sailWarmLampMat);
+      mastLamp.position.set(0.14, 3.78, 0.38);
+      pivot.add(mastLamp);
+      const mastGlow = makeGlowSprite(0xffcb47, 1.9);
+      mastGlow.sprite.position.set(0.14, 3.78, 0.38);
+      pivot.add(mastGlow.sprite);
+
+      const portLight = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), sailPortMat);
+      portLight.position.set(0.91, 0.85, 0.48);
+      pivot.add(portLight);
+      const portGlow = makeGlowSprite(0xff5a6e, 1.1);
+      portGlow.sprite.position.copy(portLight.position);
+      pivot.add(portGlow.sprite);
+
+      const stbdLight = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 6), sailStarboardMat);
+      stbdLight.position.set(-0.91, 0.85, 0.48);
+      pivot.add(stbdLight);
+      const stbdGlow = makeGlowSprite(0x2ee6a8, 1.1);
+      stbdGlow.sprite.position.copy(stbdLight.position);
+      pivot.add(stbdGlow.sprite);
+
+      const waterGlow = makeWaterGlowDisc(8.6, 10.6, 0xffc65c, 0, 0.14, 0.1);
+      holder.add(waterGlow.mesh);
+
+      const wake = new THREE.Mesh(wakeGeo, sailWakeMat);
       wake.position.set(0, 0.22, -1.9);
       wake.renderOrder = 2;
       holder.add(wake);
-      return { holder, pivot, wake };
+      return {
+        holder,
+        pivot,
+        wake,
+        wakeMat: sailWakeMat,
+        waterGlow,
+        glowSprites: [mastGlow, portGlow, stbdGlow]
+      };
     }
 
-    // 2b. 科技風「數據封包運輸艇」（載 2 顆發光青藍色方塊）
+    // 2b. 科技風「數據封包運輸艇」（載 2 顆發光青藍色方塊 ＋ 水面青色科技光暈）
     const dataGlowMat = new THREE.MeshStandardMaterial({
-      color: 0x67e8f9,
-      emissive: 0x06b6d4,
+      color: 0x7ff6ff,
+      emissive: 0x00d8ff,
       emissiveIntensity: 0.9,
-      roughness: 0.28,
+      roughness: 0.25,
       metalness: 0.1,
       flatShading: true
     });
+    const dataWakeMat = wakeMat.clone();
     function createDataPacketBoat() {
       const holder = new THREE.Group();
       const pivot = new THREE.Group();
@@ -545,21 +691,52 @@
         { geo: new THREE.OctahedronGeometry(0.11, 0), pos: [0.35, 2.25, -1.55] }
       ]);
       pivot.add(new THREE.Mesh(glowGeo, dataGlowMat));
+
       const cubeGeo = new THREE.BoxGeometry(0.72, 0.72, 0.72);
+      const dataGlowSprites = [];
       const cubes = [0.25, 1.25].map((z) => {
         const cube = new THREE.Mesh(cubeGeo, dataGlowMat);
         cube.position.set(0, 1.05, z);
         pivot.add(cube);
+        const cg = makeGlowSprite(0x22d3ee, 2.3);
+        cg.sprite.position.set(0, 1.05, z);
+        pivot.add(cg.sprite);
+        dataGlowSprites.push({ cube, glow: cg });
         return cube;
       });
-      const wake = new THREE.Mesh(wakeGeo, wakeMat);
+      const antGlow = makeGlowSprite(0x38bdf8, 1.35);
+      antGlow.sprite.position.set(0.35, 2.25, -1.55);
+      pivot.add(antGlow.sprite);
+
+      const waterGlow = makeWaterGlowDisc(10.6, 12.6, 0x00e5ff, 0, 0.14, 0.15);
+      holder.add(waterGlow.mesh);
+
+      const wake = new THREE.Mesh(wakeGeo, dataWakeMat);
       wake.position.set(0, 0.22, -2.1);
       wake.renderOrder = 2;
       holder.add(wake);
-      return { holder, pivot, wake, cubes };
+      return {
+        holder,
+        pivot,
+        wake,
+        wakeMat: dataWakeMat,
+        cubes,
+        dataGlowSprites,
+        antGlow,
+        waterGlow
+      };
     }
 
-    // 2c. 巨型黃色橡皮小鴨漂浮船
+    // 2c. 巨型黃色橡皮小鴨漂浮船（頭頂小皇冠與領結暖金自發光 ＋ 水面金色反射光暈 ＋ 夜光 V 字尾跡）
+    const duckGoldMat = new THREE.MeshStandardMaterial({
+      color: 0xffd166,
+      emissive: 0xffaa00,
+      emissiveIntensity: 0.25,
+      roughness: 0.24,
+      metalness: 0.42,
+      flatShading: true
+    });
+    const duckWakeMat = wakeMat.clone();
     function createRubberDuck() {
       const holder = new THREE.Group();
       const pivot = new THREE.Group();
@@ -577,13 +754,53 @@
         { geo: new THREE.SphereGeometry(1, 10, 6), color: 0xffc300, pos: [-1.3, 0.82, -0.15], scale: [0.28, 0.45, 0.85] }
       ]);
       pivot.add(new THREE.Mesh(duckGeo, vcSmoothMat));
+
+      // 小鴨頭頂暖金小皇冠 + 胸前可愛小領結（夜晚亮起暖金自發光）
+      const crownParts = [
+        { geo: new THREE.CylinderGeometry(0.32, 0.28, 0.14, 10), pos: [0, 2.86, 0.92] },
+        { geo: new THREE.OctahedronGeometry(0.1, 0), pos: [0, 2.98, 0.92] }
+      ];
+      for (let k = 0; k < 5; k++) {
+        const ka = (k / 5) * TAU;
+        crownParts.push({
+          geo: new THREE.ConeGeometry(0.09, 0.24, 4),
+          pos: [Math.cos(ka) * 0.24, 3.03, 0.92 + Math.sin(ka) * 0.24]
+        });
+      }
+      // 胸前暖金小領結
+      crownParts.push(
+        { geo: new THREE.ConeGeometry(0.18, 0.34, 4), pos: [0.2, 1.24, 1.56], rot: [0, 0, Math.PI / 2] },
+        { geo: new THREE.ConeGeometry(0.18, 0.34, 4), pos: [-0.2, 1.24, 1.56], rot: [0, 0, -Math.PI / 2] },
+        { geo: new THREE.SphereGeometry(0.1, 8, 6), pos: [0, 1.24, 1.58] }
+      );
+      pivot.add(new THREE.Mesh(mergeParts(crownParts), duckGoldMat));
+
+      const crownGlow = makeGlowSprite(0xffd15c, 2.2);
+      crownGlow.sprite.position.set(0, 2.95, 0.92);
+      pivot.add(crownGlow.sprite);
+      const bowGlow = makeGlowSprite(0xffc94d, 1.5);
+      bowGlow.sprite.position.set(0, 1.24, 1.62);
+      pivot.add(bowGlow.sprite);
+
       pivot.scale.setScalar(1.75);
-      const wake = new THREE.Mesh(wakeGeo, wakeMat);
+
+      const waterGlow = makeWaterGlowDisc(12.6, 14.4, 0xffd147, 0, 0.14, 0.15);
+      holder.add(waterGlow.mesh);
+
+      const wake = new THREE.Mesh(wakeGeo, duckWakeMat);
       wake.position.set(0, 0.22, -2.8);
       wake.scale.set(1.5, 1, 1.3);
       wake.renderOrder = 2;
       holder.add(wake);
-      return { holder, pivot, wake };
+      return {
+        holder,
+        pivot,
+        wake,
+        wakeMat: duckWakeMat,
+        waterGlow,
+        isDuck: true,
+        glowSprites: [crownGlow, bowGlow]
+      };
     }
 
     // 航道半徑 77～92（避開半徑 74 浮標、半徑 <=72 NPC 島與半徑 >=94 礁石/海豚點）
@@ -616,12 +833,44 @@
             cube.position.y = 1.08 + Math.sin(t * 2.4 + k * 1.6) * 0.12;
             cube.rotation.y = t * 0.9 + k;
             cube.rotation.x = Math.sin(t * 0.7 + k) * 0.25;
+            if (b.dataGlowSprites && b.dataGlowSprites[k]) {
+              b.dataGlowSprites[k].glow.sprite.position.y = cube.position.y;
+            }
           });
+        }
+        if (b.waterGlow) {
+          const showGlow = nightMix > 0.01;
+          b.waterGlow.mesh.visible = showGlow;
+          if (showGlow) {
+            const pulse = 0.5 + 0.5 * Math.sin(t * 2.4 + b.ph);
+            const sc = 0.94 + pulse * 0.14;
+            b.waterGlow.mesh.scale.set(sc, 1, sc);
+            const baseOp = b.isDuck ? 0.44 + pulse * 0.12 : b.cubes ? 0.44 + pulse * 0.14 : 0.30 + pulse * 0.08;
+            b.waterGlow.mat.opacity = baseOp * nightMix;
+          }
+        }
+        if (b.glowSprites) {
+          const showSp = nightMix > 0.01;
+          b.glowSprites.forEach((gs, gi) => {
+            gs.sprite.visible = showSp;
+            if (showSp) gs.mat.opacity = (0.62 + 0.2 * Math.sin(t * 3.1 + gi)) * nightMix;
+          });
+        }
+        if (b.dataGlowSprites) {
+          const showDg = nightMix > 0.01;
+          b.dataGlowSprites.forEach((dg, gi) => {
+            dg.glow.sprite.visible = showDg;
+            if (showDg) dg.glow.mat.opacity = (0.58 + 0.22 * Math.sin(t * 3.4 + gi)) * nightMix;
+          });
+          if (b.antGlow) {
+            b.antGlow.sprite.visible = showDg;
+            if (showDg) b.antGlow.mat.opacity = (0.65 + 0.25 * Math.sin(t * 4.5)) * nightMix;
+          }
         }
       }
     }
 
-    // 2d. 8 顆紅白相間航道浮標（外環航道內側邊界，半徑 74，角度避開 NPC 島）
+    // 2d. 8 顆紅白相間航道浮標（夜晚輪流閃爍暖黃與青綠信號燈 ＋ 海面同步光暈投影）
     const buoyBodyGeo = mergeParts([
       { geo: new THREE.CylinderGeometry(0.6, 0.75, 0.9, 10), color: 0xe63946, pos: [0, 0.15, 0] },
       { geo: new THREE.CylinderGeometry(0.5, 0.6, 0.35, 10), color: 0xfafafa, pos: [0, 0.775, 0] },
@@ -632,21 +881,29 @@
     ]);
     const buoyLampGeo = new THREE.CylinderGeometry(0.26, 0.26, 0.4, 10);
     buoyLampGeo.translate(0, 1.89, 0);
-    const buoyHaloGeo = new THREE.SphereGeometry(0.92, 10, 8);
+    const buoyHaloGeo = new THREE.SphereGeometry(0.98, 10, 8);
     buoyHaloGeo.translate(0, 1.89, 0);
-    const buoyLampMat = new THREE.MeshStandardMaterial({
-      color: 0xfff3c4,
-      emissive: 0xffb703,
-      emissiveIntensity: 0.25,
-      roughness: 0.3
-    });
+    const buoyWaterGlowGeo = new THREE.PlaneGeometry(7.2, 7.2);
+    buoyWaterGlowGeo.rotateX(-Math.PI / 2);
+
+    const buoyLampMat = new THREE.MeshBasicMaterial({ color: 0xffffff, fog: false });
     const buoyHaloMat = new THREE.MeshBasicMaterial({
-      color: 0xffc845,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0,
+      opacity: 0.7,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
       fog: false
+    });
+    const buoyWaterGlowMat = new THREE.MeshBasicMaterial({
+      map: radialGlowTex,
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.62,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false,
+      side: THREE.DoubleSide
     });
     const buoySpots = [];
     for (let k = 0; k < 8; k++) {
@@ -657,23 +914,61 @@
     const buoyLampMesh = makeInstanced(buoyLampGeo, buoyLampMat, 8, true);
     const buoyHaloMesh = makeInstanced(buoyHaloGeo, buoyHaloMat, 8, true);
     buoyHaloMesh.renderOrder = 3;
+    const buoyWaterGlowMesh = makeInstanced(buoyWaterGlowGeo, buoyWaterGlowMat, 8, true);
+    buoyWaterGlowMesh.renderOrder = 2;
+
+    const BUOY_COLOR_AMBER = new THREE.Color(0xffd147);
+    const BUOY_COLOR_TEAL = new THREE.Color(0x2bf5c5);
+    const BUOY_DAY_AMBER = new THREE.Color(0xcfa85a);
+    const BUOY_DAY_TEAL = new THREE.Color(0x55a89b);
+    const tmpBuoyCol = new THREE.Color();
+
+    for (let i = 0; i < 8; i++) {
+      buoyLampMesh.setColorAt(i, i % 2 === 0 ? BUOY_DAY_AMBER : BUOY_DAY_TEAL);
+      buoyHaloMesh.setColorAt(i, tmpColor.setRGB(0, 0, 0));
+      buoyWaterGlowMesh.setColorAt(i, tmpColor.setRGB(0, 0, 0));
+    }
 
     function updateBuoys(t) {
+      const showGlow = nightMix > 0.01;
+      buoyHaloMesh.visible = showGlow;
+      buoyWaterGlowMesh.visible = showGlow;
       for (let i = 0; i < buoySpots.length; i++) {
         const b = buoySpots[i];
-        const y = waveY(b.x, b.z, t) * 0.9 - 0.05;
+        const wy = waveY(b.x, b.z, t);
+        const y = wy * 0.9 - 0.05;
         const m = setDummy(b.x, y, b.z, Math.cos(t * 1.5 + b.ph) * 0.09, b.ph, Math.sin(t * 1.8 + b.ph) * 0.13);
         buoyBodyMesh.setMatrixAt(i, m);
         buoyLampMesh.setMatrixAt(i, m);
         buoyHaloMesh.setMatrixAt(i, m);
+
+        const isEven = i % 2 === 0;
+        const dayCol = isEven ? BUOY_DAY_AMBER : BUOY_DAY_TEAL;
+        const nightCol = isEven ? BUOY_COLOR_AMBER : BUOY_COLOR_TEAL;
+        // 輪流交替閃爍暖黃與青綠信號燈
+        const wave = 0.5 + 0.5 * Math.sin(t * 2.6 + (isEven ? 0 : Math.PI) + i * 0.25);
+        const pulse = 0.16 + 0.84 * Math.pow(wave, 1.7);
+
+        tmpBuoyCol.copy(dayCol).lerp(nightCol, nightMix * (0.45 + 0.55 * pulse));
+        buoyLampMesh.setColorAt(i, tmpBuoyCol);
+
+        if (showGlow) {
+          const glowStrength = nightMix * pulse;
+          tmpColor.copy(nightCol).multiplyScalar(glowStrength);
+          buoyHaloMesh.setColorAt(i, tmpColor);
+          buoyWaterGlowMesh.setColorAt(i, tmpColor);
+          const wgScale = 0.82 + 0.34 * pulse;
+          buoyWaterGlowMesh.setMatrixAt(i, setDummy(b.x, wy * 0.55 + 0.15, b.z, 0, 0, 0, wgScale, 1, wgScale));
+        }
       }
       buoyBodyMesh.instanceMatrix.needsUpdate = true;
       buoyLampMesh.instanceMatrix.needsUpdate = true;
-      buoyHaloMesh.instanceMatrix.needsUpdate = true;
-      if (night) {
-        const pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
-        buoyLampMat.emissiveIntensity = 2.6 + pulse * 0.8;
-        buoyHaloMat.opacity = 0.28 + pulse * 0.22;
+      if (buoyLampMesh.instanceColor) buoyLampMesh.instanceColor.needsUpdate = true;
+      if (showGlow) {
+        buoyHaloMesh.instanceMatrix.needsUpdate = true;
+        buoyWaterGlowMesh.instanceMatrix.needsUpdate = true;
+        if (buoyHaloMesh.instanceColor) buoyHaloMesh.instanceColor.needsUpdate = true;
+        if (buoyWaterGlowMesh.instanceColor) buoyWaterGlowMesh.instanceColor.needsUpdate = true;
       }
     }
 
@@ -877,9 +1172,11 @@
           continue;
         }
         const sc = 0.6 + p * 2.8;
-        const a = Math.pow(1 - p, 1.4) * (night ? 0.55 : 0.95);
+        const env = Math.pow(1 - p, 1.4);
+        const aD = env * 0.95 * (1 - nightMix);
+        const aN = env * 0.62 * nightMix;
         splashRingMesh.setMatrixAt(i, setDummy(r.x, 0.26, r.z, 0, 0, 0, sc, 1, sc));
-        splashRingMesh.setColorAt(i, tmpColor.setRGB(a, a, a));
+        splashRingMesh.setColorAt(i, tmpColor.setRGB(aD + aN * 0.2, aD + aN * 0.88, aD + aN * 1.0));
       }
       splashRingMesh.instanceMatrix.needsUpdate = true;
       if (splashRingMesh.instanceColor) splashRingMesh.instanceColor.needsUpdate = true;
@@ -967,8 +1264,8 @@
       cloudMesh.instanceMatrix.needsUpdate = true;
     }
 
-    // 4b. 2 顆彩色拼布熱氣球 + 藤編吊籃（合併頂點色單一幾何 → InstancedMesh 共 1 個 Draw Call）
-    function buildBalloonGeometry() {
+    // 4b. 2 顆彩色拼布熱氣球 + 藤編吊籃（夜晚內部燃燒器火光透射成彩色天燈 ＋ 吊籃暖黃提燈與向下淡光錐）
+    function buildBalloonParts() {
       const profile = [
         [0.05, 0], [0.55, 0.15], [1.2, 0.7], [1.85, 1.6], [2.2, 2.7],
         [2.25, 3.6], [2.0, 4.5], [1.4, 5.2], [0.6, 5.55], [0.02, 5.65]
@@ -978,7 +1275,17 @@
       env.computeVertexNormals();
       const palette = [0xff595e, 0xffca3a, 0x8ac926, 0x1982c4, 0x6a4c93, 0xff924c].map((h) => new THREE.Color(h));
       const pa = env.attributes.position;
+      const ua = env.attributes.uv;
       const colors = new Float32Array(pa.count * 3);
+
+      // 同步繪製拼布熱氣球夜光透射貼圖（底部開口燃燒處最亮暖橘，向上透出各色布面光澤）
+      const emCv = document.createElement("canvas");
+      emCv.width = 128;
+      emCv.height = 128;
+      const emCtx = emCv.getContext("2d");
+      const warmFire = new THREE.Color(0xff9b3d);
+      const patchCol = new THREE.Color();
+
       for (let i = 0; i < pa.count; i += 3) {
         const cx = (pa.getX(i) + pa.getX(i + 1) + pa.getX(i + 2)) / 3;
         const cy = (pa.getY(i) + pa.getY(i + 1) + pa.getY(i + 2)) / 3;
@@ -991,41 +1298,164 @@
           colors[(i + k) * 3 + 1] = col.g;
           colors[(i + k) * 3 + 2] = col.b;
         }
+        if (ua) {
+          const uMin = Math.min(ua.getX(i), ua.getX(i + 1), ua.getX(i + 2));
+          const uMax = Math.max(ua.getX(i), ua.getX(i + 1), ua.getX(i + 2));
+          const vMin = Math.min(ua.getY(i), ua.getY(i + 1), ua.getY(i + 2));
+          const vMax = Math.max(ua.getY(i), ua.getY(i + 1), ua.getY(i + 2));
+          const vMid = (vMin + vMax) * 0.5;
+          const fireMix = Math.max(0.28, 1.0 - vMid * 0.78);
+          patchCol.copy(col).lerp(warmFire, fireMix * 0.55).multiplyScalar(0.5 + 0.65 * fireMix);
+          emCtx.fillStyle = `rgb(${Math.min(255, Math.round(patchCol.r * 255))},${Math.min(255, Math.round(patchCol.g * 255))},${Math.min(255, Math.round(patchCol.b * 255))})`;
+          const x0 = Math.floor(uMin * 128);
+          const x1 = Math.ceil(uMax * 128);
+          const y0 = Math.floor((1 - vMax) * 128);
+          const y1 = Math.ceil((1 - vMin) * 128);
+          emCtx.fillRect(x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0));
+        }
       }
       env.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-      const parts = [
-        { geo: env, keepColors: true, pos: [0, 1.7, 0] },
+      const emissiveMap = new THREE.CanvasTexture(emCv);
+      emissiveMap.minFilter = THREE.LinearFilter;
+      emissiveMap.magFilter = THREE.LinearFilter;
+
+      const envGeo = mergeParts([{ geo: env, keepColors: true, pos: [0, 1.7, 0] }]);
+      const basketParts = [
         { geo: new THREE.CylinderGeometry(0.58, 0.46, 0.62, 8), color: 0xa0703f },
         { geo: new THREE.CylinderGeometry(0.64, 0.64, 0.1, 8), color: 0x6b4423, pos: [0, 0.33, 0] },
         { geo: new THREE.CylinderGeometry(0.47, 0.47, 0.08, 8), color: 0x6b4423, pos: [0, -0.3, 0] },
-        { geo: new THREE.CylinderGeometry(0.16, 0.2, 0.28, 6), color: 0x4b5563, pos: [0, 1.25, 0] }
+        { geo: new THREE.CylinderGeometry(0.16, 0.2, 0.28, 6), color: 0x4b5563, pos: [0, 1.25, 0] },
+        // 吊籃外側提燈小支架與燈帽
+        { geo: new THREE.BoxGeometry(0.24, 0.035, 0.035), color: 0x5c3a21, pos: [0.58, 0.26, 0.18] },
+        { geo: new THREE.ConeGeometry(0.13, 0.09, 6), color: 0x3b2a1e, pos: [0.68, 0.19, 0.18] }
       ];
       [[1, 1], [1, -1], [-1, 1], [-1, -1]].forEach(([sx, sz]) => {
-        parts.push({ geo: new THREE.CylinderGeometry(0.022, 0.022, 1.45, 4), color: 0x8b6b4a, pos: [sx * 0.42, 1.05, sz * 0.42], rot: [-sz * 0.05, 0, sx * 0.05] });
+        basketParts.push({ geo: new THREE.CylinderGeometry(0.022, 0.022, 1.45, 4), color: 0x8b6b4a, pos: [sx * 0.42, 1.05, sz * 0.42], rot: [-sz * 0.05, 0, sx * 0.05] });
       });
-      return mergeParts(parts);
+      return { envGeo, basketGeo: mergeParts(basketParts), emissiveMap };
     }
-    const balloonGeo = buildBalloonGeometry();
-    const balloonMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.62, flatShading: true });
+
+    const balloonParts = buildBalloonParts();
+    const balloonEnvMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      emissive: 0xffc078,
+      emissiveMap: balloonParts.emissiveMap,
+      emissiveIntensity: 0,
+      roughness: 0.6,
+      flatShading: true
+    });
+    const balloonBasketMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, flatShading: true });
     const balloons = [
       { radius: 95, y: 12.2, omega: 0.014, phase: -140 * DEG, s: 1.28, bobPh: 0 },
       { radius: 97, y: 13.0, omega: -0.011, phase: -40 * DEG, s: 1.2, bobPh: 2.1 }
     ];
-    const balloonMesh = makeInstanced(balloonGeo, balloonMat, balloons.length, true);
-    balloonMesh.setColorAt(0, tmpColor.setRGB(1, 1, 1));
-    balloonMesh.setColorAt(1, tmpColor.setRGB(0.92, 1, 1));
-    if (balloonMesh.instanceColor) balloonMesh.instanceColor.needsUpdate = true;
+    const balloonEnvMesh = makeInstanced(balloonParts.envGeo, balloonEnvMat, balloons.length, true);
+    const balloonBasketMesh = makeInstanced(balloonParts.basketGeo, balloonBasketMat, balloons.length, true);
+    balloonEnvMesh.setColorAt(0, tmpColor.setRGB(1, 1, 1));
+    balloonEnvMesh.setColorAt(1, tmpColor.setRGB(0.92, 1, 1));
+    if (balloonEnvMesh.instanceColor) balloonEnvMesh.instanceColor.needsUpdate = true;
+    balloonBasketMesh.setColorAt(0, tmpColor.setRGB(1, 1, 1));
+    balloonBasketMesh.setColorAt(1, tmpColor.setRGB(1, 1, 1));
+    if (balloonBasketMesh.instanceColor) balloonBasketMesh.instanceColor.needsUpdate = true;
+
+    // 熱氣球燃燒器火球、內透光暈與吊籃小提燈光錐（白天自動隱藏，夜晚平滑亮起）
+    const burnerFlameGeo = new THREE.OctahedronGeometry(0.24, 1);
+    const lanternBulbGeo = new THREE.SphereGeometry(0.11, 8, 6);
+    const lanternConeGeo = buildSoftConeGeometry(0.08, 1.55, 3.8, 14, 0xffe48a, 0x000000);
+    const balloonLanternMat = new THREE.MeshStandardMaterial({
+      color: 0xffe8a3,
+      emissive: 0xffb703,
+      emissiveIntensity: 0.15,
+      roughness: 0.25
+    });
+    const balloonRigs = balloons.map((b) => {
+      const rig = new THREE.Group();
+      root.add(rig);
+
+      const flameMat = new THREE.MeshBasicMaterial({ color: 0xff6b1a, transparent: true, opacity: 0, fog: false });
+      const flame = new THREE.Mesh(burnerFlameGeo, flameMat);
+      flame.position.set(0, 1.5, 0);
+      flame.scale.set(0.95, 1.4, 0.95);
+      flame.visible = false;
+      rig.add(flame);
+
+      const burnerGlow = makeGlowSprite(0xff7722, 3.1);
+      burnerGlow.sprite.position.set(0, 1.52, 0);
+      rig.add(burnerGlow.sprite);
+
+      const throatGlow = makeGlowSprite(0xff9f43, 4.5);
+      throatGlow.sprite.position.set(0, 2.6, 0);
+      rig.add(throatGlow.sprite);
+
+      const lanternBulb = new THREE.Mesh(lanternBulbGeo, balloonLanternMat);
+      lanternBulb.position.set(0.68, 0.08, 0.18);
+      rig.add(lanternBulb);
+
+      const lanternGlow = makeGlowSprite(0xffd452, 1.9);
+      lanternGlow.sprite.position.set(0.68, 0.08, 0.18);
+      rig.add(lanternGlow.sprite);
+
+      const coneMat = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        fog: false
+      });
+      const cone = new THREE.Mesh(lanternConeGeo, coneMat);
+      cone.position.set(0.68, -1.88, 0.18);
+      cone.renderOrder = 3;
+      cone.visible = false;
+      rig.add(cone);
+
+      return { rig, flame, flameMat, burnerGlow, throatGlow, lanternGlow, cone, coneMat, bobPh: b.bobPh };
+    });
 
     function updateBalloons(t) {
+      let avgFlicker = 0;
+      const showNight = nightMix > 0.01;
       for (let i = 0; i < balloons.length; i++) {
         const b = balloons[i];
         const a = b.omega * t + b.phase;
         const x = Math.cos(a) * b.radius;
         const z = Math.sin(a) * b.radius;
         const y = b.y + Math.sin(t * 0.45 + b.bobPh) * 1.1;
-        balloonMesh.setMatrixAt(i, setDummy(x, y, z, Math.sin(t * 0.6 + b.bobPh) * 0.03, t * 0.05 + b.phase, Math.cos(t * 0.5 + b.bobPh) * 0.03, b.s));
+        const rx = Math.sin(t * 0.6 + b.bobPh) * 0.03;
+        const ry = t * 0.05 + b.phase;
+        const rz = Math.cos(t * 0.5 + b.bobPh) * 0.03;
+        const m = setDummy(x, y, z, rx, ry, rz, b.s);
+        balloonEnvMesh.setMatrixAt(i, m);
+        balloonBasketMesh.setMatrixAt(i, m);
+
+        const r = balloonRigs[i];
+        r.rig.position.set(x, y, z);
+        r.rig.rotation.set(rx, ry, rz);
+        r.rig.scale.setScalar(b.s);
+
+        const flicker = 0.5 + 0.35 * Math.sin(t * 14.5 + b.bobPh) + 0.15 * Math.sin(t * 23.0 + b.bobPh * 1.7);
+        avgFlicker += flicker;
+
+        r.flame.visible = showNight;
+        r.burnerGlow.sprite.visible = showNight;
+        r.throatGlow.sprite.visible = showNight;
+        r.lanternGlow.sprite.visible = showNight;
+        r.cone.visible = showNight;
+
+        if (showNight) {
+          const fScale = 0.85 + flicker * 0.32;
+          r.flame.scale.set(0.95 * fScale, 1.45 * (0.88 + flicker * 0.38), 0.95 * fScale);
+          r.flameMat.opacity = 0.92 * nightMix;
+          r.burnerGlow.mat.opacity = (0.55 + flicker * 0.32) * nightMix;
+          r.throatGlow.mat.opacity = (0.34 + flicker * 0.16) * nightMix;
+          r.lanternGlow.mat.opacity = (0.62 + 0.14 * Math.sin(t * 3.8 + b.bobPh)) * nightMix;
+          r.coneMat.opacity = (0.21 + 0.03 * Math.sin(t * 3.8 + b.bobPh)) * nightMix;
+        }
       }
-      balloonMesh.instanceMatrix.needsUpdate = true;
+      balloonEnvMat.emissiveIntensity = nightMix * (0.95 + (avgFlicker / balloons.length) * 0.25);
+      balloonEnvMesh.instanceMatrix.needsUpdate = true;
+      balloonBasketMesh.instanceMatrix.needsUpdate = true;
     }
 
     // 4c. 6 隻展翅盤旋白色海鷗（燈塔島上空 3 隻 + 海蝕拱門上空 3 隻）
@@ -1177,29 +1607,68 @@
     }
 
     /* ============================================================
-     * 日夜主題切換（全部以 emissive / 透明度實現夜間發光，零 PointLight）
+     * 日夜主題切換（全部以 emissive / 透明度／Radial Glow 貼圖實現，零 PointLight）
      * ============================================================ */
+    const COL_DAY_WHITE = new THREE.Color(0xffffff);
+    const COL_DAY_CLOUD_EM = new THREE.Color(0xd8eeff);
+    const COL_NIGHT_CLOUD = new THREE.Color(0x8ca8d6);
+    const COL_NIGHT_CLOUD_EM = new THREE.Color(0x1e3566);
+    const COL_DAY_FISH = new THREE.Color(0x0b3b6b);
+    const COL_NIGHT_FISH = new THREE.Color(0x04203f);
+    const COL_DAY_SPLASH = new THREE.Color(0xf2fbff);
+    const COL_NIGHT_SPLASH = new THREE.Color(0xb8d4f0);
+    const COL_DUCK_NIGHT_WAKE = new THREE.Color(0xffe07d);
+    const COL_DATA_NIGHT_WAKE = new THREE.Color(0x67e8f9);
+    const COL_SAIL_NIGHT_WAKE = new THREE.Color(0xb8e2ff);
+
+    function applyNightMix(m, t) {
+      haloMat.opacity = 0.26 - 0.14 * m;
+      waveBrightness = 0.5 - 0.32 * m;
+
+      sailWakeMat.color.copy(COL_DAY_WHITE).lerp(COL_SAIL_NIGHT_WAKE, m);
+      sailWakeMat.opacity = 0.85 - 0.36 * m;
+      dataWakeMat.color.copy(COL_DAY_WHITE).lerp(COL_DATA_NIGHT_WAKE, m);
+      dataWakeMat.opacity = 0.85 - 0.28 * m;
+      duckWakeMat.color.copy(COL_DAY_WHITE).lerp(COL_DUCK_NIGHT_WAKE, m);
+      duckWakeMat.opacity = 0.85 - 0.22 * m;
+
+      sailWarmLampMat.emissiveIntensity = 0.18 + 2.1 * m;
+      sailPortMat.emissiveIntensity = 0.12 + 1.8 * m;
+      sailStarboardMat.emissiveIntensity = 0.12 + 1.8 * m;
+      balloonLanternMat.emissiveIntensity = 0.15 + 2.2 * m;
+
+      const techPulse = 0.5 + 0.5 * Math.sin((t || 0) * 3.0);
+      dataGlowMat.emissiveIntensity = 0.85 + (2.05 + techPulse * 0.35) * m;
+      duckGoldMat.emissiveIntensity = 0.22 + (1.75 + 0.25 * Math.sin((t || 0) * 2.5)) * m;
+
+      planeMat.emissiveIntensity = 0.6 + 1.65 * m;
+      trailMat.opacity = 0.35 + 0.5 * m;
+      fishMat.color.copy(COL_DAY_FISH).lerp(COL_NIGHT_FISH, m);
+      fishMat.opacity = 0.5 - 0.12 * m;
+      skyCloudMat.color.copy(COL_DAY_WHITE).lerp(COL_NIGHT_CLOUD, m);
+      skyCloudMat.emissive.copy(COL_DAY_CLOUD_EM).lerp(COL_NIGHT_CLOUD_EM, m);
+      splashMat.color.copy(COL_DAY_SPLASH).lerp(COL_NIGHT_SPLASH, m);
+    }
+
     function setNight(n) {
       night = !!n;
-      haloMat.opacity = night ? 0.12 : 0.26;
-      waveBrightness = night ? 0.18 : 0.5;
-      wakeMat.opacity = night ? 0.45 : 0.85;
-      buoyLampMat.emissiveIntensity = night ? 2.8 : 0.25;
-      buoyHaloMat.opacity = night ? 0.36 : 0;
-      dataGlowMat.emissiveIntensity = night ? 2.6 : 0.9;
-      planeMat.emissiveIntensity = night ? 2.2 : 0.6;
-      trailMat.opacity = night ? 0.85 : 0.35;
-      fishMat.color.setHex(night ? 0x04203f : 0x0b3b6b);
-      fishMat.opacity = night ? 0.38 : 0.5;
-      skyCloudMat.color.setHex(night ? 0x8ca8d6 : 0xffffff);
-      skyCloudMat.emissive.setHex(night ? 0x1e3566 : 0xd8eeff);
-      splashMat.color.setHex(night ? 0xb8d4f0 : 0xf2fbff);
+      if (lastT === null) {
+        nightMix = night ? 1 : 0;
+        applyNightMix(nightMix, 0);
+      }
     }
 
     let lastT = null;
     function update(t) {
       const dt = lastT === null ? 0.016 : Math.min(0.1, Math.max(0, t - lastT));
       lastT = t;
+      const targetNight = night ? 1 : 0;
+      if (Math.abs(targetNight - nightMix) > 0.002) {
+        nightMix += (targetNight - nightMix) * Math.min(1, dt * 5.5);
+      } else {
+        nightMix = targetNight;
+      }
+      applyNightMix(nightMix, t);
       updateWaveRings(t);
       updateCruisers(t);
       updateBuoys(t);
@@ -1214,7 +1683,20 @@
     setNight(night);
     update(0);
 
-    return { root, update, setNight };
+    return {
+      root,
+      update,
+      setNight,
+      snapNight: (n) => {
+        night = !!n;
+        nightMix = night ? 1 : 0;
+        applyNightMix(nightMix, lastT || 0);
+        updateWaveRings(lastT || 0);
+        updateCruisers(lastT || 0);
+        updateBuoys(lastT || 0);
+        updateBalloons(lastT || 0);
+      }
+    };
   }
 
   window.createOceanEnvironment = createOceanEnvironment;
