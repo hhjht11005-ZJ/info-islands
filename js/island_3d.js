@@ -238,6 +238,7 @@
   };
 
   let isNight = false;
+  let oceanEnv = null; // 四層大環境生態模組（js/oceanEnvironment.js），於島群建置完成後初始化
   scene.background = THEME.day.skyBg.clone();
   scene.fog = new THREE.FogExp2(THEME.day.fogColor.getHex(), 0.0042);
 
@@ -10651,8 +10652,27 @@
    * ============================================================ */
   const dnStateLabel = toggleBtn.querySelector("#dnStateLabel");
 
+  // 四層大環境生態（淺灘浪花/礁石拱門、巡航船與浮標、魚群海豚、積雲熱氣球海鷗紙飛機）
+  // 只讀取主島與 NPC 島座標進行避讓，不修改任何島嶼、吊橋與計分邏輯
+  if (typeof window.createOceanEnvironment === "function") {
+    try {
+      oceanEnv = window.createOceanEnvironment({
+        THREE,
+        scene,
+        islandRecords,
+        npcIslandRecords,
+        ringRadius,
+        isNight
+      });
+    } catch (err) {
+      console.warn("[oceanEnvironment] 初始化失敗，已略過環境生態層：", err);
+      oceanEnv = null;
+    }
+  }
+
   function applyDayNightTheme(nightMode) {
     isNight = nightMode;
+    if (oceanEnv) oceanEnv.setNight(isNight);
     const target = isNight ? THEME.night : THEME.day;
 
     toggleBtn.classList.toggle("is-night", isNight);
@@ -11501,6 +11521,9 @@
     }
     oceanPosAttr.needsUpdate = true;
     oceanGeo.computeVertexNormals();
+
+    // 四層大環境生態動態更新
+    if (oceanEnv) oceanEnv.update(t);
 
     // 2. 白天白色微波輕微起伏與擺動
     rippleItems.forEach((item) => {
