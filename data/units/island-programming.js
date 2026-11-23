@@ -1364,20 +1364,363 @@ window.ISLAND_PROGRAMMING = window.ISLAND_PROGRAMMING || {};
     quiz: quizProg4
   };
 
+  /* ============================================================================
+   * 單元五：prog-5（函式與問題分解）
+   * ============================================================================ */
+  const studyProg5 = `
+<section class="study-sec">
+  <h3>🧩 問題分解（Decomposition）、函式模組化與變數作用域圖解</h3>
+  <p class="study-lead">面對「文字冒險遊戲」或「點餐系統」等大型任務時，直接把數百行程式碼全寫在一起會極難閱讀與除錯。運用運算思維的<b>問題分解（Decomposition）</b>與<b>模組化（Modularization）</b>，將複雜問題拆成一個個專職獨立的 Python <b>函式（Function）</b>，就能大幅減少重複程式碼、方便團隊分工與局部除錯！</p>
+  <div class="hw-diagram" role="img" aria-label="問題分解階層圖、Python函式位置與預設參數語法、以及區域變數與全域變數作用域對照圖">
+    <svg viewBox="0 0 640 275" xmlns="http://www.w3.org/2000/svg">
+      <rect x="4" y="4" width="632" height="267" rx="20" fill="#10375f" stroke="#7fb8e6" stroke-width="3"/>
+      <text x="160" y="28" text-anchor="middle" fill="#ffd166" font-size="13" font-weight="800">🌲 問題分解與模組化呼叫架構</text>
+      <g font-weight="800" text-anchor="middle" font-size="11">
+        <rect x="75" y="40" width="170" height="34" rx="8" fill="#ffd166" stroke="#a87400" stroke-width="2"/>
+        <text x="160" y="61" fill="#3a2a00">主程式：文字冒險遊戲 main()</text>
+        <path d="M160 74 V88 M65 88 H255 M65 88 V102 M160 88 V102 M255 88 V102" stroke="#fff" stroke-width="2" fill="none"/>
+        <rect x="20" y="102" width="90" height="44" rx="8" fill="#4fb3ff" stroke="#0b5a99" stroke-width="2"/>
+        <text x="65" y="121" fill="#04243f">開場設定</text>
+        <text x="65" y="137" font-size="10" fill="#04243f">init_hero()</text>
+
+        <rect x="115" y="102" width="90" height="44" rx="8" fill="#7be0b0" stroke="#0c6f50" stroke-width="2"/>
+        <text x="160" y="121" fill="#02301f">戰鬥扣血</text>
+        <text x="160" y="137" font-size="10" fill="#02301f">battle(hp)</text>
+
+        <rect x="210" y="102" width="90" height="44" rx="8" fill="#c58bff" stroke="#6a2fb0" stroke-width="2"/>
+        <text x="255" y="121" fill="#25063f">結局判定</text>
+        <text x="255" y="137" font-size="10" fill="#25063f">end_game()</text>
+      </g>
+
+      <text x="475" y="28" text-anchor="middle" fill="#7be0b0" font-size="13" font-weight="800">⚙️ 位置參數與預設參數語法規則</text>
+      <g transform="translate(320, 40)" font-weight="700" font-size="11">
+        <rect x="0" y="0" width="300" height="106" rx="10" fill="#0b2545" stroke="#7be0b0" stroke-width="2"/>
+        <text x="14" y="24" fill="#ffd166" font-weight="800">def calc_fee(price, rate=0.9):</text>
+        <text x="26" y="45" fill="#e2e8f0">return price * rate   # 預設參數置於右側</text>
+        <line x1="14" y1="56" x2="286" y2="56" stroke="#4fb3ff" stroke-dasharray="4 3"/>
+        <text x="14" y="75" fill="#93c5fd">calc_fee(100)      ➜ rate 用預設 0.9 ➜ 90.0</text>
+        <text x="14" y="95" fill="#a7f3d0">calc_fee(100, 0.8) ➜ 位置對應覆蓋為 0.8 ➜ 80.0</text>
+      </g>
+
+      <text x="320" y="168" text-anchor="middle" fill="#ff8a65" font-size="13" font-weight="800">📦 變數作用域（Scope）：全域變數 Global vs 區域變數 Local</text>
+      <g transform="translate(20, 178)" font-weight="700" font-size="11">
+        <rect x="0" y="0" width="290" height="78" rx="10" fill="#1b2a4a" stroke="#4fb3ff" stroke-width="2"/>
+        <text x="145" y="22" text-anchor="middle" fill="#4fb3ff" font-weight="800">🌍 全域作用域（函式外部）</text>
+        <text x="16" y="44" fill="#e2e8f0">score = 100   # 全程式皆可讀取</text>
+        <text x="16" y="64" fill="#93c5fd">需靠 new = add_bonus(score) 接收回傳更新</text>
+
+        <rect x="310" y="0" width="290" height="78" rx="10" fill="#2b1d38" stroke="#ff8a65" stroke-width="2"/>
+        <text x="455" y="22" text-anchor="middle" fill="#ff8a65" font-weight="800">🏠 區域作用域（函式內部）</text>
+        <text x="326" y="44" fill="#ffe5d9">def add_bonus(s): bonus = 20 ...</text>
+        <text x="326" y="64" fill="#fda4af">bonus 僅存活於函式內，結束即釋放！</text>
+      </g>
+    </svg>
+  </div>
+  <ul class="study-list">
+    <li><b>問題分解與模組化優勢</b>：將大系統拆成職責單一的小函式，可達成<b>① 消除重複程式碼（DRY）</b>、<b>② 團隊平行分工開發</b>、<b>③ 獨立單元測試與快速除錯維護</b>。</li>
+    <li><b>函式定義與參數傳遞</b>：語法為 <code>def 函式名稱(位置參數, 預設參數=預設值):</code>（結尾須加冒號 <code>:</code> 並縮排）。呼叫時依位置順序傳入引數；若有「預設參數」，必須排在沒有預設值的參數<b>後面</b>。</li>
+    <li><b><code>return</code> 立即結束並回傳</b>：<code>return</code> 會把運算結果交回呼叫處並<b>立刻終止該函式執行</b>（寫在 <code>return</code> 後方的同層程式碼不會被執行）；若只寫 <code>print()</code> 而無 <code>return</code>，函式預設回傳 <code>None</code>。</li>
+    <li><b>區域變數（Local）與全域變數（Global）</b>：函式內部建立的變數或參數皆屬「區域變數」，無法在函式外直接讀取，也不會直接改動外部同名變數；實務上推薦以「參數傳入 + <code>return</code> 回傳」取代隨意使用 <code>global</code>。</li>
+  </ul>
+</section>
+
+<section class="study-sec">
+  <h3>📊 函式參數類型、回傳與作用域對照表</h3>
+  <div class="study-table-wrap">
+  <table class="study-table">
+    <tr><th>核心概念</th><th>Python 語法範例</th><th>執行行為說明</th><th>常見錯誤或注意事項</th></tr>
+    <tr><td>📍 位置參數</td><td><code>def rect(w, h): return w * h</code></td><td>呼叫 <code>rect(5, 3)</code> 時依順序 <code>w=5, h=3</code></td><td>引數個數若與參數不符會引發 <code>TypeError</code></td></tr>
+    <tr><td>🎛️ 預設參數</td><td><code>def greet(name, msg="你好"):</code></td><td><code>greet("小安")</code> 用預設 <code>"你好"</code>；<code>greet("小安","早")</code> 可覆蓋</td><td><code>def f(a=1, b):</code> 不合法！預設參數必須放右側</td></tr>
+    <tr><td>🔙 return vs print</td><td><code>return x * 2</code> vs <code>print(x * 2)</code></td><td><code>return</code> 將值交回主程式並立刻離開函式</td><td><code>res = f(3)</code> 若無 <code>return</code>，<code>res</code> 為 <code>None</code></td></tr>
+    <tr><td>🔭 變數作用域</td><td>函式外 <code>x = 10</code> / 函式內 <code>x = 99</code></td><td>函式內賦值會建立獨立區域變數 <code>x</code>，外部 <code>x</code> 仍為 10</td><td>若在函式內讀取同名全域變數後又賦值會觸發 <code>UnboundLocalError</code></td></tr>
+  </table>
+  </div>
+  <div class="flow-strip" aria-label="模組化程式開發四步驟">
+    <span>1 問題分解成子任務</span><i>➜</i><span>2 約定函式名稱、參數與 return 規格</span><i>➜</i><span>3 單獨測試各函式模組</span><i>➜</i><span>4 主程式呼叫整合成完整系統</span>
+  </div>
+</section>
+
+<section class="study-sec">
+  <h3>⚠️ 易混淆迷思與常見陷阱整理</h3>
+  <div class="myth-grid">
+    <div class="myth"><div class="myth-q">❌ 「函式裡面已經寫了 <code>print(total)</code>，主程式寫 <code>ans = calc(10)</code> 就能拿到數字去乘以 2！」</div><div class="myth-a">✅ <b><code>print()</code> 只是顯示在螢幕，並非回傳值</b>：沒有寫 <code>return</code> 的函式會回傳 <code>None</code>，拿 <code>None * 2</code> 會立刻引發 <code>TypeError</code>！</div></div>
+    <div class="myth"><div class="myth-q">❌ 「函式裡的 <code>return</code> 執行完後，同一層後面的 <code>print(\"完成\")</code> 還是會繼續執行吧？」</div><div class="myth-a">✅ <b><code>return</code> 會立刻終止函式並跳回呼叫處</b>：一旦執行到 <code>return</code>，函式內接在後面的程式碼都將被跳過不執行。</div></div>
+    <div class="myth"><div class="myth-q">❌ 「定義預設參數時，寫成 <code>def buy(qty=1, price):</code> 應該沒關係，反正呼叫時會看清楚。」</div><div class="myth-a">✅ <b>語法規定預設參數必須全部放在非預設參數之後</b>：<code>def buy(qty=1, price):</code> 會直接報 <code>SyntaxError</code>，必須寫成 <code>def buy(price, qty=1):</code>。</div></div>
+    <div class="myth"><div class="myth-q">❌ 「在每個函式裡全部加上 <code>global</code> 修改同一個全域變數，比用參數傳來傳去更高級！」</div><div class="myth-a">✅ <b>濫用 <code>global</code> 會破壞模組獨立性</b>：多個函式同時偷改全域變數會讓除錯變噩夢；標準模組化寫法應靠「參數輸入 + <code>return</code> 輸出」清楚交接資料。</div></div>
+  </div>
+</section>`;
+
+  const lessonProg5 = {
+    title: "函式與問題分解",
+    overview: "本單元帶領學生掌握運算思維的「問題分解（Decomposition）」與「模組化程式設計（Modularization）」，深入學習 Python 函式定義語法 `def 函式名稱(參數):`、位置參數與預設參數規則、`return` 回傳值與 `print()` 輸出的核心差異、函式執行流程追蹤，以及區域變數（Local）與全域變數（Global）的作用域觀念，並分工實作模組化「文字冒險遊戲」。",
+    standards: ["資P-IV-4", "資P-IV-5", "運t-IV-3", "運t-IV-4"],
+    objectives: [
+      "能說明運算思維中「問題分解」與「模組化」的意義與優點（減少重複程式碼、團隊分工、易於除錯維護）。",
+      "能正確撰寫 Python `def` 函式語法，並運用位置參數與預設參數（預設參數置後規則）呼叫函式。",
+      "能區分 `return` 回傳值與 `print()` 螢幕輸出的差異，並追蹤多函式呼叫與提前 `return` 的執行流程。",
+      "能辨識區域變數與全域變數的作用域（Scope），以「參數傳入＋`return` 回傳」取代濫用 `global` 完成模組整合。"
+    ],
+    prep: [
+      "教師：電腦教室（Python 環境）、模組介面規格卡、作用域與執行流程追蹤示範檔。",
+      "學生：每人一台電腦、A4 函式與問題分解實作學習單。"
+    ],
+    flow: [
+      { phase: "引起動機", min: 25, teacher: "比較 120 行擠在一起的冒險程式與拆分為 4 個函式的模組化程式，請學生討論修改與分工難度差異。", student: "歸納問題分解與模組化的優點：好讀、不重複、易分工除錯。" },
+      { phase: "發展活動一：def 語法、位置參數與預設參數", min: 65, teacher: "講解 `def 函式名(參數):` 縮排語法、位置參數順序對應，以及預設參數（如 `rate=0.9` 必須放非預設參數右側）的設計方式。", student: "撰寫具位置參數與預設參數的計價/打招呼函式，驗證省略與覆蓋預設值的執行結果。" },
+      { phase: "發展活動二：return 追蹤與變數作用域（Scope）", min: 80, teacher: "實驗對比 `print()` 與 `return`（含 `None` 錯誤與 `return` 提前結束函式），並以實體房間比喻說明區域變數與全域變數作用域。", student: "完成多函式呼叫流程追蹤表與作用域除錯練習，改寫誤用全域變數的範例程式。" },
+      { phase: "實作與評量：分組開發文字冒險遊戲", min: 100, teacher: "指導各組先填寫函式介面規格（名稱、參數、回傳值）再各自開發關卡函式，最後整合測試並檢核。", student: "依規格撰寫與測試獨立函式模組，整合完成多場景文字冒險遊戲並互評。" }
+    ],
+    differentiation: "補救教學：提供已畫好主控流程與關卡函式參數簽名的程式碼骨架。加深加廣：挑戰加入預設參數選項、多層函式呼應呼叫，以及編寫自動單元測試函式驗證每個關卡回傳值。",
+    assessmentFocus: "能否正確區分 `return` 與 `print()`、正確設定預設參數順序、理解區域/全域變數作用域並追蹤函式執行流程。",
+    extension: "將課堂完成的文字冒險遊戲模組化整理成獨立 Python 模組檔（`.py`），嘗試用 `import` 匯入主程式執行。"
+  };
+
+  const worksheetProg5 = {
+    title: "程式森林探險單（五）：函式模組師與作用域偵探",
+    intro: "學會「問題分解」與「函式模組化」，你就能把龐大的系統拆成乾淨俐落的積木模組！快來挑戰參數設定、回傳追蹤與作用域偵錯吧。",
+    sections: [
+      {
+        title: "一、問題分解與函式語法基礎",
+        items: [
+          { type: "short", q: "在開發多關卡遊戲時，運用「問題分解」將大任務拆成多個獨立函式有哪些主要優點？請寫出三點。", answer: "1. 減少重複程式碼（相同功能寫一次即可重複呼叫）；2. 方便團隊分工合作；3. 程式結構清晰且易於局部除錯維護。" },
+          { type: "fill", q: "在 Python 定義函式 `def greet(name, role=\"勇者\"):` 中，`role=\"勇者\"` 稱為「____參數」；若函式內沒有寫 `return` 敘述，呼叫函式後預設會回傳 `____`。", answer: "預設、None" }
+        ]
+      },
+      {
+        title: "二、參數順序、return 與執行流程追蹤",
+        items: [
+          { type: "short", q: "小凱想寫一個計算折扣後價格的函式，寫成 `def discount(rate=0.8, price): return price * rate`，執行時卻馬上出現 `SyntaxError`！請問語法錯在哪裡？該如何修正？", answer: "Python 規定有預設值的參數（預設參數）必須全部放在沒有預設值的位置參數「後面」。應改寫為 `def discount(price, rate=0.8):`。" },
+          { type: "short", q: "請逐行追蹤下列程式碼，寫出螢幕輸出的完整順序：\n`def step(x):`\n`    print(\"B:\", x)`\n`    return x + 10`\n`    print(\"C:\", x)`\n`print(\"A\")`\n`ans = step(5)`\n`print(\"D:\", ans)`", answer: "會依序印出：\n`A`\n`B: 5`\n`D: 15`\n注意 `return x + 10` 會立刻結束 `step` 函式，因此 `print(\"C:\", x)` 永遠不會被執行。" }
+        ]
+      },
+      {
+        title: "三、區域變數 vs 全域變數作用域除錯",
+        items: [
+          { type: "table", q: "閱讀程式：`gold = 50`、`def earn(): gold = 120`、`earn()`、`print(gold)`。請問最後印出的是 50 還是 120？為什麼？若不用 `global` 關鍵字，該怎麼改寫才能安全地把 `gold` 更新為 120？", answer: "印出 `50`。因為函式 `earn()` 內部的 `gold = 120` 只是建立了新的區域變數，並未改變外部全域變數 `gold`。推薦改法：讓函式回傳新金額 `def earn(g): return g + 70`，主程式寫 `gold = earn(gold)`。" },
+          { type: "reflect", q: "為什麼專業軟體工程師常建議「儘量透過參數傳入資料與 `return` 回傳結果」，而不要到處用 `global` 修改全域變數？", answer: "若多個函式隨意修改同一個全域變數，會導致模組之間高度耦合，一旦數值出錯很難追查是哪個函式改壞的；透過參數與 `return` 能讓每個函式的輸入輸出清楚可控、方便單獨測試。" }
+        ]
+      }
+    ]
+  };
+
+  const printProg5 = {
+    situation: "學校園遊會攤位需要一套「智慧點餐結帳模組系統」，包含：(1) `calc_item(price, qty=1)` 計算單品小計（支援預設數量 1）、(2) `apply_vip(total, is_vip=False)` 計算會員折扣、(3) 主程式流程整合。請運用問題分解思維規劃函式規格，並檢查 `return` 與變數作用域是否正確無誤！",
+    thinking: [
+      "為什麼把「算小計」和「算折扣」拆成兩個獨立函式，比全部擠在一個大迴圈裡更好測試與維護？",
+      "在 `calc_item(price, qty=1)` 中，如果把參數順序反寫成 `calc_item(qty=1, price)` 為什麼會違反 Python 語法規則？",
+      "如果 `apply_vip` 函式裡只寫 `print(total * 0.8)` 而忘了寫 `return`，主程式把回傳值拿去做總金額加總時會發生什麼錯誤？"
+    ],
+    flowchart: "請畫出「智慧點餐結帳系統」模組分解與資料流向圖：主程式 `main()` 讀取品項單價與數量 → 傳入參數呼叫 `calc_item(price, qty)` 並接收 `return` 小計 → 傳入呼叫 `apply_vip(subtotal, is_vip)` 並接收 `return` 折後價 → 最後輸出結帳總表。",
+    rubric: [
+      { c: "問題分解與模組介面", a: "清楚將問題拆解為職責單一之函式模組，參數與回傳值介面規格明確無重複程式碼", b: "能拆出基本函式，但模組分工或介面設計略顯鬆散", t: "所有邏輯全寫在全域主程式，完全未進行函式分解" },
+      { c: "參數、return 與執行流程", a: "正確運用位置參數與預設參數順序，精準區分 return 與 print()，並能正確追蹤呼叫順序", b: "能使用 def 與位置參數完成功能，預設參數或 return 細節稍有疏漏", t: "混淆 print() 與 return 導致 None 錯誤，或預設參數位置寫反無法執行" },
+      { c: "變數作用域與可維護性", a: "清楚區分區域與全域變數作用域，全程以參數＋return 安全傳遞資料，程式碼可讀性極佳", b: "主要功能可執行，但偶爾依賴全域變數處理狀態", t: "因誤解變數作用域導致數值未更新或發生 UnboundLocalError" }
+    ]
+  };
+
+  const prog5EasyQuestions = [
+    mkQ(
+      "prog5-e1",
+      "理解",
+      "在運算思維與程式設計中，將一個龐大複雜的程式問題拆解成數個功能單純、可獨立撰寫與重複呼叫的小函式（模組），這種做法稱為什麼？主要的優點為何？",
+      [
+        "問題分解與模組化；能減少重複程式碼、方便團隊分工，且單一功能出錯時容易定位與除錯維護",
+        "無窮迴圈化；能讓電腦永遠停不下來",
+        "硬體超頻；能讓電腦記憶體自動加倍",
+        "全數全域化；能強迫所有程式碼擠在同一行"
+      ],
+      0,
+      "「問題分解（Decomposition）」與「模組化（Modularization）」能將複雜系統拆分為職責單一的函式，達到重複利用（DRY）、平行分工與易於維護除錯的優勢。"
+    ),
+    mkQ(
+      "prog5-e2",
+      "記憶",
+      "下列哪一個 Python 自訂函式的定義語法格式（包含關鍵字、參數括號、結尾冒號與縮排）完全正確？",
+      [
+        "`function hello(name) print(name)`",
+        "`def hello(name):`\n`    print(\"你好\", name)`",
+        "`def hello(name)`\n`print(\"你好\", name)`",
+        "`define hello[name]:`\n`    print(\"你好\", name)`"
+      ],
+      1,
+      "Python 定義函式必須以關鍵字 `def` 開頭，函式名稱後接小括號 `(參數)` 與英文冒號 `:`，且函式內部的程式碼必須向內縮排。"
+    ),
+    mkQ(
+      "prog5-e3",
+      "理解",
+      "比較函式內使用 `return ans` 與直接寫 `print(ans)` 的差異，下列敘述何者正確？",
+      [
+        "`print(ans)` 會將數值傳回主程式供後續加減乘除使用",
+        "`return ans` 只會在螢幕印出文字，不會把結果交回給呼叫處",
+        "`return ans` 能把計算結果傳回呼叫處存入變數繼續運算；若只寫 `print(ans)` 而沒寫 `return`，函式預設會回傳 `None`",
+        "兩者完全相同，把 `return` 全部改成 `print` 程式照樣能算總和"
+      ],
+      2,
+      "`print()` 僅把資料輸出到螢幕給人看；若要讓主程式拿到函式算出的結果進行後續運算，必須透過 `return` 回傳，否則函式預設回傳 `None`。"
+    )
+  ];
+
+  const prog5MediumQuestions = [
+    mkQ(
+      "prog5-m1",
+      "應用",
+      "觀察下列含有「位置參數」的 Python 函式與呼叫方式，請問螢幕上會印出什麼結果？\n`def calc_score(win, lose):`\n`    return win * 3 - lose * 1`\n`print(calc_score(4, 2))`",
+      ["2", "10", "14", "-2"],
+      1,
+      "位置參數依順序對應：`win = 4`、`lose = 2`，代入算式 `4 * 3 - 2 * 1 = 12 - 2 = 10`。"
+    ),
+    mkQ(
+      "prog5-m2",
+      "應用",
+      "下列函式使用了「預設參數」`rate=0.9`。依序執行兩次呼叫後，螢幕上會印出什麼？\n`def pay(price, rate=0.9):`\n`    return int(price * rate)`\n`a = pay(100)`\n`b = pay(100, 0.7)`\n`print(a, b)`",
+      ["90 90", "70 70", "90 70", "100 70"],
+      2,
+      "第一次呼叫 `pay(100)` 省略第二個引數，故使用預設值 `rate = 0.9` 得到 `90`；第二次呼叫 `pay(100, 0.7)` 傳入 `0.7` 覆蓋預設值，得到 `70`，故印出 `90 70`。"
+    ),
+    mkQ(
+      "prog5-m3",
+      "分析",
+      "請追蹤下列包含函式定義與多次呼叫的 Python 程式碼執行順序，螢幕上依序印出的文字為何？\n`def step_b():`\n`    print(\"B\")`\n`def step_a():`\n`    print(\"A\")`\n`    step_b()`\n`print(\"Start\")`\n`step_a()`\n`print(\"End\")`",
+      [
+        "B → A → Start → End",
+        "Start → A → B → End",
+        "Start → B → A → End",
+        "A → B → Start → End"
+      ],
+      1,
+      "`def` 僅定義函式而不立即執行！程式從 `print(\"Start\")` 開始印出 `Start` ➜ 呼叫 `step_a()` 先印 `A` 再呼叫 `step_b()` 印 `B` ➜ 回到主程式印出 `End`。"
+    ),
+    mkQ(
+      "prog5-m4",
+      "分析",
+      "小安寫了一支程式如下，執行到最後一行時卻發生 `TypeError` 錯誤！請問原因為何？\n`def double(n):`\n`    print(n * 2)`\n`x = double(5)`\n`print(x + 1)`",
+      [
+        "因為 `double(5)` 的參數不能放整數",
+        "因為 `double` 函式只有 `print()` 而沒有 `return`，導致變數 `x` 拿到的是 `None`，無法執行 `None + 1`",
+        "因為 Python 不能同時寫兩個 `print`",
+        "因為 `n * 2` 會變成無窮迴圈"
+      ],
+      1,
+      "`double(5)` 雖在螢幕印出 10，但因缺少 `return n * 2`，實際回傳值為 `None`；`x` 存著 `None`，執行 `None + 1` 即引發 `TypeError`。"
+    )
+  ];
+
+  const prog5HardQuestions = [
+    mkQ(
+      "prog5-h1",
+      "分析",
+      "執行下列 Python 程式碼追蹤「區域變數（Local）」與「全域變數（Global）」作用域，螢幕最後印出的結果為何？\n`level = 10`\n`def upgrade():`\n`    level = 25`\n`    return level + 5`\n`new_lv = upgrade()`\n`print(level, new_lv)`",
+      ["25 30", "10 30", "30 30", "10 15"],
+      1,
+      "在 `upgrade()` 內賦值 `level = 25` 會建立獨立的區域變數 `level`，不影響外部全域變數 `level`（維持 `10`）；而 `return level + 5` 回傳 `30` 存入 `new_lv`，故印出 `10 30`。"
+    ),
+    mkQ(
+      "prog5-h2",
+      "分析",
+      "閱讀下列含多個 `return` 分支的函式程式碼，請問執行 `print(check(15), check(5))` 的輸出結果為何？\n`def check(n):`\n`    if n >= 10:`\n`        return \"PASS\"`\n`    print(\"RETRY\")`\n`    return \"FAIL\"`",
+      [
+        "先印 RETRY，最後印 PASS FAIL",
+        "先印 RETRY，最後印 PASS RETRY FAIL",
+        "不印出任何字直接報錯",
+        "先印出兩行 RETRY，最後印 PASS FAIL"
+      ],
+      0,
+      "第一次呼叫 `check(15)` 時 `15 >= 10` 成立，立刻執行 `return \"PASS\"` 結束函式（跳過 `print(\"RETRY\")`）；第二次呼叫 `check(5)` 條件不成立，先印出 `RETRY` 再回傳 `\"FAIL\"`，最後印出 `PASS FAIL`。"
+    ),
+    mkQ(
+      "prog5-h3",
+      "分析",
+      "追蹤下列模組化函式鏈呼叫與預設參數的執行結果，請問螢幕最終印出的數值為何？\n`def add_tax(p, tax=1.1):`\n`    return int(p * tax)`\n`def checkout(price, qty=2):`\n`    sub = price * qty`\n`    return add_tax(sub)`\n`print(checkout(50))`",
+      ["55", "100", "110", "120"],
+      2,
+      "呼叫 `checkout(50)` 未給 `qty`，使用預設值 `qty = 2` 算出 `sub = 50 * 2 = 100`；接著呼叫 `add_tax(100)` 未給 `tax`，使用預設值 `1.1`，回傳 `int(100 * 1.1) = 110`。"
+    ),
+    mkQ(
+      "prog5-h4",
+      "應用",
+      "在進行大型遊戲的「問題分解與模組化設計」時，下列哪一種寫法最符合「低耦合、高內聚、易於測試與維護」的良好作用域原則？",
+      [
+        "把玩家血量 `hp`、金幣 `coin` 全設成全域變數，讓 10 個不同函式都在內部寫 `global hp, coin` 直接偷改數值",
+        "透過函式參數明確傳入目前的狀態值（如 `def heal(hp, item=20):`），運算後以 `return` 回傳更新後的值，由主程式統一接收更新",
+        "為了避免區域變數，全部程式都不寫 `def`，直接複製貼上 500 行",
+        "把每個函式的 `return` 全部刪掉，改用 `print()` 印在螢幕上"
+      ],
+      1,
+      "濫用 `global` 會讓多個函式暗中互相干擾狀態，極難除錯；以「參數傳入資料、計算後以 `return` 明確交回結果」才是模組化設計的最佳實務。"
+    ),
+    mkQ(
+      "prog5-h5",
+      "分析",
+      "下列四段 Python 函式定義與呼叫程式碼中，哪一段「語法完全合法」且執行後會正確印出 `18`？",
+      [
+        "`def order(qty=1, price):`\n`    return price * qty`\n`print(order(2, 9))`",
+        "`def order(price, qty=2):`\n`    return price * qty`\n`print(order(9))`",
+        "`def order(price=9, qty):`\n`    return price * qty`\n`print(order(2))`",
+        "`def order(price, qty=2):`\n`    print(price * qty)`\n`print(order(9) + 0)`"
+      ],
+      1,
+      "Python 規定預設參數必須放在非預設參數之後（A、C 皆會產生 `SyntaxError`）；D 選項因函式無 `return` 回傳 `None`，與 `+ 0` 相加會報 `TypeError`；唯有 B 選項合法且 `9 * 2 = 18`。"
+    )
+  ];
+
+  const quizProg5 = {
+    passScore: 60,
+    easy: prog5EasyQuestions,
+    medium: prog5MediumQuestions,
+    hard: prog5HardQuestions,
+    levels: {
+      easy: {
+        label: "入門探險家",
+        icon: "🧭",
+        badge: null,
+        desc: "掌握問題分解與模組化優點、def 定義語法及 return 與 print() 差異。",
+        questions: prog5EasyQuestions
+      },
+      medium: {
+        label: "進階挑戰者",
+        icon: "🧰",
+        badge: "silver",
+        desc: "熟練位置參數、預設參數設定、函式執行流程追蹤與 None 除錯。",
+        questions: prog5MediumQuestions
+      },
+      hard: {
+        label: "大師領航員",
+        icon: "👑",
+        badge: "gold",
+        desc: "深入剖析區域/全域作用域、提前 return 控制、多函式模組鏈與預設參數語法規範。",
+        questions: prog5HardQuestions
+      }
+    }
+  };
+
+  const unitProg5 = {
+    id: "prog-5",
+    unit: "函式與問題分解",
+    study: { title: "函式與問題分解", html: studyProg5 },
+    learningContent: { title: "函式與問題分解", html: studyProg5 },
+    lesson: lessonProg5,
+    worksheet: worksheetProg5,
+    print: printProg5,
+    lessonPlan: { lesson: lessonProg5, worksheet: worksheetProg5, print: printProg5 },
+    quiz: quizProg5
+  };
+
   /* 匯出至 window.ISLAND_PROGRAMMING 與 window.CONTENT（同時支援 prog-* 與 code-* 索引） */
   window.ISLAND_PROGRAMMING["prog-1"] = unitProg1;
   window.ISLAND_PROGRAMMING["prog-2"] = unitProg2;
   window.ISLAND_PROGRAMMING["prog-3"] = unitProg3;
   window.ISLAND_PROGRAMMING["prog-4"] = unitProg4;
+  window.ISLAND_PROGRAMMING["prog-5"] = unitProg5;
 
   window.CONTENT["prog-1"] = unitProg1;
   window.CONTENT["prog-2"] = unitProg2;
   window.CONTENT["prog-3"] = unitProg3;
   window.CONTENT["prog-4"] = unitProg4;
+  window.CONTENT["prog-5"] = unitProg5;
 
   window.CONTENT["code-1"] = Object.assign({}, window.CONTENT["code-1"] || {}, unitProg1);
   window.CONTENT["code-2"] = Object.assign({}, window.CONTENT["code-2"] || {}, unitProg2);
   window.CONTENT["code-3"] = Object.assign({}, window.CONTENT["code-3"] || {}, unitProg3);
   window.CONTENT["code-4"] = Object.assign({}, window.CONTENT["code-4"] || {}, unitProg4);
-  window.CONTENT["code-5"] = Object.assign({}, window.CONTENT["code-5"] || {}, unitProg4);
+  window.CONTENT["code-5"] = Object.assign({}, window.CONTENT["code-5"] || {}, unitProg5);
 })();
