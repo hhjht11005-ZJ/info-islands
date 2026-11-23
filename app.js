@@ -150,7 +150,11 @@
   const TAB_LABEL = { 標準: "課綱對應", 架構: "課程架構", 順序: "課程順序", 目標: "課程目標", 評量: "評量方式", 延伸: "延伸內容" };
   const drawer = $("#drawer"), backdrop = $("#backdrop");
   function openIsland(id, tab = "標準", unitKey = null) {
-    const i = byId[id]; state.island = i; state.tab = tab; state.unit = null; state.usub = "learn";
+    const i = byId[id]; if (!i) return;
+    state.island = i; state.tab = tab; state.unit = null; state.usub = "learn";
+    if (window.Store && typeof window.Store.setActiveIslandId === "function") {
+      window.Store.setActiveIslandId(i.id);
+    }
     drawer.style.setProperty("--c", i.color);
     $("#drawerHead").innerHTML = `<div class="d-head" style="--c:${i.color}">
       <div class="big">${i.emoji}</div><h2>${i.name}</h2>

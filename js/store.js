@@ -1,13 +1,29 @@
 /* 資料層:學員身分 + 學習紀錄(本機 localStorage,並可同步到 Google 試算表) + 年級榮譽成績池 */
 (() => {
   const CFG = window.APP_CONFIG;
-  const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending", LB_SYNCED = "ii:leaderboard:synced_v1";
+  const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending", LB_SYNCED = "ii:leaderboard:synced_v1", ACTIVE_ISLAND = "ii:activeIslandId";
   const GAS_TIMEOUT_MS = 8000;
   const ls = {
     get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } }
   };
   const evKey = p => `ii:ev:${p.cls}-${p.seat}-${p.name}`;
+  const activeIslandKey = p => (p && p.cls && p.name)
+    ? `ii:activeIslandId:${p.cls}-${p.seat}-${p.name}`
+    : ACTIVE_ISLAND;
+  const readActiveIslandRaw = (k) => {
+    try {
+      const v = localStorage.getItem(k);
+      if (!v) return "";
+      const trimmed = String(v).trim();
+      if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+        try { return String(JSON.parse(trimmed) || "").trim(); } catch { return trimmed.slice(1, -1).trim(); }
+      }
+      return trimmed;
+    } catch {
+      return "";
+    }
+  };
   const studentKey = p => `${String(p.cls || "").trim()}-${Number(p.seat) || 0}-${String(p.name || "").trim()}`;
   const buildStudentKey = (grade, className, seat) => `${String(grade).trim()}_${String(className).trim()}_${String(seat).trim()}`;
   const getLeaderboardUrl = () => {
@@ -324,12 +340,48 @@
         } catch (e) { return { ok: false, msg: "無法連線到成績伺服器:" + e.message }; }
       }
       Store.profile = p; ls.set(PROFILE, p);
+      try {
+        const savedForStudent = readActiveIslandRaw(activeIslandKey(p));
+        if (savedForStudent) localStorage.setItem(ACTIVE_ISLAND, savedForStudent);
+        else localStorage.removeItem(ACTIVE_ISLAND);
+      } catch {}
       syncLeaderboardPool(p);
       Store.flush();
       flushLeaderboardPending();
       return { ok: true };
     },
-    logout() { Store.profile = null; localStorage.removeItem(PROFILE); },
+    logout() {
+      Store.profile = null;
+      localStorage.removeItem(PROFILE);
+      try { localStorage.removeItem(ACTIVE_ISLAND); } catch {}
+    },
+
+    getActiveIslandId() {
+      if (Store.profile) {
+        return readActiveIslandRaw(activeIslandKey(Store.profile));
+      }
+      return readActiveIslandRaw(ACTIVE_ISLAND);
+    },
+    setActiveIslandId(islandId, opts = {}) {
+      const id = String(islandId || "").trim();
+      if (!id) return "";
+      try {
+        localStorage.setItem(ACTIVE_ISLAND, id);
+        if (Store.profile) {
+          localStorage.setItem(activeIslandKey(Store.profile), id);
+        }
+      } catch (e) { console.warn(e); }
+      if (!opts.silent) {
+        document.dispatchEvent(new CustomEvent("ii:active-island-changed", { detail: { islandId: id } }));
+      }
+      return id;
+    },
+    clearActiveIslandId() {
+      try {
+        localStorage.removeItem(ACTIVE_ISLAND);
+        if (Store.profile) localStorage.removeItem(activeIslandKey(Store.profile));
+      } catch {}
+    },
 
     events() { return Store.profile ? ls.get(evKey(Store.profile), []) : []; },
     quizEvents(unit) { return Store.events().filter(e => e.type === "quiz" && e.unit === unit); },

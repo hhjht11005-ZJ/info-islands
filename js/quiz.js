@@ -70,6 +70,9 @@
   function open(key, diff) {
     if (!window.Auth.requireLogin()) return;       // 未登入先跳出登入視窗
     const info = unitInfo(key); if (!info || !hasQuiz(key)) return;
+    if (window.Store && typeof window.Store.setActiveIslandId === "function") {
+      window.Store.setActiveIslandId(info.isl.id);
+    }
     quizCompletedInSession = false;
     wrap.classList.add("show");
     if (diff && hasLevels(key) && window.CONTENT[key].quiz.levels[diff]) run(key, info, diff);
@@ -248,7 +251,7 @@
     }
     quizCompletedInSession = true;
     document.dispatchEvent(new CustomEvent("ii:synced"));
-    document.dispatchEvent(new CustomEvent("ii:quizdone", { detail: { key, score, difficulty: C.diff } }));
+    document.dispatchEvent(new CustomEvent("ii:quizdone", { detail: { key, island: info.isl.id, score, difficulty: C.diff } }));
   }
 
   window.Quiz = { open, hasQuiz, hasLevels: (k) => hasQuiz(k) && hasLevels(k), BADGES, DIFF_NAME };

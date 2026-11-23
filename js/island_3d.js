@@ -11672,6 +11672,7 @@
     }
 
     if (picked.type === "island" && picked.rec) {
+      setPlayerCursorTarget(picked.rec.id, { persist: true });
       focusOnIsland(picked.rec);
       startRunToIsland(picked.rec);
       return;
@@ -12335,13 +12336,18 @@
     window.refreshIslandBuildings({ animate: true });
     updateIslandsProgress({ animateUpgrade: true });
   }
-  document.addEventListener("ii:quizdone", () => {
+  document.addEventListener("ii:quizdone", (e) => {
+    const completedIslandId =
+      (e && e.detail && (e.detail.island || (e.detail.key ? String(e.detail.key).split("-")[0] : ""))) || "";
     const qm = document.getElementById("quizModal");
     if (qm && qm.classList.contains("show")) {
       // 測驗視窗仍開啟時，先標記待同步，待學生關閉測驗視窗瞬間立即播放建築升級與慶祝動畫
       pendingQuizUpgradeSync = true;
     } else {
       syncBuildingsAfterQuiz();
+    }
+    if (completedIslandId && typeof advanceCursorAfterQuiz === "function") {
+      advanceCursorAfterQuiz(completedIslandId);
     }
   });
   document.addEventListener("ii:quizclosed", () => {
@@ -12350,9 +12356,22 @@
       syncBuildingsAfterQuiz();
     }
   });
-  document.addEventListener("ii:login", () => { pendingQuizUpgradeSync = false; islandRecords.forEach((r) => { r.stageLevel = null; }); window.refreshIslandBuildings({ animate: false }); });
-  document.addEventListener("ii:logout", () => { pendingQuizUpgradeSync = false; islandRecords.forEach((r) => { r.stageLevel = null; }); window.refreshIslandBuildings({ animate: false }); });
-  window.addEventListener("storage", () => window.refreshIslandBuildings({ animate: true }));
+  document.addEventListener("ii:login", () => {
+    pendingQuizUpgradeSync = false;
+    islandRecords.forEach((r) => { r.stageLevel = null; });
+    window.refreshIslandBuildings({ animate: false });
+  });
+  document.addEventListener("ii:logout", () => {
+    pendingQuizUpgradeSync = false;
+    islandRecords.forEach((r) => { r.stageLevel = null; });
+    window.refreshIslandBuildings({ animate: false });
+  });
+  window.addEventListener("storage", () => {
+    window.refreshIslandBuildings({ animate: true });
+    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
+      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    }
+  });
 
   // 登島視角無縫過渡狀態（避免跳回遠距舊座標造成視覺閃爍）
   const cameraIntroState = {
@@ -12393,6 +12412,9 @@
     });
     sanctuaryState.unlocked = false;
     updateIslandsProgress({ animateUpgrade: false });
+    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
+      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    }
     triggerBoardingCameraTransition();
   });
   document.addEventListener("ii:logout", () => {
@@ -12401,9 +12423,15 @@
     });
     sanctuaryState.unlocked = false;
     updateIslandsProgress({ animateUpgrade: false });
+    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
+      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    }
   });
   window.addEventListener("storage", () => {
     updateIslandsProgress({ animateUpgrade: true });
+    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
+      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    }
   });
 
   // 當學生在測驗升級後關閉測驗視窗時，自動收起抽屜並重播建築落成 Scale Bounce 或聖殿甦醒動畫以利觀賞
@@ -12477,8 +12505,10 @@
     });
   }
 
+  let currentGradeFilter = 0;
   function applyGradeFilter(grade) {
     const g = Number(grade) || 0;
+    currentGradeFilter = g;
     islandRecords.forEach((rec) => {
       const match = !g || rec.grades.includes(g);
       const dim = g !== 0 && !match;
@@ -12491,6 +12521,9 @@
       rec.labelSprite.material.opacity = dim ? 0.7 : 1;
       if (dim && hoveredIslandRec && hoveredIslandRec.id === rec.id) hoveredIslandRec = null;
     });
+    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
+      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    }
   }
   window.applyIslandGradeFilter = applyGradeFilter;
   document.addEventListener("ii:gradefilter", (e) => applyGradeFilter(e.detail && e.detail.grade));
@@ -12506,6 +12539,7 @@
       openIslandDrawer(islandId, tab, unitKey);
       return;
     }
+    setPlayerCursorTarget(rec.id, { persist: true });
     focusOnIsland(rec);
     startRunToIsland(rec);
     moveState.targetTab = tab || "標準";
@@ -12513,57 +12547,313 @@
   }
 
   /* ============================================================
-   * 今日指定任務島 3D 高亮定位標記（金色旋轉稜鏡＋光圈波紋）
+   * 學生個人挑戰進度 3D 智慧指引黃色菱形游標 (window.playerCursorMesh)
+   * ------------------------------------------------------------
+   * - 獨立於教師雲端指定任務光柱，專屬於學生個人的即時挑戰位置標記
+   * - 支援點擊/開測驗跟隨、3/3 滿分自動推進下一島、初次載入智慧定位
+   * - 依目標島嶼當前建築解鎖階段 (0/3 ~ 3/3) 動態計算高度防穿模
    * ============================================================ */
-  const targetIslandBeaconGroup = new THREE.Group();
-  targetIslandBeaconGroup.visible = false;
-  targetIslandBeaconGroup.name = "targetIslandBeacon";
-  scene.add(targetIslandBeaconGroup);
+  const ISLAND_ROOF_TOP_BY_STAGE = {
+    sys: [4.40, 6.00, 6.00, 11.42],
+    citizen: [4.40, 6.24, 6.24, 13.34],
+    create: [4.40, 5.55, 5.55, 11.34],
+    code: [4.40, 6.12, 6.12, 12.30],
+    algo: [4.40, 6.13, 6.13, 12.57],
+    data: [4.40, 6.39, 6.39, 12.79],
+    ai: [4.40, 5.53, 5.53, 12.20]
+  };
+  const SANCTUARY_ROOF_TOP_Y = 38.2;
+  const CURSOR_DIAMOND_HALF_H = 2.45;
+  const CURSOR_ROOF_CLEARANCE = 2.55;
 
-  const beaconPrismMat = new THREE.MeshStandardMaterial({
+  const playerCursorGroup = new THREE.Group();
+  playerCursorGroup.name = "playerCursorMesh";
+  scene.add(playerCursorGroup);
+
+  const cursorDiamondMat = new THREE.MeshStandardMaterial({
     color: 0xffd166,
     emissive: 0xffaa00,
     emissiveIntensity: 0.95,
     metalness: 0.45,
     roughness: 0.2
   });
-  const beaconPrism = new THREE.Mesh(new THREE.OctahedronGeometry(2.2, 0), beaconPrismMat);
-  beaconPrism.scale.set(1, 1.45, 1);
-  beaconPrism.position.y = 22.5;
-  targetIslandBeaconGroup.add(beaconPrism);
+  const cursorDiamond = new THREE.Mesh(new THREE.OctahedronGeometry(1.35, 0), cursorDiamondMat);
+  cursorDiamond.scale.set(1, 1.45, 1);
+  playerCursorGroup.add(cursorDiamond);
 
-  const beaconWireMat = new THREE.MeshBasicMaterial({
+  const cursorWireMat = new THREE.MeshBasicMaterial({
     color: 0xfff3b0,
     wireframe: true,
     transparent: true,
-    opacity: 0.7
+    opacity: 0.72
   });
-  const beaconWire = new THREE.Mesh(new THREE.OctahedronGeometry(2.75, 0), beaconWireMat);
-  beaconWire.scale.set(1, 1.45, 1);
-  beaconWire.position.y = 22.5;
-  targetIslandBeaconGroup.add(beaconWire);
+  const cursorWire = new THREE.Mesh(new THREE.OctahedronGeometry(1.68, 0), cursorWireMat);
+  cursorWire.scale.set(1, 1.45, 1);
+  playerCursorGroup.add(cursorWire);
 
-  const beaconPulseRingMat = new THREE.MeshBasicMaterial({
-    color: 0xffd166,
-    side: THREE.DoubleSide,
-    transparent: true,
-    opacity: 0.78
+  window.playerCursorMesh = playerCursorGroup;
+
+  const playerCursorState = {
+    targetId: "sys",
+    x: 0,
+    z: 0,
+    baseY: 10,
+    startX: 0,
+    startZ: 0,
+    totalDist: 0,
+    initialized: false
+  };
+
+  function getCursorTargetMetrics(targetId) {
+    if (targetId === "sanctuary") {
+      const reefY = mysteryReefGroup ? mysteryReefGroup.position.y : 0;
+      return {
+        x: 0,
+        z: 0,
+        baseY: SANCTUARY_ROOF_TOP_Y + reefY + CURSOR_ROOF_CLEARANCE + CURSOR_DIAMOND_HALF_H
+      };
+    }
+    const rec = islandRecords.find((r) => r.id === targetId) || islandRecords[0];
+    if (!rec) return { x: 0, z: 0, baseY: 10 };
+    const stageIdx = Math.max(
+      0,
+      Math.min(
+        3,
+        rec.stageSys && typeof rec.stageSys.stage === "number"
+          ? rec.stageSys.stage
+          : (typeof rec.stageLevel === "number" ? rec.stageLevel : 0)
+      )
+    );
+    const heights = ISLAND_ROOF_TOP_BY_STAGE[rec.id] || [4.4, 6.4, 6.4, 13.4];
+    const roofTopY = heights[stageIdx] + (rec.group ? rec.group.position.y : 0);
+    return {
+      x: rec.group ? rec.group.position.x : 0,
+      z: rec.group ? rec.group.position.z : 0,
+      baseY: roofTopY + CURSOR_ROOF_CLEARANCE + CURSOR_DIAMOND_HALF_H
+    };
+  }
+
+  function getOrderedRouteIslandRecords() {
+    const route = (window.SITE && Array.isArray(window.SITE.route) && window.SITE.route.length)
+      ? window.SITE.route
+      : islandRecords.map((r) => r.id);
+    const ordered = route.map((id) => islandRecords.find((r) => r.id === id)).filter(Boolean);
+    islandRecords.forEach((r) => {
+      if (!ordered.includes(r)) ordered.push(r);
+    });
+    return ordered;
+  }
+
+  function isAllIslandsCompleted() {
+    return islandRecords.length > 0 && islandRecords.every((r) => computeIslandStage(r) >= 3);
+  }
+
+  function setPlayerCursorTarget(targetId, opts = {}) {
+    const rawId = String(targetId || "").trim();
+    const valid = rawId === "sanctuary" || islandRecords.some((r) => r.id === rawId);
+    const resolvedId = valid ? rawId : (islandRecords[0] ? islandRecords[0].id : "sys");
+
+    if (opts.persist && window.Store && typeof window.Store.setActiveIslandId === "function") {
+      window.Store.setActiveIslandId(resolvedId, { silent: true });
+    }
+
+    const dest = getCursorTargetMetrics(resolvedId);
+    if (opts.snap || !playerCursorState.initialized) {
+      playerCursorState.targetId = resolvedId;
+      playerCursorState.x = dest.x;
+      playerCursorState.z = dest.z;
+      playerCursorState.baseY = dest.baseY;
+      playerCursorState.startX = dest.x;
+      playerCursorState.startZ = dest.z;
+      playerCursorState.totalDist = 0;
+      playerCursorState.initialized = true;
+      playerCursorGroup.position.set(dest.x, dest.baseY, dest.z);
+      return resolvedId;
+    }
+
+    if (resolvedId !== playerCursorState.targetId) {
+      const curX = playerCursorGroup.position.x;
+      const curZ = playerCursorGroup.position.z;
+      playerCursorState.x = curX;
+      playerCursorState.z = curZ;
+      playerCursorState.startX = curX;
+      playerCursorState.startZ = curZ;
+      playerCursorState.totalDist = Math.hypot(dest.x - curX, dest.z - curZ);
+      playerCursorState.targetId = resolvedId;
+    }
+    return resolvedId;
+  }
+
+  function resolveSmartCursorTarget(gradeFilter) {
+    const stored = (window.Store && typeof window.Store.getActiveIslandId === "function")
+      ? window.Store.getActiveIslandId()
+      : "";
+    if (stored) {
+      if (stored === "sanctuary" && isAllIslandsCompleted()) {
+        return "sanctuary";
+      }
+      if (islandRecords.some((r) => r.id === stored)) {
+        return stored;
+      }
+    }
+    const g = Number(gradeFilter) || 0;
+    const ordered = getOrderedRouteIslandRecords();
+    const candidates = g
+      ? ordered.filter((r) => Array.isArray(r.grades) && r.grades.includes(g))
+      : ordered;
+    const firstUnfinished = candidates.find((r) => computeIslandStage(r) < 3);
+    if (firstUnfinished) return firstUnfinished.id;
+    if (isAllIslandsCompleted()) return "sanctuary";
+    if (candidates.length > 0) return candidates[0].id;
+    return islandRecords[0] ? islandRecords[0].id : "sys";
+  }
+
+  function syncPlayerCursorFromStorageOrSmart(gradeFilter, opts = {}) {
+    const targetId = resolveSmartCursorTarget(gradeFilter);
+    return setPlayerCursorTarget(targetId, { persist: false, snap: Boolean(opts.snap) });
+  }
+
+  function advanceCursorAfterQuiz(completedIslandId) {
+    const cid = String(completedIslandId || "").trim();
+    if (!cid) return;
+    const completedRec = islandRecords.find((r) => r.id === cid);
+    if (!completedRec) return;
+    if (computeIslandStage(completedRec) < 3) {
+      setPlayerCursorTarget(cid, { persist: true });
+      return;
+    }
+    const ordered = getOrderedRouteIslandRecords();
+    const startIdx = ordered.findIndex((r) => r.id === cid);
+    let nextTarget = "";
+    for (let offset = 1; offset < ordered.length; offset++) {
+      const cand = ordered[(Math.max(0, startIdx) + offset) % ordered.length];
+      if (cand && computeIslandStage(cand) < 3) {
+        nextTarget = cand.id;
+        break;
+      }
+    }
+    if (!nextTarget) {
+      nextTarget = isAllIslandsCompleted() ? "sanctuary" : cid;
+    }
+    setPlayerCursorTarget(nextTarget, { persist: true });
+  }
+
+  function updatePlayerCursor(t, dt) {
+    if (!playerCursorState.initialized) return;
+    const dest = getCursorTargetMetrics(playerCursorState.targetId);
+    const horizAlpha = 1 - Math.exp(-5.0 * dt);
+    const vertAlpha = 1 - Math.exp(-5.5 * dt);
+
+    playerCursorState.x = THREE.MathUtils.lerp(playerCursorState.x, dest.x, horizAlpha);
+    playerCursorState.z = THREE.MathUtils.lerp(playerCursorState.z, dest.z, horizAlpha);
+    playerCursorState.baseY = THREE.MathUtils.lerp(playerCursorState.baseY, dest.baseY, vertAlpha);
+
+    const remDist = Math.hypot(dest.x - playerCursorState.x, dest.z - playerCursorState.z);
+    let displayX = playerCursorState.x;
+    let displayZ = playerCursorState.z;
+    let arcLiftY = 0;
+
+    if (playerCursorState.totalDist > 0.5 && remDist > 0.05) {
+      const progress = Math.max(0, Math.min(1, 1 - remDist / playerCursorState.totalDist));
+      const arcSin = Math.sin(progress * Math.PI);
+      const dx = dest.x - playerCursorState.startX;
+      const dz = dest.z - playerCursorState.startZ;
+      const len = Math.hypot(dx, dz) || 1;
+      const nx = -dz / len;
+      const nz = dx / len;
+      const lateralOffset = arcSin * Math.min(7.5, playerCursorState.totalDist * 0.12);
+      displayX += nx * lateralOffset;
+      displayZ += nz * lateralOffset;
+      arcLiftY = arcSin * Math.min(11.5, Math.max(2.5, playerCursorState.totalDist * 0.16));
+    } else if (remDist <= 0.05) {
+      playerCursorState.x = dest.x;
+      playerCursorState.z = dest.z;
+      playerCursorState.totalDist = 0;
+    }
+
+    const bob = Math.sin(t * 2.8) * 0.45;
+    playerCursorGroup.position.set(displayX, playerCursorState.baseY + arcLiftY + bob, displayZ);
+    cursorDiamond.rotation.y = t * 1.9;
+    cursorWire.rotation.y = -t * 1.25;
+  }
+
+  document.addEventListener("ii:active-island-changed", (e) => {
+    const nextId = e && e.detail ? e.detail.islandId : "";
+    if (nextId) {
+      setPlayerCursorTarget(nextId, { persist: false });
+    }
   });
-  const beaconPulseRing = new THREE.Mesh(new THREE.RingGeometry(4.2, 5.2, 48), beaconPulseRingMat);
-  beaconPulseRing.rotation.x = -Math.PI / 2;
-  beaconPulseRing.position.y = 14.5;
-  targetIslandBeaconGroup.add(beaconPulseRing);
+
+  // 初次載入智慧定位：優先讀取 localStorage activeIslandId，否則定位至當前所選年級的第一座未完成島嶼
+  syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: true });
+
+  /* ============================================================
+   * 今日指定任務島 3D 高亮定位標記（金色地面光環＋垂直光束）
+   * ============================================================ */
+  const targetIslandBeaconGroup = new THREE.Group();
+  targetIslandBeaconGroup.visible = false;
+  targetIslandBeaconGroup.name = "targetIslandBeacon";
+  scene.add(targetIslandBeaconGroup);
 
   const beaconGroundRingMat = new THREE.MeshBasicMaterial({
     color: 0xffe066,
     side: THREE.DoubleSide,
     transparent: true,
-    opacity: 0.55
+    opacity: 0.65,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
   });
-  const beaconGroundRing = new THREE.Mesh(new THREE.RingGeometry(11.5, 12.8, 64), beaconGroundRingMat);
+  const beaconGroundRing = new THREE.Mesh(new THREE.RingGeometry(11.5, 13.0, 64), beaconGroundRingMat);
   beaconGroundRing.rotation.x = -Math.PI / 2;
   beaconGroundRing.position.y = 0.65;
   targetIslandBeaconGroup.add(beaconGroundRing);
+
+  const beaconPulseRingMat = new THREE.MeshBasicMaterial({
+    color: 0xffd166,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.78,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const beaconPulseRing = new THREE.Mesh(new THREE.RingGeometry(8.5, 9.5, 48), beaconPulseRingMat);
+  beaconPulseRing.rotation.x = -Math.PI / 2;
+  beaconPulseRing.position.y = 0.72;
+  targetIslandBeaconGroup.add(beaconPulseRing);
+
+  const beaconOuterBeamMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.42,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false
+  });
+  const beaconOuterBeam = new THREE.Mesh(
+    buildSoftLightConeGeo(1.8, 3.8, 42, 20, 0x000000, 0xffd166),
+    beaconOuterBeamMat
+  );
+  beaconOuterBeam.position.y = 22.0;
+  beaconOuterBeam.renderOrder = 4;
+  targetIslandBeaconGroup.add(beaconOuterBeam);
+
+  const beaconInnerBeamMat = new THREE.MeshBasicMaterial({
+    vertexColors: true,
+    transparent: true,
+    opacity: 0.52,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    fog: false
+  });
+  const beaconInnerBeam = new THREE.Mesh(
+    buildSoftLightConeGeo(0.55, 1.45, 42, 16, 0x000000, 0xfff3b0),
+    beaconInnerBeamMat
+  );
+  beaconInnerBeam.position.y = 22.0;
+  beaconInnerBeam.renderOrder = 4;
+  targetIslandBeaconGroup.add(beaconInnerBeam);
 
   let activeTargetIslandId = "";
   function setTargetIslandHighlight(islandId) {
@@ -12579,20 +12869,19 @@
 
   function updateTargetIslandBeacon(t) {
     if (!targetIslandBeaconGroup.visible) return;
-    const bob = Math.sin(t * 2.8) * 1.35;
-    beaconPrism.position.y = 22.5 + bob;
-    beaconPrism.rotation.y = t * 1.9;
-    beaconWire.position.y = 22.5 + bob;
-    beaconWire.rotation.y = -t * 1.25;
-
-    const wave = (t * 0.85) % 1;
-    const s = 0.85 + wave * 1.35;
+    const wave = (t * 0.75) % 1;
+    const s = 0.92 + wave * 0.58;
     beaconPulseRing.scale.set(s, s, 1);
     beaconPulseRingMat.opacity = (1 - wave) * 0.78;
 
-    const gWave = 1 + Math.sin(t * 3.2) * 0.08;
+    const gWave = 1 + Math.sin(t * 3.2) * 0.06;
     beaconGroundRing.scale.set(gWave, gWave, 1);
-    beaconGroundRingMat.opacity = 0.42 + Math.sin(t * 3.2) * 0.22;
+    beaconGroundRingMat.opacity = 0.48 + Math.sin(t * 3.2) * 0.22;
+
+    const beamPulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+    beaconOuterBeamMat.opacity = 0.30 + beamPulse * 0.18;
+    beaconInnerBeamMat.opacity = 0.38 + beamPulse * 0.22;
+    beaconOuterBeam.rotation.y = t * 0.45;
   }
 
   document.addEventListener("ii:config-updated", (e) => {
@@ -12615,6 +12904,7 @@
     applyNightVisuals(nightBlend, t);
 
     updateTargetIslandBeacon(t);
+    updatePlayerCursor(t, dt);
 
     // 更新 7 座動森風吊橋走動 NPC 與中央聖殿神聖雙環/火炬
     if (typeof updateBridgeNPCs === "function") {
@@ -13779,7 +14069,11 @@
     launchConfetti: launchCelebrationConfetti,
     setNight: (night) => applyDayNightTheme(!!night),
     isNight: () => isNight,
-    setTargetIslandHighlight
+    setTargetIslandHighlight,
+    playerCursorMesh: playerCursorGroup,
+    playerCursorState,
+    setPlayerCursorTarget,
+    getActiveIslandId: () => playerCursorState.targetId
   };
 
   function isScenePaused() {
