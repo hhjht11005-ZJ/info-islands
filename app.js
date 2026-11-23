@@ -147,7 +147,7 @@
 
   /* ---------- drawer ---------- */
   const TABS = ["標準", "架構", "順序", "目標", "評量", "延伸"];
-  const TAB_LABEL = { 標準: "課綱對應", 架構: "課程架構", 順序: "課程順序", 目標: "課程目標", 評量: "評量方式", 延伸: "延伸內容" };
+  const TAB_LABEL = { 標準: "課綱對應", 架構: "課程架構", 順序: "課程內容", 目標: "課程目標", 評量: "評量方式", 延伸: "延伸內容" };
   const drawer = $("#drawer"), backdrop = $("#backdrop");
   function openIsland(id, tab = "標準", unitKey = null) {
     const i = byId[id]; if (!i) return;
@@ -234,7 +234,7 @@
   function renderUnit(i) {
     const key = state.unit, n = +key.split("-")[1];
     const s = i.sequence[n - 1], uc = (window.CONTENT && window.CONTENT[key]) || {};
-    const bar = `<div class="ubar"><button type="button" class="link" data-uback="1">← 返回課程順序</button>
+    const bar = `<div class="ubar"><button type="button" class="link" data-uback="1">← 返回課程內容</button>
         <div class="ubar-title"><span class="when">${termLabel(s.grade, s.term)} · 單元 ${n} · ${s.hours} 節</span><b>${esc(s.unit)}</b></div></div>
       <div class="utabs" role="tablist">${USUBS.map(([k, label]) => `<button type="button" role="tab" class="utab${state.usub === k ? " active" : ""}" data-usub="${k}" aria-selected="${state.usub === k}">${label}</button>`).join("")}</div>`;
     let content = "";
@@ -391,7 +391,7 @@
     const wBtn = e.target.closest("[data-ws]");
     if (wBtn) { openDoc(wBtn.dataset.ws, "ws"); return; }
   });
-  // 測驗完成後,若正在看「課程順序」就重新整理,讓最佳成績立即顯示
+  // 測驗完成後,若正在看「課程內容」就重新整理,讓最佳成績立即顯示
   document.addEventListener("ii:quizdone", () => { if (state.island && state.tab === "順序") renderTab(); });
 
   /* ---------- 搜尋即時提示選單 (Auto-complete) ---------- */
