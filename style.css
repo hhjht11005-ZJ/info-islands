@@ -287,7 +287,7 @@ input, textarea, select {
 }
 
 /* ---------- views (3D 全螢幕沉浸覆蓋) ---------- */
-main { padding: 0; pointer-events: none; }
+body > main { padding: 0; pointer-events: none; }
 .view { display: none; }
 .view.active { display: block; }
 #viewMap {
@@ -1874,7 +1874,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   color: #eaf4ff;
-  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  font-family: "Noto Sans TC", sans-serif;
   overflow: hidden;
 }
 .tc-cockpit.show {
@@ -2011,14 +2011,16 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  pointer-events: auto !important;
   padding-right: 4px;
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 .tc-main.tc-main-comp {
-  overflow: hidden;
-  padding-right: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
 }
 
 .tc-info-banner {
@@ -2280,7 +2282,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   padding: 20px;
   background: rgba(3, 12, 24, 0.92);
   backdrop-filter: blur(14px);
-  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  font-family: "Noto Sans TC", sans-serif;
 }
 .tc-projector-wrap[hidden] {
   display: none !important;
@@ -3930,9 +3932,10 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .tc-comp-panel {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0%;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+  pointer-events: auto !important;
   gap: 12px;
 }
 .tc-comp-toolbar {
@@ -3945,9 +3948,10 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 #tcCompTableWrap {
   display: flex;
   flex-direction: column;
-  flex: 1 1 0%;
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: hidden;
+  overflow: visible;
+  pointer-events: auto !important;
   gap: 10px;
 }
 .tc-ctrl {
@@ -3982,16 +3986,41 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   background: rgba(255, 255, 255, 0.04);
 }
 .tc-comp-table-scroll {
+  display: block;
   width: 100%;
-  flex: 1 1 0%;
-  min-height: 0;
-  max-height: calc(88vh - 230px);
-  overflow-x: auto;
-  overflow-y: auto;
+  height: 50vh;
+  max-height: 50vh;
+  overflow-x: auto !important;
+  overflow-y: scroll !important;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  position: relative;
+  pointer-events: auto !important;
+  scrollbar-width: auto;
+  scrollbar-color: #60a5fa rgba(15, 23, 42, 0.85);
   border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.22);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+.tc-comp-table-scroll::-webkit-scrollbar,
+[data-scrollable="true"]::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.tc-comp-table-scroll::-webkit-scrollbar-track,
+[data-scrollable="true"]::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 10px;
+}
+.tc-comp-table-scroll::-webkit-scrollbar-thumb,
+[data-scrollable="true"]::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #60a5fa, #38bdf8);
+  border-radius: 10px;
+  border: 2px solid rgba(15, 23, 42, 0.9);
+}
+.tc-comp-table-scroll::-webkit-scrollbar-thumb:hover,
+[data-scrollable="true"]::-webkit-scrollbar-thumb:hover {
+  background: #93c5fd;
 }
 .tc-comp-table {
   width: 100%;

@@ -28,7 +28,8 @@
   const UNIT_ALIAS_GROUPS = [
     ["sys", "hw"],
     ["code", "prog"],
-    ["algo", "alg"]
+    ["algo", "alg"],
+    ["citizen", "sec"]
   ];
   const CANONICAL_ISLAND_MAP = {
     hw: "sys",
@@ -36,6 +37,28 @@
     alg: "algo",
     sec: "citizen"
   };
+
+  function getMergedContentMap() {
+    const merged = {};
+    const sources = [
+      window.ISLAND_HARDWARE,
+      window.ISLAND_SECURITY,
+      window.ISLAND_CREATIVE,
+      window.ISLAND_PROGRAMMING,
+      window.ISLAND_ALGO,
+      window.ISLAND_ALGORITHM,
+      window.ISLAND_DATA,
+      window.ISLAND_AI,
+      window.CONTENT
+    ];
+    sources.forEach((src) => {
+      if (!src || typeof src !== "object") return;
+      Object.keys(src).forEach((k) => {
+        if (src[k]) merged[k] = src[k];
+      });
+    });
+    return merged;
+  }
 
   function getUnitAliasCandidates(unitId) {
     const raw = String(unitId || "").trim();
@@ -94,6 +117,7 @@
   }
 
   function resolveUnitMeta(unitId) {
+    const content = getMergedContentMap();
     const idStr = String(unitId || "").trim();
     const parts = idStr.split("-");
     const rawIslandId = parts[0] || "";
@@ -102,7 +126,7 @@
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
     const isl = islands.find((i) => i.id === islandId);
     const seqItem = isl && Array.isArray(isl.sequence) ? isl.sequence[unitNum - 1] : null;
-    const contentUnit = (window.CONTENT && (window.CONTENT[idStr] || window.CONTENT[`${islandId}-${unitNum}`])) || null;
+    const contentUnit = content[idStr] || content[`${islandId}-${unitNum}`] || null;
     return {
       islandEmoji: isl ? isl.emoji : "🏝️",
       islandName: isl ? isl.name : rawIslandId || "未知島嶼",
@@ -111,7 +135,7 @@
   }
 
   function findQuestionForProjection(unitId, difficulty, questionKey) {
-    const content = window.CONTENT || {};
+    const content = getMergedContentMap();
     const rawUnitId = String(unitId || "").trim();
     const rawDiff = String(difficulty || "").trim();
     const rawKey = String(questionKey || "").trim();
@@ -326,8 +350,12 @@
     };
   }
 
+  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcProjectorModal.show, #teacher-question-projector");
+
   function notifyCockpitToggle() {
-    document.dispatchEvent(new CustomEvent("ii:cockpit-toggle"));
+    document.dispatchEvent(new CustomEvent("ii:cockpit-toggle", {
+      detail: { open: window.isTeacherCockpitOpen() }
+    }));
   }
 
   /* ---- DOM 建置：密碼驗證視窗 ---- */
@@ -400,7 +428,7 @@
       </nav>
 
       <div class="tc-global-status" id="tcGlobalStatus" role="status" aria-live="polite" hidden></div>
-      <main class="tc-main" id="tcMainBody"></main>
+      <div class="tc-main" id="tcMainBody" style="pointer-events: auto !important; font-family: 'Noto Sans TC', sans-serif;"></div>
     </div>
   `;
   document.body.appendChild(cockpitWrap);
@@ -816,6 +844,7 @@
       .slice(0, 3);
 
     state.wrongTop3Items = top3;
+    window.__teacherTopWrongList = top3;
 
     if (top3.length === 0) {
       body.innerHTML = `<div class="tc-empty">✨ ${esc(cls)} 班目前尚無錯題紀錄！學生交卷若有答錯題目，系統將自動彙整至此處。</div>`;
@@ -844,14 +873,25 @@
               <span class="tc-diff-tag d-${esc(info.difficulty)}">難度：${esc(diffLabel)}</span>
             </div>
             <p class="tc-wrong-stem">${esc(stemText)}</p>
-            <button type="button" class="btn-primary tc-project-btn" data-wrong-idx="${idx}" data-unit="${esc(item.unitId)}" data-diff="${esc(item.difficulty)}" data-qkey="${esc(item.questionKey)}" data-count="${item.count}">📺 一鍵投影該題</button>
+            <button type="button" class="btn-primary tc-project-btn" data-action="project-wrong-question" data-wrong-idx="${idx}" data-unit="${esc(item.unitId)}" data-diff="${esc(item.difficulty)}" data-qkey="${esc(item.questionKey)}" data-count="${item.count}" style="pointer-events: auto; cursor: pointer;">📺 一鍵投影該題</button>
           </article>`;
         }).join("")}
       </div>
     `;
   }
 
-  /* ---- 超大字體題目檢討投影視窗 ---- */
+  /* ---- 超大字體題目檢討投影視窗（動態掛載於 document.body，全行內樣式強制顯示） ---- */
+  function closeProjectorModal() {
+    const activeProj = document.getElementById("teacher-question-projector");
+    if (activeProj && activeProj.parentNode) {
+      activeProj.parentNode.removeChild(activeProj);
+    }
+    projWrap.classList.remove("show");
+    projWrap.classList.add("hidden", "pointer-events-none");
+    projWrap.hidden = true;
+    notifyCockpitToggle();
+  }
+
   function openProjectorModal(input, legacyWrongCount = 0) {
     let unitId = "";
     let difficulty = "";
@@ -875,12 +915,67 @@
     const displayQKey = qKey || info.questionKey || "未記錄題號";
     let revealed = false;
 
-    // 確保投影視窗 DOM 永遠掛載於 document.body 最外層
-    if (projWrap.parentNode !== document.body) {
-      document.body.appendChild(projWrap);
+    const existingOverlay = document.getElementById("teacher-question-projector");
+    if (existingOverlay && existingOverlay.parentNode) {
+      existingOverlay.parentNode.removeChild(existingOverlay);
     }
+    projWrap.classList.remove("show");
+    projWrap.classList.add("hidden", "pointer-events-none");
+    projWrap.hidden = true;
 
-    const card = projWrap.querySelector("#tcProjectorCard");
+    const overlay = document.createElement("div");
+    overlay.id = "teacher-question-projector";
+    overlay.setAttribute("role", "dialog");
+    overlay.setAttribute("aria-modal", "true");
+    overlay.setAttribute("aria-label", "錯題投影講解視窗");
+    overlay.setAttribute("data-scrollable", "true");
+    overlay.style.cssText = [
+      "position: fixed",
+      "top: 0",
+      "left: 0",
+      "width: 100vw",
+      "height: 100vh",
+      "z-index: 2147483647",
+      "display: flex",
+      "align-items: center",
+      "justify-content: center",
+      "background: rgba(15, 23, 42, 0.94)",
+      "pointer-events: auto",
+      "padding: 20px",
+      "box-sizing: border-box",
+      'font-family: "Noto Sans TC", sans-serif'
+    ].join("; ") + ";";
+
+    const card = document.createElement("div");
+    card.id = "tcProjectorDynamicCard";
+    card.setAttribute("data-scrollable", "true");
+    card.style.cssText = [
+      "width: min(1160px, 96vw)",
+      "max-height: 92vh",
+      "overflow-y: auto",
+      "overscroll-behavior: contain",
+      "display: flex",
+      "flex-direction: column",
+      "background: linear-gradient(165deg, #0b2644, #06172b)",
+      "border: 2px solid rgba(124, 199, 255, 0.45)",
+      "border-radius: 24px",
+      "padding: 28px 34px",
+      "color: #ffffff",
+      "box-shadow: 0 28px 80px rgba(0, 0, 0, 0.72)",
+      'font-family: "Noto Sans TC", sans-serif',
+      "box-sizing: border-box",
+      "pointer-events: auto"
+    ].join("; ") + ";";
+
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    overlay.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("touchmove", (e) => e.stopPropagation(), { passive: true });
+    overlay.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (e.target === overlay) closeProjectorModal();
+    });
 
     const isAnswerIndex = (idx) => {
       if (!q) return false;
@@ -908,69 +1003,70 @@
     const renderProjector = () => {
       let optionsHtml = "";
       if (!q) {
-        optionsHtml = `<div class="tc-proj-missing">
-          <p>⚠️ 本地題庫目前找不到與此紀錄完全對應的題目內容，已為您保留原始題目索引紀錄：</p>
-          <div class="tc-proj-missing-meta">
-            <span>單元索引（<code>unitId</code>）：<code>${esc(displayUnitId)}</code></span>
-            <span>題目索引鍵（<code>questionKey</code>）：<code>${esc(displayQKey)}</code></span>
-            <span>難度：<code>${esc(diffLabel)}</code></span>
+        optionsHtml = `<div style="padding: 22px 24px; border-radius: 16px; background: rgba(245, 158, 11, 0.16); border: 1.5px solid rgba(251, 191, 36, 0.5); color: #fef3c7; font-size: 1.15rem; line-height: 1.65;">
+          <p style="margin: 0 0 12px; font-weight: 800;">⚠️ 本地題庫暫未反查到原文，已顯示該筆錯題完整紀錄：</p>
+          <div style="display: flex; flex-wrap: wrap; gap: 12px 20px; font-size: 1.05rem;">
+            <span>單元（<code>unitId</code>）：<code style="padding: 2px 8px; border-radius: 6px; background: rgba(15, 23, 42, 0.8); color: #ffd166;">${esc(displayUnitId)}</code></span>
+            <span>難度：<code style="padding: 2px 8px; border-radius: 6px; background: rgba(15, 23, 42, 0.8); color: #ffd166;">${esc(diffLabel)}</code></span>
+            <span>索引鍵（<code>questionKey</code>）：<code style="padding: 2px 8px; border-radius: 6px; background: rgba(15, 23, 42, 0.8); color: #ffd166;">${esc(displayQKey)}</code></span>
+            <span>錯誤人次：<strong style="color: #fca5a5;">${wrongCount} 人次</strong></span>
           </div>
         </div>`;
       } else if ((q.type === "single" || q.type === "multi") && Array.isArray(q.options)) {
-        optionsHtml = `<div class="tc-proj-opts">
+        optionsHtml = `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px;">
           ${q.options.map((opt, idx) => {
             const isAns = revealed && isAnswerIndex(idx);
             const letter = LETTERS[idx] || String(idx + 1);
-            return `<div class="tc-proj-opt${isAns ? " correct" : ""}">
-              <span class="tc-proj-letter">${letter}</span>
-              <span class="tc-proj-opt-txt">${esc(opt)}</span>
-              ${isAns ? `<span class="tc-proj-ans-pill">✔ 正確答案</span>` : ""}
+            return `<div style="display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 16px; background: ${isAns ? "rgba(22, 163, 74, 0.32)" : "rgba(255, 255, 255, 0.08)"}; border: 2px solid ${isAns ? "#4ade80" : "rgba(255, 255, 255, 0.2)"}; font-size: clamp(1.18rem, 1.85vw, 1.6rem); line-height: 1.45; font-weight: 700;">
+              <span style="flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; background: ${isAns ? "#22c55e" : "rgba(255, 255, 255, 0.16)"}; color: ${isAns ? "#052e16" : "#ffd166"}; display: inline-flex; align-items: center; justify-content: center; font-weight: 900;">${letter}</span>
+              <span style="flex: 1;">${esc(opt)}</span>
+              ${isAns ? `<span style="padding: 4px 10px; border-radius: 999px; background: #22c55e; color: #052e16; font-size: 0.92rem; font-weight: 900;">✔ 正確答案</span>` : ""}
             </div>`;
           }).join("")}
         </div>`;
       } else if (q.type === "tf") {
-        optionsHtml = `<div class="tc-proj-opts tf">
-          <div class="tc-proj-opt${revealed && q.answer === true ? " correct" : ""}">
-            <span class="tc-proj-letter">○</span>
-            <span class="tc-proj-opt-txt">正確</span>
-            ${revealed && q.answer === true ? `<span class="tc-proj-ans-pill">✔ 正確答案</span>` : ""}
+        optionsHtml = `<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px;">
+          <div style="display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 16px; background: ${revealed && q.answer === true ? "rgba(22, 163, 74, 0.32)" : "rgba(255, 255, 255, 0.08)"}; border: 2px solid ${revealed && q.answer === true ? "#4ade80" : "rgba(255, 255, 255, 0.2)"}; font-size: clamp(1.2rem, 1.9vw, 1.6rem); font-weight: 700;">
+            <span style="flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; background: ${revealed && q.answer === true ? "#22c55e" : "rgba(255, 255, 255, 0.16)"}; color: ${revealed && q.answer === true ? "#052e16" : "#ffd166"}; display: inline-flex; align-items: center; justify-content: center; font-weight: 900;">○</span>
+            <span style="flex: 1;">正確</span>
+            ${revealed && q.answer === true ? `<span style="padding: 4px 10px; border-radius: 999px; background: #22c55e; color: #052e16; font-size: 0.92rem; font-weight: 900;">✔ 正確答案</span>` : ""}
           </div>
-          <div class="tc-proj-opt${revealed && q.answer === false ? " correct" : ""}">
-            <span class="tc-proj-letter">✕</span>
-            <span class="tc-proj-opt-txt">錯誤</span>
-            ${revealed && q.answer === false ? `<span class="tc-proj-ans-pill">✔ 正確答案</span>` : ""}
+          <div style="display: flex; align-items: center; gap: 14px; padding: 18px 20px; border-radius: 16px; background: ${revealed && q.answer === false ? "rgba(22, 163, 74, 0.32)" : "rgba(255, 255, 255, 0.08)"}; border: 2px solid ${revealed && q.answer === false ? "#4ade80" : "rgba(255, 255, 255, 0.2)"}; font-size: clamp(1.2rem, 1.9vw, 1.6rem); font-weight: 700;">
+            <span style="flex-shrink: 0; width: 42px; height: 42px; border-radius: 12px; background: ${revealed && q.answer === false ? "#22c55e" : "rgba(255, 255, 255, 0.16)"}; color: ${revealed && q.answer === false ? "#052e16" : "#ffd166"}; display: inline-flex; align-items: center; justify-content: center; font-weight: 900;">✕</span>
+            <span style="flex: 1;">錯誤</span>
+            ${revealed && q.answer === false ? `<span style="padding: 4px 10px; border-radius: 999px; background: #22c55e; color: #052e16; font-size: 0.92rem; font-weight: 900;">✔ 正確答案</span>` : ""}
           </div>
         </div>`;
       } else if (q.type === "fill") {
-        optionsHtml = `<div class="tc-proj-fill">填空題：請同學舉手口頭作答</div>`;
+        optionsHtml = `<div style="padding: 20px; border-radius: 14px; background: rgba(255, 255, 255, 0.08); font-size: 1.35rem; text-align: center; color: #ffd166; font-weight: 700;">填空題：請同學舉手口頭作答</div>`;
       }
 
       const stemText = q ? (q.q || q.question || displayQKey) : `題目索引紀錄（${displayUnitId} / ${displayQKey}）`;
       const explainText = q ? (q.explain || q.explanation || "") : "";
 
       card.innerHTML = `
-        <div class="tc-proj-head">
-          <div class="tc-proj-badges">
-            <span class="tc-proj-badge">${esc(info.meta.islandEmoji)} ${esc(info.meta.islandName)} · ${esc(info.meta.unitName)}</span>
-            <span class="tc-proj-badge diff">難度：${esc(diffLabel)}</span>
-            <span class="tc-proj-badge warn">🔥 累計答錯 ${wrongCount} 人次</span>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid rgba(255, 255, 255, 0.16);">
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            <span style="padding: 6px 14px; border-radius: 999px; background: rgba(79, 179, 255, 0.22); border: 1px solid rgba(124, 199, 255, 0.45); font-size: 1rem; font-weight: 800;">${esc(info.meta.islandEmoji)} ${esc(info.meta.islandName)} · ${esc(info.meta.unitName)}</span>
+            <span style="padding: 6px 14px; border-radius: 999px; background: rgba(255, 209, 102, 0.22); border: 1px solid rgba(255, 209, 102, 0.5); color: #ffd166; font-size: 1rem; font-weight: 800;">難度：${esc(diffLabel)}</span>
+            <span style="padding: 6px 14px; border-radius: 999px; background: rgba(239, 68, 68, 0.28); border: 1px solid rgba(248, 113, 113, 0.55); color: #fecaca; font-size: 1rem; font-weight: 800;">🔥 累計答錯 ${wrongCount} 人次</span>
           </div>
-          <button type="button" id="tcProjClose" class="tc-proj-close" aria-label="關閉投影視窗">✕ 關閉投影</button>
+          <button type="button" id="tcProjClose" aria-label="關閉投影視窗" style="padding: 9px 18px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.14); color: #ffffff; font-weight: 800; font-size: 1rem; cursor: pointer; pointer-events: auto;">✕ 關閉投影</button>
         </div>
 
-        <div class="tc-proj-body">
-          <h2 class="tc-proj-question">${esc(stemText).replace(/\n/g, "<br>")}</h2>
+        <div style="padding: 22px 0; flex: 1;">
+          <h2 class="tc-proj-question" style="margin: 0 0 24px; font-size: clamp(1.55rem, 2.6vw, 2.35rem); line-height: 1.5; font-weight: 800; color: #ffffff;">${esc(stemText).replace(/\n/g, "<br>")}</h2>
           ${optionsHtml}
 
-          ${q ? `<div class="tc-proj-explain${revealed ? " show" : ""}" ${revealed ? "" : "hidden"}>
-            <div class="tc-proj-ans-line">✅ 正確答案：<strong>${esc(formatCorrectAnswerText())}</strong></div>
-            ${explainText ? `<div class="tc-proj-exp-line">💡 詳解：${esc(explainText)}</div>` : ""}
+          ${q && revealed ? `<div style="margin-top: 22px; padding: 18px 22px; border-radius: 16px; background: rgba(34, 197, 94, 0.16); border: 1.5px solid rgba(74, 222, 128, 0.55); font-size: clamp(1.08rem, 1.5vw, 1.35rem); line-height: 1.65;">
+            <div style="color: #86efac; margin-bottom: 8px;">✅ 正確答案：<strong>${esc(formatCorrectAnswerText())}</strong></div>
+            ${explainText ? `<div style="color: #eaf4ff;">💡 詳解：${esc(explainText)}</div>` : ""}
           </div>` : ""}
         </div>
 
-        ${q ? `<div class="tc-proj-foot">
-          <button type="button" id="tcProjRevealBtn" class="btn-primary tc-proj-reveal-btn" aria-pressed="${revealed}">
-            ${revealed ? "🙈 隱藏正確答案與詳解" : "👁️ 顯示正確答案與詳解"}
+        ${q ? `<div style="padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.14); display: flex; justify-content: center;">
+          <button type="button" id="tcProjRevealBtn" class="btn-primary" aria-pressed="${revealed}" style="padding: 14px 32px; font-size: 1.15rem; border-radius: 14px; cursor: pointer; pointer-events: auto;">
+            ${revealed ? "🙈 隱藏正確答案與詳解" : "👁️ 顯示／隱藏正確答案與詳解"}
           </button>
         </div>` : ""}
       `;
@@ -987,19 +1083,9 @@
     };
 
     renderProjector();
-    projWrap.hidden = false;
-    projWrap.classList.remove("hidden", "pointer-events-none");
-    projWrap.classList.add("show");
     notifyCockpitToggle();
     const closeBtn = card.querySelector("#tcProjClose");
     if (closeBtn) setTimeout(() => closeBtn.focus(), 20);
-  }
-
-  function closeProjectorModal() {
-    projWrap.classList.remove("show");
-    projWrap.classList.add("hidden", "pointer-events-none");
-    projWrap.hidden = true;
-    notifyCockpitToggle();
   }
 
   /* ---- 渲染分頁三：📢 雲端任務派發 ---- */
@@ -1371,7 +1457,7 @@
         <span>顯示 <b>${filtered.length}</b> / ${allRows.length} 位學生</span>
         <span>全島總關卡數：<b>${catalog.totalLevels}</b> 關（含 7 大島嶼 × 易／中／難）</span>
       </div>
-      <div class="tc-comp-table-scroll">
+      <div class="tc-comp-table-scroll" id="tcCompTableScroll" data-scrollable="true" style="display: block; width: 100%; height: 50vh; max-height: 50vh; overflow-y: scroll !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; position: relative; pointer-events: auto !important; scrollbar-width: auto;">
         <table class="tc-comp-table">
           <thead>
             <tr>
@@ -1490,6 +1576,17 @@
         <div id="tcCompTableWrap">${renderCompletionRowsHtml(allRows, catalog)}</div>
       </section>
     `;
+    bindCompletionScrollListeners(body);
+  }
+
+  function bindCompletionScrollListeners(rootEl = cockpitWrap) {
+    if (!rootEl || typeof rootEl.querySelectorAll !== "function") return;
+    rootEl.querySelectorAll('[data-scrollable="true"], .tc-comp-table-scroll').forEach((scrollEl) => {
+      if (scrollEl.dataset.scrollBound === "1") return;
+      scrollEl.dataset.scrollBound = "1";
+      scrollEl.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+      scrollEl.addEventListener("touchmove", (e) => e.stopPropagation(), { passive: true });
+    });
   }
 
   function closeDetailModal() {
@@ -1746,11 +1843,32 @@
 
   /* ---- 事件綁定（外層容器事件委派） ---- */
   function handleTopmostEscape() {
-    if (confirmWrap.classList.contains("show")) closeConfirmModal();
+    if (document.getElementById("teacher-question-projector") || projWrap.classList.contains("show")) closeProjectorModal();
+    else if (confirmWrap.classList.contains("show")) closeConfirmModal();
     else if (detailWrap.classList.contains("show")) closeDetailModal();
-    else if (projWrap.classList.contains("show")) closeProjectorModal();
     else if (authWrap.classList.contains("show")) closeAuthModal();
     else if (cockpitWrap.classList.contains("show")) closeCockpit();
+  }
+
+  if (!window.__projectionClickBound) {
+    window.__projectionClickBound = true;
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!target || typeof target.closest !== "function") return;
+      const projBtn = target.closest('[data-action="project-wrong-question"]');
+      if (!projBtn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const idx = Number(projBtn.getAttribute("data-wrong-idx"));
+      const cached = Array.isArray(window.__teacherTopWrongList) ? window.__teacherTopWrongList : [];
+      const item = (Number.isInteger(idx) && cached[idx]) ? cached[idx] : {
+        unitId: projBtn.getAttribute("data-unit") || "",
+        difficulty: projBtn.getAttribute("data-diff") || "",
+        questionKey: projBtn.getAttribute("data-qkey") || "",
+        count: Number(projBtn.getAttribute("data-count")) || 0
+      };
+      openProjectorModal(item);
+    }, true);
   }
 
   const stopBubble = (e) => { e.stopPropagation(); };
@@ -1759,7 +1877,7 @@
     container.addEventListener("pointerdown", stopBubble);
     container.addEventListener("mousedown", stopBubble);
     container.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show"))) {
+      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show") || !!document.getElementById("teacher-question-projector"))) {
         handleTopmostEscape();
       }
       e.stopPropagation();
@@ -1903,18 +2021,6 @@
       startLuckyDraw(getClassSnapshot());
       return;
     }
-    const projBtn = target.closest(".tc-project-btn");
-    if (projBtn) {
-      const idx = Number(projBtn.dataset.wrongIdx);
-      const item = Number.isInteger(idx) && state.wrongTop3Items[idx] ? state.wrongTop3Items[idx] : null;
-      openProjectorModal(item || {
-        unitId: projBtn.dataset.unit || "",
-        difficulty: projBtn.dataset.diff || "",
-        questionKey: projBtn.dataset.qkey || "",
-        count: Number(projBtn.dataset.count) || 0
-      });
-      return;
-    }
     if (target.closest("#tcPrivacyBtn")) {
       state.isPrivacyMode = !state.isPrivacyMode;
       renderMainBody();
@@ -1959,6 +2065,7 @@
       if (wrapEl) {
         const catalog = buildCurriculumCatalog();
         wrapEl.innerHTML = renderCompletionRowsHtml(buildMergedStudents(catalog), catalog);
+        bindCompletionScrollListeners(wrapEl);
       }
     }
   });
@@ -2003,7 +2110,7 @@
   confirmWrap.addEventListener("click", (e) => { if (e.target === confirmWrap) closeConfirmModal(); });
 
   document.addEventListener("keydown", (e) => {
-    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show")) return;
+    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show") && !document.getElementById("teacher-question-projector")) return;
     if (e.key === "Escape") {
       handleTopmostEscape();
     }

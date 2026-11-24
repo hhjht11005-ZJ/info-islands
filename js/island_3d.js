@@ -14781,12 +14781,32 @@
     }
   }
 
+  const isInsideModalOrScrollable = (target) => {
+    if (!target || typeof target.closest !== "function") return false;
+    return !!target.closest("#tcCockpit, #tcAuthModal, #tcDetailModal, #tcConfirmModal, #tcProjectorModal, #teacher-question-projector, #teacher-dashboard-modal, [data-scrollable='true']");
+  };
+  const guardCanvasScroll = (e) => {
+    if (isInsideModalOrScrollable(e.target) || (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen())) {
+      controls.enabled = false;
+      return;
+    }
+  };
+  if (renderer && renderer.domElement) {
+    renderer.domElement.addEventListener("wheel", guardCanvasScroll, { capture: true, passive: true });
+    renderer.domElement.addEventListener("touchmove", guardCanvasScroll, { capture: true, passive: true });
+  }
+
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) resumeMainMapControls();
   });
   document.addEventListener("ii:quizclosed", resumeMainMapControls);
   document.addEventListener("ii:modalclosed", resumeMainMapControls);
-  document.addEventListener("ii:cockpit-toggle", resumeSceneLoop);
+  document.addEventListener("ii:cockpit-toggle", (e) => {
+    if (e && e.detail && typeof e.detail.open === "boolean") {
+      controls.enabled = !e.detail.open && !isAnyBlockingModalOpen();
+    }
+    resumeSceneLoop();
+  });
 
   const observeBlockingModals = () => {
     if (typeof MutationObserver === "undefined") return;
