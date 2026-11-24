@@ -97,129 +97,141 @@
 
   // 帽子類型判斷：覆蓋頭頂型（貝雷帽、連帽兜）vs 頭飾型（髮箍、皇冠、耳機、髮夾）
   const COVER_HATS = new Set(["strawberry_beret", "hacker_hood"]);
-  const EAR_GEAR_HATS = new Set(["esports_headset", "hacker_hood"]);
 
-  const shine = (h, d = "M84 58 Q112 44 146 52") => `<path d="${d}" fill="none" stroke="${h.shine}" stroke-width="4.5" stroke-linecap="round" opacity=".52"/>`;
+  const shine = (h, d = "M84 52 Q112 40 146 47") => `<path d="${d}" fill="none" stroke="${h.shine}" stroke-width="4" stroke-linecap="round" opacity=".52"/>`;
   const hairFill = (c) => `url(#${c.u}-hair)`;
   const hairBackFill = (c) => `url(#${c.u}-hairBack)`;
 
-  // 8 款立體雕塑髮型（拆分為 back 後髮層 / crown 頭頂立體造型層 / sideburns 鬢角 / bangs 前額瀏海層）
+  // 共用高髮際線頭頂輪廓（底部弧線向上收於 y=56~60，絕不遮擋額頭，由各髮型自行決定前額造型）
+  const openTopCap = (h, c, headId, shinePath) => COVER_HATS.has(headId)
+    ? `<path d="M58 88 Q62 46 120 44 Q178 46 182 88 Q166 59 120 57 Q74 59 58 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1"/>`
+    : `<path d="M57 90 Q58 42 120 40 Q182 42 183 90 Q168 58 120 56 Q72 58 57 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>
+       ${shinePath ? shine(h, shinePath) : ""}`;
+
+  // 8 款立體雕塑髮型（各自獨立之 back 後髮 / crown 頭頂造型 / sideburns 鬢角 / bangs 前額瀏海，彼此絕不共用齊瀏海）
   const HAIR = {
+    // 男生款 1｜蓬鬆層次短髮：高低錯落鋸齒狀立體雲朵碎瀏海（中長側短）＋蓬鬆鬢角
     male_fluffy: {
-      back: (h, c) => `<path d="M54 118 Q48 44 120 38 Q192 44 186 118 Q182 136 168 140 L72 140 Q58 136 54 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+      back: (h, c) => `<path d="M53 118 Q48 44 120 38 Q192 44 187 118 Q182 135 168 139 L72 139 Q58 135 53 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M56 100 Q54 46 120 43 Q186 46 184 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M54 102 Q48 56 76 42 Q98 30 124 36 Q152 29 172 44 Q192 60 186 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M82 52 Q112 39 146 47")}`,
-      sideburns: (h, c) => `<path d="M56 88 Q48 110 56 128 Q64 134 69 124 Q72 110 66 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M184 88 Q192 110 184 128 Q176 134 171 124 Q168 110 174 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M58 92 Q66 56 120 56 Q174 56 182 92 Q173 82 162 88 Q154 103 140 94 Q131 107 118 96 Q105 107 95 93 Q80 102 72 88 Q64 84 58 92Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M84 74 Q94 84 100 74 M118 72 Q126 84 136 74 M148 75 Q156 84 162 76" fill="none" stroke="${h.s}" stroke-width="1.8" stroke-linecap="round" opacity=".55"/>`
+        ? openTopCap(h, c, headId)
+        : `<path d="M55 92 Q50 56 76 42 Q98 30 124 36 Q152 29 172 44 Q190 58 185 92 Q168 62 120 60 Q72 62 55 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          ${shine(h, "M82 49 Q112 37 146 45")}`,
+      sideburns: (h, c) => `<path d="M56 86 Q47 108 56 128 Q64 134 69 123 Q72 108 66 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M184 86 Q193 108 184 128 Q176 134 171 123 Q168 108 174 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M58 88 Q68 54 120 53 Q172 54 182 88 L171 72 L162 86 L151 69 L139 94 L128 73 L118 101 L107 72 L95 93 L84 71 L73 85 L66 74 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M96 63 Q96 76 95 86 M119 60 Q119 78 118 92 M141 64 Q140 76 139 87" fill="none" stroke="${h.s}" stroke-width="1.6" stroke-linecap="round" opacity=".5"/>`
     },
 
+    // 男生款 2｜帥氣刺蝟酷髮：完全露出額頭（無任何向下垂落瀏海），髮束全數向上抓出尖刺
     male_spiky: {
-      back: (h, c) => `<path d="M56 114 L46 86 L58 76 Q64 42 120 38 Q176 42 182 76 L194 86 L184 114 Q176 134 164 138 L76 138 Q64 134 56 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+      back: (h, c) => `<path d="M56 114 L46 84 L58 74 Q64 42 120 38 Q176 42 182 74 L194 84 L184 114 Q176 134 164 138 L76 138 Q64 134 56 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M58 98 Q56 46 120 43 Q184 46 182 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M55 96 L46 72 L65 70 L56 42 L84 50 L94 20 L114 42 L130 16 L144 43 L172 24 L166 54 L194 48 L178 74 L192 84 L183 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          <path d="M98 34 L109 50 M130 28 L135 48 M161 36 L154 54" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".65"/>`,
-      sideburns: (h, c) => `<path d="M56 86 L49 112 L63 130 L69 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M184 86 L191 112 L177 130 L171 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M58 88 Q74 56 120 56 Q166 56 182 88 L166 80 L156 102 L140 80 L124 106 L112 80 L94 103 L84 81 L68 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M92 68 L96 86 M124 66 L124 88 M152 68 L150 85" fill="none" stroke="${h.s}" stroke-width="1.6" stroke-linecap="round" opacity=".5"/>`
+        ? openTopCap(h, c, headId)
+        : `<path d="M56 90 L46 68 L64 66 L56 39 L84 48 L94 18 L114 40 L130 14 L144 41 L172 22 L166 52 L194 46 L178 72 L190 82 L183 92 Q166 64 120 61 Q74 64 56 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          <path d="M98 32 L109 49 M130 26 L135 47 M161 34 L154 53" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".65"/>`,
+      sideburns: (h, c) => `<path d="M56 84 L49 110 L62 128 L68 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M184 84 L191 110 L178 128 L172 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c, headId) => COVER_HATS.has(headId)
+        ? `<path d="M64 82 Q78 58 120 56 Q162 58 176 82 Q156 64 120 62 Q84 64 64 82 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.9" stroke-linejoin="round"/>`
+        : `<path d="M62 84 Q76 58 120 55 Q164 58 178 84 Q158 63 144 64 L148 48 L134 61 L122 44 L112 61 L96 47 L100 63 Q80 65 62 84 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`
     },
 
+    // 男生款 3｜韓系逗號瀏海：3:7 側分露出右額，左側大「C 字逗號弧形」掛於額側
     male_comma: {
       back: (h, c) => `<path d="M57 118 Q52 44 120 40 Q188 44 183 118 Q178 134 166 138 L74 138 Q62 134 57 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M58 98 Q56 46 120 43 Q184 46 182 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M57 102 Q54 44 120 40 Q134 40 140 50 Q148 40 162 44 Q186 52 183 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M78 56 Q104 45 130 50")}${shine(h, "M148 52 Q162 52 172 62")}`,
-      sideburns: (h, c) => `<path d="M58 86 Q55 112 64 130 L70 104 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M182 86 Q185 112 176 130 L170 104 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M59 94 Q60 58 124 56 Q137 56 142 66 Q120 68 114 92 Q110 103 95 100 Q100 84 96 76 Q80 78 68 102 Q61 100 59 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M140 62 Q168 58 181 94 Q174 102 166 96 Q158 80 143 78 Q138 72 140 62 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M84 67 Q105 64 107 88" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/>`
+        ? openTopCap(h, c, headId)
+        : `<path d="M57 92 Q54 44 122 40 Q138 40 144 51 Q152 40 165 44 Q186 52 183 92 Q168 62 146 61 Q110 58 57 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          ${shine(h, "M78 53 Q106 43 132 49")}`,
+      sideburns: (h, c) => `<path d="M58 84 Q54 110 64 128 L70 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M182 84 Q186 110 176 128 L170 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `
+        <path d="M58 92 Q60 54 136 53 Q144 54 146 62 Q122 62 117 88 Q114 103 95 101 Q104 88 98 76 Q82 76 68 98 Q60 98 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M148 56 Q172 58 182 90 Q173 84 166 73 Q156 66 146 62 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M84 65 Q107 63 108 89" fill="none" stroke="${h.shine}" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>`
     },
 
+    // 男生款 4｜潮流側分微捲：左側大斜分露左額，S 型波浪瀏海大角度斜掃過右眉角
     male_wavy: {
       back: (h, c) => `<path d="M55 120 Q49 46 120 40 Q191 46 185 120 Q181 138 166 142 L74 142 Q59 138 55 120Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M57 98 Q55 46 120 43 Q185 46 183 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M55 102 Q52 44 116 38 Q148 35 160 47 Q186 48 185 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M76 54 Q108 42 142 48")}`,
-      sideburns: (h, c) => `<path d="M57 86 Q50 112 60 132 Q69 124 68 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M183 86 Q190 114 179 134 Q171 124 172 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M58 96 Q64 56 148 56 Q160 56 164 68 Q138 72 124 90 Q106 108 86 106 Q74 105 64 112 Q57 104 58 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M150 61 Q174 62 182 96 Q172 98 165 86 Q156 76 148 70 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M78 86 Q102 76 126 70" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/>`
+        ? openTopCap(h, c, headId)
+        : `<path d="M55 92 Q53 46 80 43 Q90 36 124 38 Q186 42 185 92 Q164 62 96 58 Q70 62 55 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          ${shine(h, "M98 48 Q128 41 156 50")}`,
+      sideburns: (h, c) => `<path d="M57 84 Q51 110 60 130 Q68 122 68 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M183 84 Q190 112 179 134 Q171 124 172 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `
+        <path d="M86 54 Q140 50 176 74 Q183 92 170 105 Q154 108 144 96 Q128 82 104 75 Q90 70 84 62 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M58 92 Q63 62 86 54 Q82 68 72 80 Q63 88 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M108 63 Q138 69 160 91" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/>`
     },
 
+    // 女生款 1｜空氣感齊瀏海短髮（唯一保留水平齊瀏海）：帶透氣縫隙的水平內彎齊瀏海＋圓潤包柏頭
     female_bob: {
-      back: (h, c) => `<path d="M54 118 Q48 44 120 39 Q192 44 186 118 Q190 154 166 158 Q154 158 148 148 L92 148 Q86 158 74 158 Q50 154 54 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
-      crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M56 100 Q54 46 120 42 Q186 46 184 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M55 104 Q52 42 120 39 Q188 42 185 104 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-          ${shine(h, "M80 54 Q120 42 160 54")}`,
-      sideburns: (h, c) => `<path d="M54 88 Q46 124 58 148 Q69 154 74 143 Q66 126 67 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M186 88 Q194 124 182 148 Q171 154 166 143 Q174 126 173 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M62 88 Q68 56 120 56 Q172 56 178 88 Q166 94 154 91 Q148 76 143 92 Q132 94 126 92 Q122 74 118 92 Q108 94 98 92 Q92 76 86 91 Q74 94 62 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M78 72 L76 86 M106 70 L106 87 M134 70 L134 87 M162 72 L164 86" fill="none" stroke="${h.s}" stroke-width="1.4" stroke-linecap="round" opacity=".45"/>`
+      back: (h, c) => `<path d="M52 118 Q46 44 120 39 Q194 44 188 118 Q191 154 166 158 Q154 158 148 148 L92 148 Q86 158 74 158 Q49 154 52 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+      crown: (h, c, headId) => openTopCap(h, c, headId, "M80 51 Q120 40 160 51"),
+      sideburns: (h, c) => `<path d="M53 86 Q45 124 58 149 Q69 154 74 143 Q66 126 67 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M187 86 Q195 124 182 149 Q171 154 166 143 Q174 126 173 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M60 88 Q66 53 120 53 Q174 53 180 88 Q166 92 154 90 Q149 71 144 90 Q132 92 126 90 Q121 70 116 90 Q106 92 96 90 Q91 71 86 90 Q74 92 60 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M78 70 L76 85 M106 67 L106 85 M134 67 L134 85 M162 70 L164 85" fill="none" stroke="${h.s}" stroke-width="1.4" stroke-linecap="round" opacity=".45"/>`
     },
 
+    // 女生款 2｜活力元氣高馬尾：中分八字瀏海（正中露出倒 V 額頭肌膚）＋高馬尾
     female_ponytail: {
-      back: (h, c) => `<path d="M148 56 Q198 34 214 82 Q222 128 196 176 Q191 148 188 128 Q182 96 156 72 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-        <path d="M174 62 Q204 98 196 156" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round" opacity=".58"/>
-        <path d="M176 58 Q198 84 198 118" fill="none" stroke="${h.shine}" stroke-width="2.4" stroke-linecap="round" opacity=".55"/>
+      back: (h, c) => `<path d="M148 54 Q198 32 214 80 Q222 128 196 176 Q191 148 188 128 Q182 96 156 72 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+        <path d="M174 60 Q204 98 196 156" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round" opacity=".58"/>
+        <path d="M176 56 Q198 84 198 118" fill="none" stroke="${h.shine}" stroke-width="2.4" stroke-linecap="round" opacity=".55"/>
         <path d="M57 116 Q52 44 120 40 Q188 44 183 116 Q178 134 166 138 L74 138 Q62 134 57 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
       crown: (h, c, headId) => {
-        const tie = COVER_HATS.has(headId) ? "" : `<circle cx="155" cy="54" r="7.5" fill="${h.hl}" stroke="${OL}" stroke-width="2"/><circle cx="153" cy="51.5" r="2.2" fill="#fff" opacity=".85"/>`;
-        return `<path d="M57 102 Q54 44 120 40 Q186 44 183 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-          ${COVER_HATS.has(headId) ? "" : shine(h, "M80 55 Q110 43 138 49")}${tie}`;
+        const tie = COVER_HATS.has(headId) ? "" : `<circle cx="155" cy="52" r="7.5" fill="${h.hl}" stroke="${OL}" stroke-width="2"/><circle cx="153" cy="49.5" r="2.2" fill="#fff" opacity=".85"/>`;
+        return `${openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q110 41 138 47")}${tie}`;
       },
-      sideburns: (h, c) => `<path d="M58 84 Q50 112 62 138 Q70 132 68 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M182 84 Q190 112 178 138 Q170 132 172 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M59 94 Q64 56 120 56 Q116 74 96 92 Q78 106 62 114 Q57 104 59 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M181 94 Q176 56 120 56 Q124 74 144 92 Q162 106 178 114 Q183 104 181 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M108 66 Q94 82 76 96 M132 66 Q146 82 164 96" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
+      sideburns: (h, c) => `<path d="M57 86 Q50 112 62 138 Q70 132 68 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M183 86 Q190 112 178 138 Q170 132 172 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `
+        <path d="M58 96 Q62 56 118 52 Q110 74 91 96 Q75 113 60 120 Q55 108 58 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M182 96 Q178 56 122 52 Q130 74 149 96 Q165 113 180 120 Q185 108 182 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M106 64 Q90 84 72 102 M134 64 Q150 84 168 102" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
     },
 
+    // 女生款 3｜甜美雙丸子頭：無瀏海完全露額頭（僅髮際線兩撮俏皮小胎毛）＋臉側細長鬢角＋雙丸子
     female_buns: {
       back: (h, c) => `<path d="M57 116 Q52 44 120 40 Q188 44 183 116 Q178 134 166 138 L74 138 Q62 134 57 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
       crown: (h, c, headId) => {
         const covered = COVER_HATS.has(headId);
         const buns = covered ? "" : `
           <g>
-            <circle cx="72" cy="41" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-            <path d="M62 34 Q72 26 82 35" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
-            <path d="M63 45 Q72 40 81 45" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-            <rect x="64" y="51" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(-24 72 54)"/>
-            <circle cx="168" cy="41" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-            <path d="M158 34 Q168 26 178 35" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
-            <path d="M159 45 Q168 40 177 45" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-            <rect x="160" y="51" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(24 168 54)"/>
+            <circle cx="72" cy="40" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
+            <path d="M62 33 Q72 25 82 34" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
+            <path d="M63 44 Q72 39 81 44" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+            <rect x="64" y="50" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(-24 72 53)"/>
+            <circle cx="168" cy="40" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
+            <path d="M158 33 Q168 25 178 34" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
+            <path d="M159 44 Q168 39 177 44" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+            <rect x="160" y="50" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(24 168 53)"/>
           </g>`;
-        return `${buns}<path d="M57 102 Q54 44 120 40 Q186 44 183 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-          ${covered ? "" : shine(h, "M92 52 Q120 44 148 52")}`;
+        return `${buns}${openTopCap(h, c, headId, covered ? "" : "M92 50 Q120 43 148 50")}`;
       },
-      sideburns: (h, c) => `<path d="M57 86 Q51 118 60 144 Q67 148 69 134 Q66 114 68 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M183 86 Q189 118 180 144 Q173 148 171 134 Q174 114 172 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M60 92 Q66 56 120 56 Q174 56 180 92 Q168 84 156 92 Q144 82 132 93 Q125 78 120 75 Q115 78 108 93 Q96 82 84 92 Q72 84 60 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`
+      sideburns: (h, c) => `<path d="M57 84 Q51 118 60 146 Q67 150 69 134 Q66 112 68 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M183 84 Q189 118 180 146 Q173 150 171 134 Q174 112 172 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `
+        <path d="M84 62 Q90 71 96 67 Q93 61 91 58 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.6" stroke-linejoin="round"/>
+        <path d="M156 62 Q150 71 144 67 Q147 61 149 58 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.6" stroke-linejoin="round"/>`
     },
 
+    // 女生款 4｜優雅波浪長捲髮：中分無短瀏海，長髮從頭頂分線直接向兩側垂落至身後大波浪
     female_longwavy: {
       back: (h, c) => `<path d="M52 114 Q44 42 120 38 Q196 42 188 114 Q202 146 192 178 Q206 212 186 244 Q172 252 162 240 L78 240 Q68 252 54 244 Q34 212 48 178 Q38 146 52 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
         <path d="M55 156 Q44 186 58 214 Q48 228 62 242" fill="none" stroke="${h.c}" stroke-width="4" stroke-linecap="round" opacity=".55"/>
         <path d="M185 156 Q196 186 182 214 Q192 228 178 242" fill="none" stroke="${h.c}" stroke-width="4" stroke-linecap="round" opacity=".55"/>`,
-      crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M56 100 Q54 46 120 42 Q186 46 184 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>`
-        : `<path d="M54 102 Q52 42 120 38 Q188 42 186 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-          ${shine(h, "M80 54 Q118 42 158 54")}`,
-      sideburns: (h, c) => `<path d="M54 88 Q44 126 56 164 Q64 176 72 164 Q65 138 70 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M186 88 Q196 126 184 164 Q176 176 168 164 Q175 138 170 102 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M57 96 Q64 56 122 56 Q116 74 96 90 Q78 100 60 104 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M183 96 Q176 56 122 56 Q128 74 146 90 Q164 100 180 104 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M82 72 Q96 78 106 70 M136 70 Q146 78 160 72" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
+      crown: (h, c, headId) => openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q118 41 158 51"),
+      sideburns: (h, c) => `<path d="M54 84 Q44 126 56 164 Q64 176 72 164 Q65 138 70 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M186 84 Q196 126 184 164 Q176 176 168 164 Q175 138 170 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `
+        <path d="M56 96 Q58 54 118 51 Q100 66 82 88 Q68 106 62 126 Q53 114 56 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M184 96 Q182 54 122 51 Q140 66 158 88 Q172 106 178 126 Q187 114 184 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M98 64 Q80 82 68 108 M142 64 Q160 82 172 108" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
     }
   };
 

@@ -11018,7 +11018,7 @@
       }
     }
 
-    // ---- 8 款 3D 立體雕塑髮型 ----
+    // ---- 8 款 3D 立體雕塑髮型（移除共用平齊前蓋，僅覆蓋後腦與頂後部，額頭造型完全由各款獨立建構） ----
     function rebuildHair3D(hairId, hc, headId) {
       clearGroup(hairMount);
       const mainMat = new THREE.MeshStandardMaterial({ color: hc.c, roughness: 0.4, metalness: 0.04 });
@@ -11026,62 +11026,77 @@
       const hlMat = new THREE.MeshStandardMaterial({ color: hc.hl, roughness: 0.35, metalness: 0.08 });
       const coverHat = headId === "strawberry_beret" || headId === "hacker_hood";
 
-      // 基礎貼頭後髮與頭頂包覆帽殼（覆蓋頭頂時微縮貼合，絕不穿模）
-      const capScaleY = coverHat ? 0.95 : 1.02;
-      addPart(hairMount, new THREE.SphereGeometry(0.475, 18, 14, 0, Math.PI * 2, 0, Math.PI * 0.62), mainMat, 0, 0.44, -0.03, -0.18, 0, 0, 1.08, capScaleY, 1.04);
+      // 僅包覆後腦與頭頂後方（rx=-0.46 將前緣高舉至髮際線 y≈0.70 之上，絕不遮擋額頭）
+      const capScaleY = coverHat ? 0.94 : 1.0;
+      addPart(hairMount, new THREE.SphereGeometry(0.47, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.44), mainMat, 0, 0.43, -0.05, -0.46, 0, 0, 1.08, capScaleY, 1.04);
       if (headId !== "hacker_hood") {
-        addPart(hairMount, new THREE.SphereGeometry(0.465, 16, 12, 0, Math.PI * 2, Math.PI * 0.35, Math.PI * 0.52), shadeMat, 0, 0.41, -0.08, 0.12, 0, 0, 1.06, 0.94, 1.0);
+        // 後腦勺與耳後髮殼（只包覆背面與兩側後方，正面額頭 100% 留空）
+        addPart(hairMount, new THREE.SphereGeometry(0.468, 16, 12, Math.PI * 0.72, Math.PI * 1.56, Math.PI * 0.16, Math.PI * 0.68), shadeMat, 0, 0.41, -0.06, 0.08, 0, 0, 1.07, 0.95, 1.02);
       }
 
       if (hairId === "male_fluffy") {
-        // 雲朵般厚實立體波浪瀏海 + 兩側蓬鬆鬢角
-        const puffs = [
-          [-0.25, 0.62, 0.34, 0.14],
-          [-0.1, 0.66, 0.39, 0.16],
-          [0.08, 0.66, 0.39, 0.16],
-          [0.24, 0.61, 0.34, 0.14],
-          [0.0, 0.75, 0.25, 0.17]
+        // 男生款 1｜蓬鬆層次短髮：高低錯落鋸齒狀雲朵碎瀏海（中長側短）＋蓬鬆鬢角
+        const jaggedTufts = [
+          [-0.28, 0.68, 0.31, 0.075, 0.16, 0.25],
+          [-0.14, 0.63, 0.39, 0.085, 0.22, 0.1],
+          [0.0, 0.61, 0.42, 0.095, 0.25, 0.0],
+          [0.14, 0.63, 0.39, 0.085, 0.22, -0.1],
+          [0.28, 0.68, 0.31, 0.075, 0.16, -0.25]
         ];
-        puffs.forEach(([x, y, z, r]) => addPart(hairMount, new THREE.SphereGeometry(r, 10, 8), mainMat, x, y, z, 0, 0, 0, 1.12, 0.9, 0.92));
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.43, 0.36, 0.2, 0, 0, 0, 0.72, 1.45, 0.85));
+        jaggedTufts.forEach(([x, y, z, r, h, rz]) => {
+          addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, 2.75, 0, rz);
+        });
+        if (!coverHat) {
+          addPart(hairMount, new THREE.SphereGeometry(0.17, 10, 8), mainMat, 0, 0.78, 0.14, 0, 0, 0, 1.45, 0.75, 1.05);
+          addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.2, 0.74, 0.16, 0, 0, 0.2, 1.15, 0.78, 0.95);
+          addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, 0.2, 0.74, 0.16, 0, 0, -0.2, 1.15, 0.78, 0.95);
+        }
+        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.105, 10, 8), mainMat, s * 0.43, 0.36, 0.2, 0, 0, 0, 0.72, 1.45, 0.85));
       } else if (hairId === "male_spiky") {
-        // 帥氣刺蝟酷髮：向上立體尖刺錐群 + 前額斜刺瀏海
+        // 男生款 2｜帥氣刺蝟酷髮：完全露出額頭（無任何向下垂落瀏海），髮束全數向上抓出立體尖刺
         if (!coverHat) {
           const spikes = [
-            [-0.22, 0.88, 0.06, -0.15, 0, 0.42, 0.12, 0.34],
-            [0.0, 0.95, 0.08, -0.05, 0, 0.05, 0.13, 0.38],
-            [0.22, 0.87, 0.05, -0.15, 0, -0.42, 0.12, 0.34],
-            [-0.14, 0.83, -0.2, -0.55, 0, 0.26, 0.12, 0.32],
-            [0.14, 0.83, -0.2, -0.55, 0, -0.26, 0.12, 0.32]
+            [-0.24, 0.86, 0.1, -0.1, 0, 0.45, 0.115, 0.34],
+            [-0.08, 0.93, 0.14, 0.12, 0, 0.16, 0.125, 0.38],
+            [0.08, 0.94, 0.14, 0.12, 0, -0.16, 0.125, 0.38],
+            [0.24, 0.86, 0.1, -0.1, 0, -0.45, 0.115, 0.34],
+            [-0.15, 0.82, -0.18, -0.52, 0, 0.28, 0.12, 0.32],
+            [0.15, 0.82, -0.18, -0.52, 0, -0.28, 0.12, 0.32]
           ];
           spikes.forEach(([x, y, z, rx, ry, rz, r, h]) => addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, rx, ry, rz));
         }
-        [[-0.2, 0.62, 0.37, 0.25], [-0.04, 0.61, 0.42, 0.05], [0.12, 0.61, 0.41, -0.12], [0.25, 0.62, 0.35, -0.3]].forEach(([x, y, z, rz]) => {
-          addPart(hairMount, new THREE.ConeGeometry(0.085, 0.24, 6), mainMat, x, y, z, 2.55, 0, rz);
+        // 前額髮際線短刺向上翹起（完全不遮額頭）
+        [[-0.18, 0.74, 0.28, 0.42, 0.2], [0.0, 0.76, 0.3, 0.48, 0], [0.18, 0.74, 0.28, 0.42, -0.2]].forEach(([x, y, z, rx, rz]) => {
+          addPart(hairMount, new THREE.ConeGeometry(0.08, 0.2, 6), mainMat, x, y, z, rx, 0, rz);
         });
         [-1, 1].forEach((s) => addPart(hairMount, new THREE.ConeGeometry(0.075, 0.24, 6), mainMat, s * 0.43, 0.34, 0.2, 0.15, 0, s * 2.95));
       } else if (hairId === "male_comma") {
-        // 韓系逗號瀏海：清爽分線＋左額內彎弧形逗號束
-        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.22, 0.63, 0.34, 0, 0, 0.35, 1.35, 0.85, 0.82);
-        addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, -0.07, 0.56, 0.41, 0, 0, -0.65, 1.25, 0.72, 0.72);
-        addPart(hairMount, new THREE.SphereGeometry(0.12, 10, 8), mainMat, 0.24, 0.64, 0.33, 0, 0, -0.35, 1.3, 0.8, 0.8);
+        // 男生款 3｜韓系逗號瀏海：3:7 側分露出右額，左側向內彎成大「C 字逗號弧形」
+        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.24, 0.66, 0.32, 0, 0, 0.42, 1.32, 0.82, 0.82);
+        addPart(hairMount, new THREE.SphereGeometry(0.115, 10, 8), mainMat, -0.1, 0.56, 0.4, 0, 0, -0.55, 1.3, 0.7, 0.72);
+        addPart(hairMount, new THREE.ConeGeometry(0.075, 0.18, 7), mainMat, -0.02, 0.51, 0.42, 1.6, 0, -1.25);
+        // 右側 3 分區清爽向後收攏，露出右額分線
+        addPart(hairMount, new THREE.SphereGeometry(0.105, 8, 8), mainMat, 0.3, 0.68, 0.24, 0, 0, -0.55, 1.18, 0.72, 0.85);
         [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.09, 8, 8), mainMat, s * 0.43, 0.36, 0.2, 0, 0, 0, 0.65, 1.38, 0.75));
       } else if (hairId === "male_wavy") {
-        // 潮流側分微捲：大側分波浪瀏海斜掠左眉
-        addPart(hairMount, new THREE.SphereGeometry(0.16, 10, 8), mainMat, 0.06, 0.68, 0.36, 0, 0, -0.25, 1.55, 0.82, 0.88);
-        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.18, 0.58, 0.39, 0, 0, 0.38, 1.5, 0.8, 0.8);
-        addPart(hairMount, new THREE.SphereGeometry(0.1, 8, 8), mainMat, 0.28, 0.6, 0.31, 0, 0, -0.45, 1.15, 0.82, 0.8);
+        // 男生款 4｜潮流側分微捲：左側分線露出左額，S 型斜波浪瀏海從左上向右眉角大斜掃
+        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.06, 0.71, 0.34, 0, 0, -0.35, 1.45, 0.74, 0.82);
+        addPart(hairMount, new THREE.SphereGeometry(0.15, 10, 8), mainMat, 0.1, 0.64, 0.39, 0, 0, -0.45, 1.55, 0.76, 0.78);
+        addPart(hairMount, new THREE.SphereGeometry(0.125, 10, 8), mainMat, 0.24, 0.55, 0.39, 0, 0, -0.52, 1.38, 0.72, 0.74);
+        // 左側少量收攏髮絲，保持左半額頭清爽露出
+        addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, -0.32, 0.67, 0.22, 0, 0, 0.5, 1.05, 0.72, 0.85);
         [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.1, 8, 8), mainMat, s * 0.43, 0.34, 0.2, 0, 0, 0, 0.7, 1.45, 0.8));
       } else if (hairId === "female_bob") {
-        // 空氣感齊瀏海短髮：圓潤內彎包柏殼＋齊瀏海＋耳邊短髮
+        // 女生款 1｜空氣感齊瀏海短髮（唯一保留水平齊瀏海）：帶透氣微縫隙的水平內彎齊瀏海＋包柏頭
         addPart(hairMount, new THREE.CylinderGeometry(0.49, 0.44, 0.34, 16, 1, false, Math.PI * 0.22, Math.PI * 1.56), shadeMat, 0, 0.25, -0.05, 0, Math.PI, 0, 1.06, 1, 0.98);
-        [-0.2, -0.07, 0.07, 0.2].forEach((x) => addPart(hairMount, new THREE.SphereGeometry(0.088, 8, 8), mainMat, x, 0.61, 0.41, 0, 0, 0, 0.95, 1.05, 0.7));
+        [-0.21, -0.075, 0.075, 0.21].forEach((x) => addPart(hairMount, new THREE.SphereGeometry(0.082, 8, 8), mainMat, x, 0.61, 0.41, 0, 0, 0, 0.9, 1.1, 0.68));
         [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.42, 0.26, 0.22, 0, 0, s * -0.15, 0.7, 1.85, 0.85));
       } else if (hairId === "female_ponytail") {
-        // 活力元氣高馬尾：八字微捲瀏海＋頭頂後方高馬尾束
+        // 女生款 2｜活力元氣高馬尾：中分八字瀏海（額頭正中央完全留空露肌）＋高馬尾
         [-1, 1].forEach((s) => {
-          addPart(hairMount, new THREE.SphereGeometry(0.125, 10, 8), mainMat, s * 0.16, 0.61, 0.38, 0, 0, s * -0.45, 1.35, 0.82, 0.75);
-          addPart(hairMount, new THREE.SphereGeometry(0.085, 8, 8), mainMat, s * 0.41, 0.32, 0.22, 0, 0, s * 0.12, 0.68, 1.55, 0.78);
+          addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.22, 0.66, 0.34, 0, 0, s * -0.58, 1.35, 0.74, 0.75);
+          addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, s * 0.34, 0.53, 0.31, 0, 0, s * -0.35, 0.85, 1.45, 0.75);
+          addPart(hairMount, new THREE.SphereGeometry(0.08, 8, 8), mainMat, s * 0.41, 0.3, 0.22, 0, 0, s * 0.12, 0.68, 1.55, 0.78);
         });
         if (headId !== "hacker_hood") {
           addPart(hairMount, new THREE.TorusGeometry(0.09, 0.032, 8, 14), hlMat, 0.16, 0.74, -0.36, 0.55, 0.3, 0);
@@ -11093,20 +11108,23 @@
           hairMount.add(tail);
         }
       } else if (hairId === "female_buns") {
-        // 甜美雙丸子頭：頭頂兩側對稱雙丸子＋修飾鬢角
+        // 女生款 3｜甜美雙丸子頭：無瀏海全露額頭（僅髮際線兩撮極短小胎毛）＋臉側細長鬢角＋雙丸子
         if (!coverHat) {
           [-1, 1].forEach((s) => {
             addPart(hairMount, new THREE.SphereGeometry(0.19, 12, 10), mainMat, s * 0.37, 0.8, -0.02);
             addPart(hairMount, new THREE.TorusGeometry(0.115, 0.03, 8, 14), hlMat, s * 0.32, 0.67, -0.01, Math.PI / 2, s * -0.42, 0);
           });
         }
-        [-0.2, -0.07, 0.07, 0.2].forEach((x) => addPart(hairMount, new THREE.SphereGeometry(0.088, 8, 8), mainMat, x, 0.61, 0.4, 0, 0, 0, 1.05, 0.95, 0.72));
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.CylinderGeometry(0.048, 0.03, 0.44, 8), mainMat, s * 0.43, 0.25, 0.22, 0, 0, s * -0.06));
-      } else if (hairId === "female_longwavy") {
-        // 優雅波浪長捲髮：溫柔分線瀏海＋垂落至身後的立體大波浪長捲髮
+        // 僅兩撮極短俏皮胎毛點綴於高髮際線，額頭完全清爽露出
         [-1, 1].forEach((s) => {
-          addPart(hairMount, new THREE.SphereGeometry(0.125, 10, 8), mainMat, s * 0.17, 0.61, 0.37, 0, 0, s * -0.42, 1.38, 0.82, 0.75);
-          addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, s * 0.4, 0.12, 0.22, 0, 0, s * -0.1, 0.75, 2.35, 0.85);
+          addPart(hairMount, new THREE.ConeGeometry(0.042, 0.11, 6), mainMat, s * 0.17, 0.71, 0.34, 2.55, 0, s * -0.25);
+          addPart(hairMount, new THREE.CylinderGeometry(0.046, 0.028, 0.46, 8), mainMat, s * 0.43, 0.25, 0.22, 0, 0, s * -0.06);
+        });
+      } else if (hairId === "female_longwavy") {
+        // 女生款 4｜優雅波浪長捲髮：中分無短瀏海，長髮從頭頂分線直接沿臉側垂落至身後大波浪
+        [-1, 1].forEach((s) => {
+          addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.25, 0.67, 0.31, 0, 0, s * -0.58, 1.25, 0.76, 0.75);
+          addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, s * 0.4, 0.14, 0.22, 0, 0, s * -0.1, 0.75, 2.35, 0.85);
         });
         if (headId !== "hacker_hood") {
           const rows = [
