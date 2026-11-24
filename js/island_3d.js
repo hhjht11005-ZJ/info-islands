@@ -10683,46 +10683,50 @@
   badgeTexture.minFilter = THREE.LinearFilter;
 
   function drawStudentBadgeCanvas() {
-    const text = getStudentClassSeatText();
-    badgeCtx.clearRect(0, 0, badgeCanvas.width, badgeCanvas.height);
+    try {
+      const text = getStudentClassSeatText();
+      badgeCtx.clearRect(0, 0, badgeCanvas.width, badgeCanvas.height);
 
-    const x = 18, y = 14, w = 348, h = 76, r = 38;
-    badgeCtx.save();
-    badgeCtx.beginPath();
-    badgeCtx.moveTo(x + r, y);
-    badgeCtx.lineTo(x + w - r, y);
-    badgeCtx.quadraticCurveTo(x + w, y, x + w, y + r);
-    badgeCtx.lineTo(x + w, y + h - r);
-    badgeCtx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-    badgeCtx.lineTo(x + r, y + h);
-    badgeCtx.quadraticCurveTo(x, y + h, x, y + h - r);
-    badgeCtx.lineTo(x, y + r);
-    badgeCtx.quadraticCurveTo(x, y, x + r, y);
-    badgeCtx.closePath();
+      const x = 18, y = 14, w = 348, h = 76, r = 38;
+      badgeCtx.save();
+      badgeCtx.beginPath();
+      badgeCtx.moveTo(x + r, y);
+      badgeCtx.lineTo(x + w - r, y);
+      badgeCtx.quadraticCurveTo(x + w, y, x + w, y + r);
+      badgeCtx.lineTo(x + w, y + h - r);
+      badgeCtx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      badgeCtx.lineTo(x + r, y + h);
+      badgeCtx.quadraticCurveTo(x, y + h, x, y + h - r);
+      badgeCtx.lineTo(x, y + r);
+      badgeCtx.quadraticCurveTo(x, y, x + r, y);
+      badgeCtx.closePath();
 
-    // 底部可愛小箭頭指標
-    badgeCtx.moveTo(180, y + h);
-    badgeCtx.lineTo(192, y + h + 14);
-    badgeCtx.lineTo(204, y + h);
+      // 底部可愛小箭頭指標
+      badgeCtx.moveTo(180, y + h);
+      badgeCtx.lineTo(192, y + h + 14);
+      badgeCtx.lineTo(204, y + h);
 
-    badgeCtx.fillStyle = "rgba(255, 252, 242, 0.95)";
-    badgeCtx.shadowColor = "rgba(10, 38, 71, 0.35)";
-    badgeCtx.shadowBlur = 10;
-    badgeCtx.shadowOffsetY = 4;
-    badgeCtx.fill();
+      badgeCtx.fillStyle = "rgba(255, 252, 242, 0.95)";
+      badgeCtx.shadowColor = "rgba(10, 38, 71, 0.35)";
+      badgeCtx.shadowBlur = 10;
+      badgeCtx.shadowOffsetY = 4;
+      badgeCtx.fill();
 
-    badgeCtx.lineWidth = 5;
-    badgeCtx.strokeStyle = "#ff8a65";
-    badgeCtx.stroke();
-    badgeCtx.restore();
+      badgeCtx.lineWidth = 5;
+      badgeCtx.strokeStyle = "#ff8a65";
+      badgeCtx.stroke();
+      badgeCtx.restore();
 
-    badgeCtx.fillStyle = "#16324f";
-    badgeCtx.font = "bold 30px 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
-    badgeCtx.textAlign = "center";
-    badgeCtx.textBaseline = "middle";
-    badgeCtx.fillText(`🎒 ${text}`, 192, y + h / 2 + 1);
+      badgeCtx.fillStyle = "#16324f";
+      badgeCtx.font = "bold 30px 'Noto Sans TC', 'Microsoft JhengHei', sans-serif";
+      badgeCtx.textAlign = "center";
+      badgeCtx.textBaseline = "middle";
+      badgeCtx.fillText(`🎒 ${text}`, 192, y + h / 2 + 1);
 
-    badgeTexture.needsUpdate = true;
+      badgeTexture.needsUpdate = true;
+    } catch (err) {
+      console.error("[island_3d] drawStudentBadgeCanvas error:", err);
+    }
   }
 
   drawStudentBadgeCanvas();
@@ -11471,30 +11475,34 @@
     }
 
     function syncAvatarAppearance() {
-      const av = window.AvatarSystem;
-      const st = av && typeof av.getState === "function" ? av.getState() : null;
-      const look = av && typeof av.normalizeLook === "function"
-        ? av.normalizeLook(st && st.look)
-        : Object.assign({ hair: "male_gojo", hairColor: "silver", face: "calm" }, (st && st.look) || {});
-      const colors = (av && av.HAIR_COLORS) || [
-        { id: "silver", c: "#F1F5F9", s: "#B8C7D9", hl: "#38BDF8" },
-        { id: "crimson", c: "#27161B", bot: "#991B1B", s: "#450A0A", hl: "#EF4444" },
-        { id: "gold", c: "#FACC15", s: "#CA8A04", hl: "#F97316" },
-        { id: "orange", c: "#FB923C", s: "#C2410C", hl: "#18181B" },
-        { id: "pink", c: "#F9A8D4", s: "#DB2777", hl: "#FACC15" },
-        { id: "flameblack", c: "#1F1B24", mid: "#FB7185", bot: "#F97316", s: "#EA580C", hl: "#F472B6" },
-        { id: "teal", c: "#2DD4BF", s: "#0F766E", hl: "#EC4899" },
-        { id: "black", c: "#2B2E4D", s: "#17182B", hl: "#FF4D8D" }
-      ];
-      const hc = (av && typeof av.getHairPalette === "function")
-        ? av.getHairPalette(look.hair, look.hairColor)
-        : (colors.find((x) => x.id === look.hairColor) || colors[0]);
-      const eq = (st && st.equipped) || {};
-      const headId = eq.head || "";
+      try {
+        const av = window.AvatarSystem;
+        const st = av && typeof av.getState === "function" ? av.getState() : null;
+        const look = av && typeof av.normalizeLook === "function"
+          ? av.normalizeLook(st && st.look)
+          : Object.assign({ hair: "male_gojo", hairColor: "silver", face: "calm" }, (st && st.look) || {});
+        const colors = (av && av.HAIR_COLORS) || [
+          { id: "silver", c: "#F1F5F9", s: "#B8C7D9", hl: "#38BDF8" },
+          { id: "crimson", c: "#27161B", bot: "#991B1B", s: "#450A0A", hl: "#EF4444" },
+          { id: "gold", c: "#FACC15", s: "#CA8A04", hl: "#F97316" },
+          { id: "orange", c: "#FB923C", s: "#C2410C", hl: "#18181B" },
+          { id: "pink", c: "#F9A8D4", s: "#DB2777", hl: "#FACC15" },
+          { id: "flameblack", c: "#1F1B24", mid: "#FB7185", bot: "#F97316", s: "#EA580C", hl: "#F472B6" },
+          { id: "teal", c: "#2DD4BF", s: "#0F766E", hl: "#EC4899" },
+          { id: "black", c: "#2B2E4D", s: "#17182B", hl: "#FF4D8D" }
+        ];
+        const hc = (av && typeof av.getHairPalette === "function")
+          ? av.getHairPalette(look.hair, look.hairColor)
+          : (colors.find((x) => x.id === look.hairColor) || colors[0]);
+        const eq = (st && st.equipped) || {};
+        const headId = eq.head || "";
 
-      rebuildFace3D(look.face, hc.s, look.hair, eq.face || "");
-      rebuildHair3D(look.hair, hc, headId);
-      rebuildGear3D(eq, look.hair);
+        rebuildFace3D(look.face, hc.s, look.hair, eq.face || "");
+        rebuildHair3D(look.hair, hc, headId);
+        rebuildGear3D(eq, look.hair);
+      } catch (err) {
+        console.error("[island_3d] syncAvatarAppearance error:", err);
+      }
     }
 
     syncAvatarAppearance();
@@ -11518,10 +11526,18 @@
   const studentChar = createClayStudentCharacter();
   scene.add(studentChar.root);
 
-  document.addEventListener("ii:avatar-changed", () => studentChar.syncAvatarAppearance());
-  document.addEventListener("ii:login", () => studentChar.syncAvatarAppearance());
-  document.addEventListener("ii:logout", () => studentChar.syncAvatarAppearance());
-  window.addEventListener("storage", () => studentChar.syncAvatarAppearance());
+  const safeSyncAvatarAppearance = () => {
+    try {
+      studentChar.syncAvatarAppearance();
+    } catch (err) {
+      console.error("[island_3d] safeSyncAvatarAppearance error:", err);
+    }
+  };
+  document.addEventListener("ii:avatar-changed", safeSyncAvatarAppearance);
+  document.addEventListener("avatarUpdated", safeSyncAvatarAppearance);
+  document.addEventListener("ii:login", safeSyncAvatarAppearance);
+  document.addEventListener("ii:logout", safeSyncAvatarAppearance);
+  window.addEventListener("storage", safeSyncAvatarAppearance);
 
   // 預設起始位置：第 0 座島（電腦探險島 sys）碼頭
   let currentIslandIndex = 0;
@@ -12444,7 +12460,7 @@
       ? "#061024"
       : "linear-gradient(180deg, #0284c7 0%, #0369a1 100%)";
 
-    if (animFrameId === null) {
+    if (animFrameId === null || isScenePaused()) {
       nightBlend = isNight ? 1 : 0;
       if (oceanEnv && oceanEnv.snapNight) oceanEnv.snapNight(isNight);
       applyNightVisuals(nightBlend, clock.getElapsedTime());
@@ -14690,48 +14706,112 @@
     setNight: (night) => applyDayNightTheme(!!night),
     isNight: () => isNight,
     setTargetIslandHighlight,
+    resumeMainMapControls,
     playerCursorMesh: playerCursorGroup,
     playerCursorState,
     setPlayerCursorTarget,
     getActiveIslandId: () => playerCursorState.targetId
   };
+  window.resumeMainMapControls = resumeMainMapControls;
+
+  let isModalOpen = false;
+
+  function isAnyBlockingModalOpen() {
+    return !!document.querySelector("#quizModal.show, #docModal.show, #leaderboardModal.show, #resultModal.show");
+  }
 
   function isScenePaused() {
     if (document.hidden) return true;
     if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return true;
-    return !!document.querySelector("#quizModal.show, #docModal.show, #leaderboardModal.show, #resultModal.show");
+    isModalOpen = isAnyBlockingModalOpen();
+    return isModalOpen;
   }
 
   function animate() {
+    // 永遠在函式最開頭持續排程下一幀，絕不在提早 return 時中斷 requestAnimationFrame 迴圈
+    animFrameId = requestAnimationFrame(animate);
     if (isScenePaused()) {
-      animFrameId = null;
       return;
     }
-    animFrameId = requestAnimationFrame(animate);
-    renderSceneFrame();
+    try {
+      renderSceneFrame();
+    } catch (err) {
+      console.error("[island_3d] renderSceneFrame error:", err);
+    }
+  }
+
+  function resumeMainMapControls() {
+    const cockpitOpen = !!(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
+    isModalOpen = isAnyBlockingModalOpen();
+    document.body.style.overflow = "";
+    cameraFocusState.active = false;
+    cameraIntroState.active = false;
+    pointerDownPos = null;
+    hoveredIslandRec = null;
+    hoveredNpcIslandRec = null;
+    hoveredGuardianNpc = null;
+    hoveredSanctuary = false;
+    if (stage) {
+      stage.style.cursor = "grab";
+    }
+    controls.enabled = !cockpitOpen && !isModalOpen;
+    controls.update();
+    if (animFrameId === null) {
+      animate();
+    }
+    if (!document.hidden && !cockpitOpen && !isModalOpen) {
+      try {
+        lastNightUpdateTime = clock.getElapsedTime();
+        renderSceneFrame();
+      } catch (err) {
+        console.error("[island_3d] resumeMainMapControls render error:", err);
+      }
+    }
   }
 
   function resumeSceneLoop() {
-    controls.enabled = !(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
-    if (animFrameId === null && !isScenePaused()) {
+    const cockpitOpen = !!(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
+    isModalOpen = isAnyBlockingModalOpen();
+    controls.enabled = !cockpitOpen && !isModalOpen;
+    if (animFrameId === null) {
       animate();
+    }
+    if (!cockpitOpen && !isModalOpen) {
+      controls.update();
     }
   }
 
   document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) resumeSceneLoop();
+    if (!document.hidden) resumeMainMapControls();
   });
-  document.addEventListener("ii:quizclosed", resumeSceneLoop);
+  document.addEventListener("ii:quizclosed", resumeMainMapControls);
+  document.addEventListener("ii:modalclosed", resumeMainMapControls);
   document.addEventListener("ii:cockpit-toggle", resumeSceneLoop);
 
-  if (typeof MutationObserver !== "undefined") {
+  const observeBlockingModals = () => {
+    if (typeof MutationObserver === "undefined") return;
     const modalObserver = new MutationObserver(() => {
-      resumeSceneLoop();
+      if (!isScenePaused()) {
+        resumeMainMapControls();
+      } else {
+        resumeSceneLoop();
+      }
     });
-    document.querySelectorAll("#quizModal, #docModal, #leaderboardModal, #resultModal").forEach((m) => {
-      modalObserver.observe(m, { attributes: true, attributeFilter: ["class"] });
-    });
-  }
+    const attach = () => {
+      document.querySelectorAll("#quizModal, #docModal, #leaderboardModal, #resultModal").forEach((m) => {
+        if (!m.dataset.sceneObserved) {
+          m.dataset.sceneObserved = "1";
+          modalObserver.observe(m, { attributes: true, attributeFilter: ["class"] });
+        }
+      });
+    };
+    attach();
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", attach, { once: true });
+    }
+    setTimeout(attach, 0);
+  };
+  observeBlockingModals();
 
   // 確保視口尺寸、相機座標與第一幀完全渲染完畢後，再平滑淡入顯示 Canvas
   handleResize();

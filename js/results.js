@@ -16,7 +16,9 @@
   ];
 
   const wrap = document.createElement("div");
-  wrap.id = "resultModal"; wrap.className = "modal-wrap";
+  wrap.id = "resultModal"; wrap.className = "modal-wrap hidden pointer-events-none";
+  wrap.hidden = true;
+  wrap.setAttribute("aria-hidden", "true");
   wrap.innerHTML = `<div class="modal result-modal av-modal" role="dialog" aria-modal="true" aria-labelledby="resTitle">
     <button class="close" id="resClose" aria-label="關閉">✕</button>
     <div class="res-head av-head">
@@ -54,7 +56,7 @@
         </details>
       </section>
     </div>
-    <div class="av-confirm-backdrop" id="avLockConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avLockConfirmTitle" hidden>
+    <div class="av-confirm-backdrop hidden pointer-events-none" id="avLockConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avLockConfirmTitle" hidden>
       <div class="av-confirm-card">
         <h3 id="avLockConfirmTitle">🔒 確定選定專屬角色？</h3>
         <div class="av-confirm-preview" id="avLockConfirmPreview"></div>
@@ -69,9 +71,31 @@
   document.body.appendChild(wrap);
   const $ = (s) => wrap.querySelector(s);
   const isOpen = () => wrap.classList.contains("show");
-  const isConfirmOpen = () => !$("#avLockConfirmModal").hidden;
-  const closeConfirm = () => { $("#avLockConfirmModal").hidden = true; };
-  const close = () => { closeConfirm(); wrap.classList.remove("show"); };
+  const isConfirmOpen = () => {
+    const cm = $("#avLockConfirmModal");
+    return !!(cm && !cm.hidden && cm.classList.contains("show"));
+  };
+  const closeConfirm = () => {
+    const cm = $("#avLockConfirmModal");
+    if (!cm) return;
+    cm.classList.remove("show");
+    cm.classList.add("hidden", "pointer-events-none");
+    cm.hidden = true;
+  };
+  const close = () => {
+    closeConfirm();
+    wrap.classList.remove("show");
+    wrap.classList.add("hidden", "pointer-events-none");
+    wrap.hidden = true;
+    wrap.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    if (window.__island3D && typeof window.__island3D.resumeMainMapControls === "function") {
+      window.__island3D.resumeMainMapControls();
+    } else if (typeof window.resumeMainMapControls === "function") {
+      window.resumeMainMapControls();
+    }
+    document.dispatchEvent(new CustomEvent("ii:modalclosed", { detail: { id: "resultModal" } }));
+  };
   $("#resClose").onclick = close;
   $("#resToLbBtn").onclick = () => {
     close();
@@ -93,10 +117,15 @@
   };
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
   document.addEventListener("keydown", (e) => {
-    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
+    if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return;
     if (e.key === "Escape") {
-      if (isConfirmOpen()) closeConfirm();
-      else if (isOpen()) close();
+      if (isConfirmOpen()) {
+        e.preventDefault();
+        closeConfirm();
+      } else if (isOpen()) {
+        e.preventDefault();
+        close();
+      }
     }
   });
 
@@ -114,7 +143,12 @@
     const styleObj = AV.HAIR_STYLES.find((h) => h.id === st.look.hair) || AV.HAIR_STYLES[0];
     $("#avLockConfirmPreview").innerHTML = AV.renderLookThumb(st.look);
     $("#avLockConfirmMsg").textContent = `確定要選定【${styleObj.name}】作為你的專屬造型嗎？選定後基礎角色將永久鎖定，但之後仍可自由更換帽子、衣服、武器、寵物與表情！`;
-    $("#avLockConfirmModal").hidden = false;
+    const cm = $("#avLockConfirmModal");
+    if (cm) {
+      cm.hidden = false;
+      cm.classList.remove("hidden", "pointer-events-none");
+      cm.classList.add("show");
+    }
   }
 
   function renderStage(st, qs, w) {
@@ -385,6 +419,10 @@
   function open() {
     if (!window.Auth.requireLogin()) return;
     armedId = null;
+    closeConfirm();
+    wrap.hidden = false;
+    wrap.classList.remove("hidden", "pointer-events-none");
+    wrap.setAttribute("aria-hidden", "false");
     wrap.classList.add("show"); render();
   }
   document.getElementById("resultBtn").addEventListener("click", open);
@@ -392,5 +430,5 @@
   document.addEventListener("ii:quizdone", () => { if (isOpen()) render(); });
   document.addEventListener("ii:avatar-changed", () => { if (isOpen()) render(); });
   document.addEventListener("ii:logout", close);
-  window.Results = { open, islandScores };
+  window.Results = { open, close, islandScores };
 })();

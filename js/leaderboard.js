@@ -281,7 +281,9 @@
   /* ---- 建立動森溫暖毛玻璃排行榜視窗 ---- */
   const wrap = document.createElement("div");
   wrap.id = "leaderboardModal";
-  wrap.className = "modal-wrap";
+  wrap.className = "modal-wrap hidden pointer-events-none";
+  wrap.hidden = true;
+  wrap.setAttribute("aria-hidden", "true");
   wrap.innerHTML = `
     <div class="modal lb-modal" role="dialog" aria-modal="true" aria-labelledby="lbTitle">
       <button class="close lb-close" id="lbClose" aria-label="關閉">✕</button>
@@ -324,13 +326,26 @@
 
   function close() {
     wrap.classList.remove("show");
+    wrap.classList.add("hidden", "pointer-events-none");
+    wrap.hidden = true;
+    wrap.setAttribute("aria-hidden", "true");
+    document.body.style.overflow = "";
+    if (window.__island3D && typeof window.__island3D.resumeMainMapControls === "function") {
+      window.__island3D.resumeMainMapControls();
+    } else if (typeof window.resumeMainMapControls === "function") {
+      window.resumeMainMapControls();
+    }
+    document.dispatchEvent(new CustomEvent("ii:modalclosed", { detail: { id: "leaderboardModal" } }));
   }
 
   $("#lbClose").onclick = close;
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
   document.addEventListener("keydown", (e) => {
-    if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
-    if (e.key === "Escape" && wrap.classList.contains("show")) close();
+    if (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) return;
+    if (e.key === "Escape" && wrap.classList.contains("show")) {
+      e.preventDefault();
+      close();
+    }
   });
 
   $("#lbToResultBtn").onclick = () => {
@@ -505,9 +520,9 @@
     if (window.Store && typeof window.Store.flushLeaderboardPending === "function") {
       window.Store.flushLeaderboardPending().then((flushed) => {
         if (flushed > 0 && wrap.classList.contains("show") && seq === fetchSeq) {
-          fetchLeaderboardFromGAS(activeGrade);
+          void fetchLeaderboardFromGAS(activeGrade);
         }
-      });
+      }).catch(() => {});
     }
 
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -557,8 +572,11 @@
     activeGrade = (forcedGrade === 7 || forcedGrade === 8 || forcedGrade === 9)
       ? forcedGrade
       : parseStudentGrade(me);
+    wrap.hidden = false;
+    wrap.classList.remove("hidden", "pointer-events-none");
+    wrap.setAttribute("aria-hidden", "false");
     wrap.classList.add("show");
-    fetchLeaderboardFromGAS(activeGrade);
+    void fetchLeaderboardFromGAS(activeGrade);
   }
 
   const lbBtn = document.getElementById("leaderboardBtn");
