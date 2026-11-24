@@ -25,46 +25,214 @@
     return typeof cfg === "string" ? cfg.trim() : "";
   }
 
+  const UNIT_ALIAS_GROUPS = [
+    ["sys", "hw"],
+    ["code", "prog"],
+    ["algo", "alg"]
+  ];
+  const CANONICAL_ISLAND_MAP = {
+    hw: "sys",
+    prog: "code",
+    alg: "algo",
+    sec: "citizen"
+  };
+
+  function getUnitAliasCandidates(unitId) {
+    const raw = String(unitId || "").trim();
+    if (!raw) return [];
+    const normalized = raw.replace(/^([a-z]+)(\d+)$/i, "$1-$2");
+    const out = [];
+    const pushUnique = (val) => {
+      if (val && !out.includes(val)) out.push(val);
+    };
+    pushUnique(raw);
+    pushUnique(normalized);
+    const m = normalized.match(/^([a-z]+)-(\d+)$/i);
+    if (m) {
+      const prefix = m[1].toLowerCase();
+      const num = m[2];
+      UNIT_ALIAS_GROUPS.forEach((grp) => {
+        if (grp.includes(prefix)) {
+          grp.forEach((alt) => pushUnique(`${alt}-${num}`));
+        }
+      });
+    }
+    return out;
+  }
+
+  function inferUnitCandidatesFromQuestionKey(keyStr) {
+    const k = String(keyStr || "").trim();
+    const m = k.match(/^([a-z]+)(\d+)-/i);
+    if (!m) return [];
+    let prefix = m[1].toLowerCase();
+    const num = m[2];
+    if (prefix === "c") prefix = "citizen";
+    return getUnitAliasCandidates(`${prefix}-${num}`);
+  }
+
+  function stripUnitPrefix(idStr) {
+    return String(idStr || "").trim().replace(/^[a-z]+\d*-/i, "");
+  }
+
+  function getQuizDiffBuckets(quiz, preferredDiff) {
+    if (!quiz) return [];
+    if (quiz.levels && typeof quiz.levels === "object") {
+      const keys = Object.keys(quiz.levels).filter((d) => quiz.levels[d] && Array.isArray(quiz.levels[d].questions));
+      const pref = String(preferredDiff || "").trim();
+      if (pref && keys.includes(pref)) {
+        return [pref, ...keys.filter((k) => k !== pref)].map((d) => ({
+          diff: d,
+          questions: quiz.levels[d].questions
+        }));
+      }
+      return keys.map((d) => ({ diff: d, questions: quiz.levels[d].questions }));
+    }
+    if (Array.isArray(quiz.questions)) {
+      return [{ diff: "single", questions: quiz.questions }];
+    }
+    return [];
+  }
+
   function resolveUnitMeta(unitId) {
     const idStr = String(unitId || "").trim();
     const parts = idStr.split("-");
-    const islandId = parts[0] || "";
+    const rawIslandId = parts[0] || "";
+    const islandId = CANONICAL_ISLAND_MAP[rawIslandId] || rawIslandId;
     const unitNum = Number(parts[1]) || 0;
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
     const isl = islands.find((i) => i.id === islandId);
     const seqItem = isl && Array.isArray(isl.sequence) ? isl.sequence[unitNum - 1] : null;
-    const contentUnit = window.CONTENT && window.CONTENT[idStr];
+    const contentUnit = (window.CONTENT && (window.CONTENT[idStr] || window.CONTENT[`${islandId}-${unitNum}`])) || null;
     return {
       islandEmoji: isl ? isl.emoji : "🏝️",
-      islandName: isl ? isl.name : islandId || "未知島嶼",
-      unitName: (contentUnit && contentUnit.unit) || (seqItem && seqItem.unit) || idStr
+      islandName: isl ? isl.name : rawIslandId || "未知島嶼",
+      unitName: (contentUnit && contentUnit.unit) || (seqItem && seqItem.unit) || idStr || "未知單元"
     };
   }
 
-  function resolveQuestion(questionKey) {
-    const parts = String(questionKey || "").split("::");
-    const unitId = parts[0] || "";
-    const difficulty = parts[1] || "single";
-    const questionIndex = Number(parts[2]);
-    const unitContent = window.CONTENT && window.CONTENT[unitId];
-    const quiz = unitContent && unitContent.quiz;
-    let qList = [];
-    if (quiz) {
-      if (quiz.levels && quiz.levels[difficulty] && Array.isArray(quiz.levels[difficulty].questions)) {
-        qList = quiz.levels[difficulty].questions;
-      } else if (Array.isArray(quiz.questions)) {
-        qList = quiz.questions;
+  function findQuestionForProjection(unitId, difficulty, questionKey) {
+    const content = window.CONTENT || {};
+    const rawUnitId = String(unitId || "").trim();
+    const rawDiff = String(difficulty || "").trim();
+    const rawKey = String(questionKey || "").trim();
+
+    let parsedUnit = "";
+    let parsedDiff = "";
+    let targetKey = rawKey;
+
+    if (rawKey.includes("::")) {
+      const parts = rawKey.split("::");
+      parsedUnit = String(parts[0] || "").trim();
+      parsedDiff = String(parts[1] || "").trim();
+      targetKey = parts.slice(2).join("::").trim();
+    } else {
+      const colonMatch = rawKey.match(/^([a-z]+-?\d+):(easy|medium|hard|single):(.+)$/i);
+      if (colonMatch) {
+        parsedUnit = colonMatch[1].trim();
+        parsedDiff = colonMatch[2].trim();
+        targetKey = colonMatch[3].trim();
       }
     }
-    const qObj = Number.isInteger(questionIndex) && questionIndex >= 0 ? qList[questionIndex] || null : null;
-    return {
-      questionKey,
-      unitId,
-      difficulty,
-      questionIndex,
-      meta: resolveUnitMeta(unitId),
-      question: qObj
+
+    const effUnitId = rawUnitId || parsedUnit;
+    const effDiff = rawDiff || parsedDiff;
+    const allContentKeys = Object.keys(content);
+
+    // 優先排序待掃描的單元鍵值（先比對指定單元與別名，再掃描由題號前綴推斷的單元，最後掃描全站所有題庫）
+    const priorityUnits = [];
+    const pushUnit = (uk) => {
+      if (uk && content[uk] && !priorityUnits.includes(uk)) priorityUnits.push(uk);
     };
+    getUnitAliasCandidates(effUnitId).forEach(pushUnit);
+    inferUnitCandidatesFromQuestionKey(targetKey).forEach(pushUnit);
+    const orderedUnits = [...priorityUnits, ...allContentKeys.filter((uk) => !priorityUnits.includes(uk))];
+
+    const buildResult = (uk, diff, idx, qObj) => ({
+      questionKey: rawKey || targetKey,
+      rawQuestionKey: rawKey,
+      targetKey,
+      unitId: uk || effUnitId,
+      difficulty: diff || effDiff || "single",
+      questionIndex: idx,
+      meta: resolveUnitMeta(uk || effUnitId),
+      question: qObj || null
+    });
+
+    // 1. 優先精準比對 q.id === questionKey（含優先單元與全站掃描）
+    const exactCandidates = [targetKey, rawKey].filter(Boolean);
+    for (const candidate of exactCandidates) {
+      for (const uk of orderedUnits) {
+        const buckets = getQuizDiffBuckets(content[uk] && content[uk].quiz, effDiff);
+        for (const b of buckets) {
+          for (let i = 0; i < b.questions.length; i++) {
+            const q = b.questions[i];
+            if (q && q.id && (q.id === candidate || String(q.id).toLowerCase() === candidate.toLowerCase())) {
+              return buildResult(uk, b.diff, i, q);
+            }
+          }
+        }
+      }
+    }
+
+    // 2. 去除單元前綴比對（如 sys1-e1 去掉前綴比對 e1，或 hw1-e1 對應 sys1-e1）
+    const strippedTarget = stripUnitPrefix(targetKey);
+    if (strippedTarget) {
+      const strippedLower = strippedTarget.toLowerCase();
+      // 若已有明確 unitId 則優先在該單元及其別名中找；否則全站掃描
+      const scopeUnits = priorityUnits.length > 0 ? orderedUnits : allContentKeys;
+      for (const uk of scopeUnits) {
+        const buckets = getQuizDiffBuckets(content[uk] && content[uk].quiz, effDiff);
+        for (const b of buckets) {
+          for (let i = 0; i < b.questions.length; i++) {
+            const q = b.questions[i];
+            if (q && q.id && stripUnitPrefix(q.id).toLowerCase() === strippedLower) {
+              return buildResult(uk, b.diff, i, q);
+            }
+          }
+        }
+      }
+    }
+
+    // 3. 早期無 ID 或索引型紀錄：依 unitId 與 difficulty 取出對應題目
+    const unitSearchScope = priorityUnits.length > 0 ? priorityUnits : [];
+    for (const uk of unitSearchScope) {
+      const buckets = getQuizDiffBuckets(content[uk] && content[uk].quiz, effDiff);
+      if (/^\d+$/.test(targetKey)) {
+        const qIdx = Number(targetKey);
+        for (const b of buckets) {
+          if (qIdx >= 0 && qIdx < b.questions.length && b.questions[qIdx]) {
+            return buildResult(uk, b.diff, qIdx, b.questions[qIdx]);
+          }
+        }
+      }
+      const codeMatch = strippedTarget.match(/^([emh])(\d+)$/i);
+      if (codeMatch) {
+        const diffByCode = { e: "easy", m: "medium", h: "hard" }[codeMatch[1].toLowerCase()];
+        const oneBased = Number(codeMatch[2]);
+        const targetBuckets = getQuizDiffBuckets(content[uk] && content[uk].quiz, diffByCode || effDiff);
+        for (const b of targetBuckets) {
+          if (b.diff === diffByCode && oneBased >= 1 && oneBased <= b.questions.length) {
+            return buildResult(uk, b.diff, oneBased - 1, b.questions[oneBased - 1]);
+          }
+        }
+      }
+      if (targetKey) {
+        for (const b of buckets) {
+          const textIdx = b.questions.findIndex((q) => q && (q.q === targetKey || q.question === targetKey));
+          if (textIdx >= 0) {
+            return buildResult(uk, b.diff, textIdx, b.questions[textIdx]);
+          }
+        }
+      } else if (buckets.length > 0 && buckets[0].questions.length > 0) {
+        return buildResult(uk, buckets[0].diff, 0, buckets[0].questions[0]);
+      }
+    }
+
+    return buildResult(effUnitId, effDiff || "single", -1, null);
+  }
+
+  function resolveQuestion(questionKey, unitId = "", difficulty = "") {
+    return findQuestionForProjection(unitId, difficulty, questionKey);
   }
 
   /* ---- 輕量抽籤音效（Web Audio API，靜音或瀏覽器不支援時自動略過） ---- */
@@ -116,7 +284,8 @@
     compSearch: "",
     compSort: "seat", // "seat" | "pct" | "score"
     revealedPins: new Set(),
-    busyActionKey: ""
+    busyActionKey: "",
+    wrongTop3Items: []
   };
   let luckyTimer = null;
 
@@ -280,9 +449,11 @@
   /* ---- DOM 建置：超大字體題目投影檢討視窗 ---- */
   const projWrap = document.createElement("div");
   projWrap.id = "tcProjectorModal";
-  projWrap.className = "tc-projector-wrap";
+  projWrap.className = "tc-projector-wrap hidden pointer-events-none";
+  projWrap.hidden = true;
   projWrap.setAttribute("role", "dialog");
   projWrap.setAttribute("aria-modal", "true");
+  projWrap.setAttribute("aria-label", "錯題投影講解視窗");
   projWrap.innerHTML = `<div class="tc-projector-card" id="tcProjectorCard"></div>`;
   document.body.appendChild(projWrap);
 
@@ -611,20 +782,40 @@
   function renderWrongTab(body) {
     const cls = state.selectedClass;
     if (!cls) {
+      state.wrongTop3Items = [];
       body.innerHTML = `<div class="tc-empty">📭 請先選擇班級。</div>`;
       return;
     }
-    const counts = new Map();
+    const buckets = new Map();
     state.data.wrongLogs.forEach((w) => {
       if (String(w.className || w.cls || "").trim() !== cls) return;
-      const qKey = String(w.questionKey || "").trim();
-      if (!qKey) return;
-      counts.set(qKey, (counts.get(qKey) || 0) + 1);
+      const rawQKey = String(w.questionKey || "").trim();
+      const rawUnitId = String(w.unitId || "").trim();
+      const rawDiff = String(w.difficulty || "").trim();
+      if (!rawQKey && !rawUnitId) return;
+
+      const info = findQuestionForProjection(rawUnitId, rawDiff, rawQKey);
+      const bucketKey = info.question
+        ? `resolved::${info.unitId}::${info.difficulty}::${info.question.id || info.questionIndex}`
+        : `raw::${info.unitId}::${info.difficulty}::${rawQKey}`;
+
+      if (!buckets.has(bucketKey)) {
+        buckets.set(bucketKey, {
+          unitId: info.unitId || rawUnitId,
+          difficulty: info.difficulty || rawDiff || "single",
+          questionKey: rawQKey,
+          count: 0,
+          info
+        });
+      }
+      buckets.get(bucketKey).count += 1;
     });
 
-    const top3 = Array.from(counts.entries())
-      .sort((a, b) => b[1] - a[1])
+    const top3 = Array.from(buckets.values())
+      .sort((a, b) => b.count - a.count)
       .slice(0, 3);
+
+    state.wrongTop3Items = top3;
 
     if (top3.length === 0) {
       body.innerHTML = `<div class="tc-empty">✨ ${esc(cls)} 班目前尚無錯題紀錄！學生交卷若有答錯題目，系統將自動彙整至此處。</div>`;
@@ -637,21 +828,23 @@
         <p>點擊「📺 一鍵投影該題」即可開啟教室大螢幕專用超大字體講解視窗，預設隱藏答案方便全班舉手搶答！</p>
       </div>
       <div class="tc-wrong-grid">
-        ${top3.map(([qKey, count], idx) => {
-          const info = resolveQuestion(qKey);
+        ${top3.map((item, idx) => {
+          const info = item.info || findQuestionForProjection(item.unitId, item.difficulty, item.questionKey);
           const diffLabel = DIFF_LABELS[info.difficulty] || info.difficulty || "標準";
-          const stem = info.question ? info.question.q : `題目索引：${qKey}（本地題庫未找到對應題目）`;
+          const stemText = info.question
+            ? (info.question.q || info.question.question || "")
+            : `題目索引紀錄：${info.unitId || "未指定單元"} / ${item.questionKey || "無索引"}（本地題庫未找到對應題目）`;
           return `<article class="tc-wrong-card rank-${idx + 1}">
             <div class="tc-wrong-top">
               <span class="tc-rank-badge">🔥 錯題 #${idx + 1}</span>
-              <span class="tc-wrong-count">累計答錯 <b>${count}</b> 人次</span>
+              <span class="tc-wrong-count">累計答錯 <b>${item.count}</b> 人次</span>
             </div>
             <div class="tc-wrong-meta">
               <span class="tc-unit-tag">${esc(info.meta.islandEmoji)} ${esc(info.meta.islandName)} · ${esc(info.meta.unitName)}</span>
               <span class="tc-diff-tag d-${esc(info.difficulty)}">難度：${esc(diffLabel)}</span>
             </div>
-            <p class="tc-wrong-stem">${esc(stem)}</p>
-            <button type="button" class="btn-primary tc-project-btn" data-qkey="${esc(qKey)}" data-count="${count}">📺 一鍵投影該題</button>
+            <p class="tc-wrong-stem">${esc(stemText)}</p>
+            <button type="button" class="btn-primary tc-project-btn" data-wrong-idx="${idx}" data-unit="${esc(item.unitId)}" data-diff="${esc(item.difficulty)}" data-qkey="${esc(item.questionKey)}" data-count="${item.count}">📺 一鍵投影該題</button>
           </article>`;
         }).join("")}
       </div>
@@ -659,11 +852,33 @@
   }
 
   /* ---- 超大字體題目檢討投影視窗 ---- */
-  function openProjectorModal(qKey, wrongCount) {
-    const info = resolveQuestion(qKey);
+  function openProjectorModal(input, legacyWrongCount = 0) {
+    let unitId = "";
+    let difficulty = "";
+    let qKey = "";
+    let wrongCount = 0;
+
+    if (input && typeof input === "object") {
+      unitId = String(input.unitId || "").trim();
+      difficulty = String(input.difficulty || "").trim();
+      qKey = String(input.questionKey || input.qKey || "").trim();
+      wrongCount = Number(input.count ?? input.wrongCount) || 0;
+    } else {
+      qKey = String(input || "").trim();
+      wrongCount = Number(legacyWrongCount) || 0;
+    }
+
+    const info = findQuestionForProjection(unitId, difficulty, qKey);
     const q = info.question;
     const diffLabel = DIFF_LABELS[info.difficulty] || info.difficulty || "標準";
+    const displayUnitId = info.unitId || unitId || "未記錄單元";
+    const displayQKey = qKey || info.questionKey || "未記錄題號";
     let revealed = false;
+
+    // 確保投影視窗 DOM 永遠掛載於 document.body 最外層
+    if (projWrap.parentNode !== document.body) {
+      document.body.appendChild(projWrap);
+    }
 
     const card = projWrap.querySelector("#tcProjectorCard");
 
@@ -676,8 +891,15 @@
 
     const formatCorrectAnswerText = () => {
       if (!q) return "—";
-      if (q.type === "single") return `${LETTERS[q.answer]}. ${q.options[q.answer]}`;
-      if (q.type === "multi") return q.answer.map((i) => `${LETTERS[i]}. ${q.options[i]}`).join("、");
+      const opts = Array.isArray(q.options) ? q.options : [];
+      if (q.type === "single") {
+        const letter = LETTERS[q.answer] || String(q.answer ?? "");
+        const optText = opts[q.answer] !== undefined ? opts[q.answer] : "";
+        return optText ? `${letter}. ${optText}` : letter || "—";
+      }
+      if (q.type === "multi" && Array.isArray(q.answer)) {
+        return q.answer.map((i) => `${LETTERS[i] || i}. ${opts[i] ?? ""}`).join("、");
+      }
       if (q.type === "tf") return q.answer ? "○ 正確" : "✕ 錯誤";
       if (q.type === "fill") return Array.isArray(q.answer) ? q.answer[0] : String(q.answer || "");
       return "";
@@ -686,13 +908,21 @@
     const renderProjector = () => {
       let optionsHtml = "";
       if (!q) {
-        optionsHtml = `<div class="tc-proj-missing">⚠ 無法在本地題庫找到此題（<code>${esc(qKey)}</code>）</div>`;
-      } else if (q.type === "single" || q.type === "multi") {
+        optionsHtml = `<div class="tc-proj-missing">
+          <p>⚠️ 本地題庫目前找不到與此紀錄完全對應的題目內容，已為您保留原始題目索引紀錄：</p>
+          <div class="tc-proj-missing-meta">
+            <span>單元索引（<code>unitId</code>）：<code>${esc(displayUnitId)}</code></span>
+            <span>題目索引鍵（<code>questionKey</code>）：<code>${esc(displayQKey)}</code></span>
+            <span>難度：<code>${esc(diffLabel)}</code></span>
+          </div>
+        </div>`;
+      } else if ((q.type === "single" || q.type === "multi") && Array.isArray(q.options)) {
         optionsHtml = `<div class="tc-proj-opts">
           ${q.options.map((opt, idx) => {
             const isAns = revealed && isAnswerIndex(idx);
+            const letter = LETTERS[idx] || String(idx + 1);
             return `<div class="tc-proj-opt${isAns ? " correct" : ""}">
-              <span class="tc-proj-letter">${LETTERS[idx]}</span>
+              <span class="tc-proj-letter">${letter}</span>
               <span class="tc-proj-opt-txt">${esc(opt)}</span>
               ${isAns ? `<span class="tc-proj-ans-pill">✔ 正確答案</span>` : ""}
             </div>`;
@@ -715,6 +945,9 @@
         optionsHtml = `<div class="tc-proj-fill">填空題：請同學舉手口頭作答</div>`;
       }
 
+      const stemText = q ? (q.q || q.question || displayQKey) : `題目索引紀錄（${displayUnitId} / ${displayQKey}）`;
+      const explainText = q ? (q.explain || q.explanation || "") : "";
+
       card.innerHTML = `
         <div class="tc-proj-head">
           <div class="tc-proj-badges">
@@ -726,27 +959,31 @@
         </div>
 
         <div class="tc-proj-body">
-          <h2 class="tc-proj-question">${q ? esc(q.q).replace(/\n/g, "<br>") : esc(qKey)}</h2>
+          <h2 class="tc-proj-question">${esc(stemText).replace(/\n/g, "<br>")}</h2>
           ${optionsHtml}
 
-          <div class="tc-proj-explain${revealed ? " show" : ""}" ${revealed ? "" : "hidden"}>
+          ${q ? `<div class="tc-proj-explain${revealed ? " show" : ""}" ${revealed ? "" : "hidden"}>
             <div class="tc-proj-ans-line">✅ 正確答案：<strong>${esc(formatCorrectAnswerText())}</strong></div>
-            ${q && q.explain ? `<div class="tc-proj-exp-line">💡 解析：${esc(q.explain)}</div>` : ""}
-          </div>
+            ${explainText ? `<div class="tc-proj-exp-line">💡 詳解：${esc(explainText)}</div>` : ""}
+          </div>` : ""}
         </div>
 
-        <div class="tc-proj-foot">
-          <button type="button" id="tcProjRevealBtn" class="btn-primary tc-proj-reveal-btn">
-            ${revealed ? "🙈 隱藏正確答案與解析" : "💡 揭曉正確答案與解析"}
+        ${q ? `<div class="tc-proj-foot">
+          <button type="button" id="tcProjRevealBtn" class="btn-primary tc-proj-reveal-btn" aria-pressed="${revealed}">
+            ${revealed ? "🙈 隱藏正確答案與詳解" : "👁️ 顯示正確答案與詳解"}
           </button>
-        </div>
+        </div>` : ""}
       `;
 
-      card.querySelector("#tcProjClose").onclick = closeProjectorModal;
-      card.querySelector("#tcProjRevealBtn").onclick = () => {
-        revealed = !revealed;
-        renderProjector();
-      };
+      const closeBtn = card.querySelector("#tcProjClose");
+      if (closeBtn) closeBtn.addEventListener("click", closeProjectorModal);
+      const revealBtn = card.querySelector("#tcProjRevealBtn");
+      if (revealBtn) {
+        revealBtn.addEventListener("click", () => {
+          revealed = !revealed;
+          renderProjector();
+        });
+      }
     };
 
     renderProjector();
@@ -754,6 +991,8 @@
     projWrap.classList.remove("hidden", "pointer-events-none");
     projWrap.classList.add("show");
     notifyCockpitToggle();
+    const closeBtn = card.querySelector("#tcProjClose");
+    if (closeBtn) setTimeout(() => closeBtn.focus(), 20);
   }
 
   function closeProjectorModal() {
@@ -1364,6 +1603,7 @@
   function renderMainBody() {
     renderTopBar();
     const body = cockpitWrap.querySelector("#tcMainBody");
+    body.classList.toggle("tc-main-comp", state.activeTab === "completion");
     if (state.activeTab === "radar") renderRadarTab(body);
     else if (state.activeTab === "completion") renderCompletionTab(body);
     else if (state.activeTab === "wrong") renderWrongTab(body);
@@ -1505,18 +1745,22 @@
   }
 
   /* ---- 事件綁定（外層容器事件委派） ---- */
+  function handleTopmostEscape() {
+    if (confirmWrap.classList.contains("show")) closeConfirmModal();
+    else if (detailWrap.classList.contains("show")) closeDetailModal();
+    else if (projWrap.classList.contains("show")) closeProjectorModal();
+    else if (authWrap.classList.contains("show")) closeAuthModal();
+    else if (cockpitWrap.classList.contains("show")) closeCockpit();
+  }
+
   const stopBubble = (e) => { e.stopPropagation(); };
   [cockpitWrap, authWrap, projWrap, detailWrap, confirmWrap].forEach((container) => {
     container.addEventListener("click", stopBubble);
     container.addEventListener("pointerdown", stopBubble);
     container.addEventListener("mousedown", stopBubble);
     container.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !isFormFieldTarget(e.target)) {
-        if (container === confirmWrap && confirmWrap.classList.contains("show")) closeConfirmModal();
-        else if (container === detailWrap && detailWrap.classList.contains("show")) closeDetailModal();
-        else if (container === projWrap && projWrap.classList.contains("show")) closeProjectorModal();
-        else if (container === authWrap && authWrap.classList.contains("show")) closeAuthModal();
-        else if (container === cockpitWrap && cockpitWrap.classList.contains("show")) closeCockpit();
+      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show"))) {
+        handleTopmostEscape();
       }
       e.stopPropagation();
     });
@@ -1661,7 +1905,14 @@
     }
     const projBtn = target.closest(".tc-project-btn");
     if (projBtn) {
-      openProjectorModal(projBtn.dataset.qkey, Number(projBtn.dataset.count) || 0);
+      const idx = Number(projBtn.dataset.wrongIdx);
+      const item = Number.isInteger(idx) && state.wrongTop3Items[idx] ? state.wrongTop3Items[idx] : null;
+      openProjectorModal(item || {
+        unitId: projBtn.dataset.unit || "",
+        difficulty: projBtn.dataset.diff || "",
+        questionKey: projBtn.dataset.qkey || "",
+        count: Number(projBtn.dataset.count) || 0
+      });
       return;
     }
     if (target.closest("#tcPrivacyBtn")) {
@@ -1752,13 +2003,9 @@
   confirmWrap.addEventListener("click", (e) => { if (e.target === confirmWrap) closeConfirmModal(); });
 
   document.addEventListener("keydown", (e) => {
-    if (isFormFieldTarget(e.target)) return;
+    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show")) return;
     if (e.key === "Escape") {
-      if (confirmWrap.classList.contains("show")) closeConfirmModal();
-      else if (detailWrap.classList.contains("show")) closeDetailModal();
-      else if (projWrap.classList.contains("show")) closeProjectorModal();
-      else if (authWrap.classList.contains("show")) closeAuthModal();
-      else if (cockpitWrap.classList.contains("show")) closeCockpit();
+      handleTopmostEscape();
     }
   });
 
@@ -1786,5 +2033,5 @@
     }
   } catch {}
 
-  window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit };
+  window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit, findQuestionForProjection };
 })();
