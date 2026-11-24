@@ -142,7 +142,7 @@
       <h4>👦 男生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${maleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
       <h4>👧 女生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${femaleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
       <h4>🎨 髮色 <small class="av-look-sub">套用角色後仍可自由微調</small></h4><div class="av-look-row swatches">${AV.HAIR_COLORS.map((h) => `<button type="button" class="av-swatch${look.hairColor === h.id ? " on" : ""}" data-look="hairColor" data-val="${h.id}" aria-pressed="${look.hairColor === h.id}">
-        <i style="background:linear-gradient(135deg, ${h.shine}, ${h.c} 45%, ${h.bot || h.s})"></i>${esc(h.name)}</button>`).join("")}</div>
+        <i style="background:linear-gradient(135deg, ${h.top}, ${h.c} 48%, ${h.bot || h.s})"></i>${esc(h.name)}</button>`).join("")}</div>
       <h4>😊 公仔表情 <small class="av-look-sub">5 款自由切換</small></h4><div class="av-look-row">${AV.FACES.map((f) => lookCard("face", f.id, f.name, AV.renderLookThumb({ ...look, face: f.id }), look.face === f.id)).join("")}</div>
     </div>`;
   }
