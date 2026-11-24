@@ -1537,7 +1537,35 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .lb-r3 { background: #6e3711; color: #ffe4c4; }
 .lb-rn { background: rgba(164, 132, 76, 0.16); color: #5f4520; font-weight: 800; }
 
-.lb-cell-who { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; min-width: 0; }
+.lb-cell-who { display: flex; align-items: center; gap: 10px; flex-wrap: nowrap; min-width: 0; }
+.lb-avatar {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 28%, #fffdf8 0%, #e5f3ff 65%, #c7e4ff 100%);
+  border: 2px solid rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2px 8px rgba(72, 48, 18, 0.16);
+  display: grid;
+  place-items: center;
+}
+.lb-row.is-me .lb-avatar {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.36), 0 2px 8px rgba(180, 83, 9, 0.2);
+}
+.lb-avatar .av-mini-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.lb-who-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
 .lb-who-text { font-weight: 800; font-size: .95rem; color: #2f1f0e; }
 .lb-me-tag {
   display: inline-flex;
@@ -1620,6 +1648,8 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 @media (max-width: 600px) {
   .lb-col-head { grid-template-columns: 76px 1fr 70px 68px; font-size: .7rem; }
   .lb-row { grid-template-columns: 76px 1fr 70px 68px; padding: 8px 9px; gap: 5px; }
+  .lb-cell-who { gap: 7px; }
+  .lb-avatar { width: 38px; height: 38px; flex: 0 0 38px; }
   .lb-who-text { font-size: .86rem; }
   .lb-toolbar { padding: 10px 14px; }
   .lb-list-wrap { padding: 8px 14px 12px; }
@@ -3260,11 +3290,23 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   display: block;
 }
 .av-look h4 {
-  margin: 10px 0 8px;
+  margin: 12px 0 8px;
   font-size: 0.88rem;
   color: #eaf4ff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .av-look h4:first-child { margin-top: 2px; }
+.av-look-sub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #93c5fd;
+  background: rgba(56, 189, 248, 0.14);
+  border: 1px solid rgba(56, 189, 248, 0.28);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
 .av-look-row {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));

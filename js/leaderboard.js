@@ -408,6 +408,36 @@
       <div class="lb-chase-slogan">${slogan}</div>`;
   }
 
+  function hashSeed(str) {
+    let h = 2166136261;
+    const s = String(str || "");
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    return h >>> 0;
+  }
+
+  function renderLeaderboardMiniAvatar(entry, isMe) {
+    const AV = window.AvatarSystem;
+    if (!AV || typeof AV.renderMiniAvatar !== "function") return "";
+    if (isMe && typeof AV.getState === "function") {
+      return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar(AV.getState(), { label: "我的頭像" })}</span>`;
+    }
+    const hairs = AV.HAIR_STYLES || [];
+    const colors = AV.HAIR_COLORS || [];
+    const faces = AV.FACES || [];
+    const seed = hashSeed(entry.studentKey || `${entry.className}_${entry.seat}_${entry.maskedName}`);
+    const look = entry.avatarLook && typeof entry.avatarLook === "object"
+      ? entry.avatarLook
+      : {
+          hair: (hairs[seed % hairs.length] || {}).id || "male_fluffy",
+          hairColor: (colors[(seed >>> 4) % colors.length] || {}).id || "black",
+          face: (faces[(seed >>> 8) % faces.length] || {}).id || "calm"
+        };
+    return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar({ look, equipped: {} }, { label: entry.maskedName })}</span>`;
+  }
+
   function render() {
     const me = window.Store && window.Store.profile;
     const myGrade = me ? parseStudentGrade(me) : null;
@@ -447,12 +477,16 @@
       const tierCls = rank <= 3 ? ` lb-top-${rank}` : "";
       const meCls = isMe ? " is-me" : "";
       const displayWho = `${formatClassLabel(entry.className)} ${entry.maskedName}`;
+      const avatarHtml = renderLeaderboardMiniAvatar(entry, isMe);
       return `
         <div class="lb-row${tierCls}${meCls}" data-rank="${rank}" data-gatekeeper="${entry.isGatekeeper ? "1" : "0"}">
           <div class="lb-cell-rank">${renderRankBadge(rank)}</div>
           <div class="lb-cell-who">
-            <span class="lb-who-text">${esc(displayWho)}</span>
-            ${isMe ? '<span class="lb-me-tag">👈 我</span>' : ""}
+            ${avatarHtml}
+            <div class="lb-who-meta">
+              <span class="lb-who-text">${esc(displayWho)}</span>
+              ${isMe ? '<span class="lb-me-tag">👈 我</span>' : ""}
+            </div>
           </div>
           <div class="lb-cell-crowns"><span class="lb-crown-pill">👑 ${entry.crownCount}</span></div>
           <div class="lb-cell-score"><b>${entry.totalScore}</b><small>分</small></div>
@@ -532,6 +566,9 @@
 
   document.addEventListener("ii:quizdone", () => {
     if (wrap.classList.contains("show") && remoteStatus !== "loading") render();
+  });
+  document.addEventListener("ii:avatar-changed", () => {
+    if (wrap.classList.contains("show")) render();
   });
   document.addEventListener("ii:leaderboard-synced", () => {
     if (wrap.classList.contains("show")) fetchLeaderboardFromGAS(activeGrade);
