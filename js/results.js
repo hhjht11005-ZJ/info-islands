@@ -8,7 +8,7 @@
   let armedId = null, armTimer = null;
 
   const TABS = [
-    { id: "look", label: "💇 捏臉造型" },
+    { id: "look", label: "💇 基礎造型" },
     { id: "easy", label: "🎩 頭飾臉飾(易)" },
     { id: "medium", label: "👕 服裝褲裙(中)" },
     { id: "hard", label: "⚔️ 武器寵物(難)" },
@@ -28,6 +28,7 @@
     <div class="av-workbench">
       <section class="av-stage-col" aria-label="角色展示台">
         <div class="av-stage" id="avStage"></div>
+        <div class="av-preset-lock-area" id="avPresetLockArea"></div>
         <div class="av-idcard">
           <div class="av-name" id="avName"></div>
           <div class="av-title-badge" id="avTitle"></div>
@@ -52,20 +53,51 @@
           </div>
         </details>
       </section>
-    </div></div>`;
+    </div>
+    <div class="av-confirm-backdrop" id="avLockConfirmModal" role="dialog" aria-modal="true" aria-labelledby="avLockConfirmTitle" hidden>
+      <div class="av-confirm-card">
+        <h3 id="avLockConfirmTitle">🔒 確定選定專屬角色？</h3>
+        <div class="av-confirm-preview" id="avLockConfirmPreview"></div>
+        <p class="av-confirm-msg" id="avLockConfirmMsg"></p>
+        <div class="av-confirm-actions">
+          <button type="button" class="av-confirm-cancel" id="avLockCancelBtn">先再看看</button>
+          <button type="button" class="av-confirm-ok" id="avLockOkBtn">🔒 確定鎖定</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
   document.body.appendChild(wrap);
   const $ = (s) => wrap.querySelector(s);
   const isOpen = () => wrap.classList.contains("show");
-  const close = () => wrap.classList.remove("show");
+  const isConfirmOpen = () => !$("#avLockConfirmModal").hidden;
+  const closeConfirm = () => { $("#avLockConfirmModal").hidden = true; };
+  const close = () => { closeConfirm(); wrap.classList.remove("show"); };
   $("#resClose").onclick = close;
   $("#resToLbBtn").onclick = () => {
     close();
     if (window.Leaderboard && typeof window.Leaderboard.open === "function") window.Leaderboard.open();
   };
+  $("#avLockCancelBtn").onclick = closeConfirm;
+  $("#avLockConfirmModal").addEventListener("click", (e) => {
+    if (e.target === $("#avLockConfirmModal")) closeConfirm();
+  });
+  $("#avLockOkBtn").onclick = () => {
+    const st = AV.getState();
+    const styleObj = AV.HAIR_STYLES.find((h) => h.id === st.look.hair) || AV.HAIR_STYLES[0];
+    const r = AV.lockPreset();
+    closeConfirm();
+    if (r && r.ok) {
+      AV.toast(`🎉 已確定選定「${styleObj.name}」為你的專屬造型！`, "ok", 3000);
+      if (typeof window.confetti === "function") { try { window.confetti({ particleCount: 55, spread: 70, origin: { y: 0.55 } }); } catch {} }
+    }
+  };
   wrap.addEventListener("click", (e) => { if (e.target === wrap) close(); });
   document.addEventListener("keydown", (e) => {
     if (window.shouldSkipGlobalEvent && window.shouldSkipGlobalEvent(e)) return;
-    if (e.key === "Escape" && isOpen()) close();
+    if (e.key === "Escape") {
+      if (isConfirmOpen()) closeConfirm();
+      else if (isOpen()) close();
+    }
   });
 
   /** 讀取 localStorage 內的測驗成績，回傳每座島最新得分（沒有則 0） */
@@ -78,6 +110,13 @@
   }
 
   /* ---------------- 左側：角色展示台 ---------------- */
+  function openLockConfirm(st) {
+    const styleObj = AV.HAIR_STYLES.find((h) => h.id === st.look.hair) || AV.HAIR_STYLES[0];
+    $("#avLockConfirmPreview").innerHTML = AV.renderLookThumb(st.look);
+    $("#avLockConfirmMsg").textContent = `確定要選定【${styleObj.name}】作為你的專屬造型嗎？選定後基礎角色將永久鎖定，但之後仍可自由更換帽子、衣服、武器、寵物與表情！`;
+    $("#avLockConfirmModal").hidden = false;
+  }
+
   function renderStage(st, qs, w) {
     const p = Store.profile;
     const g = { 7: "七", 8: "八", 9: "九" }[String(p.cls)[0]] || "";
@@ -86,6 +125,19 @@
     const stage = $("#avStage");
     stage.innerHTML = AV.renderAvatar(st, { cls: "av-stage-svg", label: `${p.name} 的 Q 版角色` });
     stage.classList.remove("pop"); void stage.offsetWidth; stage.classList.add("pop");
+
+    const curStyle = AV.HAIR_STYLES.find((h) => h.id === st.look.hair) || AV.HAIR_STYLES[0];
+    const lockArea = $("#avPresetLockArea");
+    if (lockArea) {
+      if (st.presetLocked) {
+        lockArea.innerHTML = `<div class="av-preset-locked-badge">✅ 已選定專屬角色：<b>${esc(curStyle.name)}</b></div>`;
+      } else {
+        lockArea.innerHTML = `<button type="button" class="av-lock-preset-btn" id="avLockPresetBtn">🔒 確定選定此造型（選定後不可更換）</button>`;
+        const lockBtn = $("#avLockPresetBtn");
+        if (lockBtn) lockBtn.onclick = () => openLockConfirm(AV.getState());
+      }
+    }
+
     $("#avName").innerHTML = `<b>${esc(p.name)}</b><span>${esc(who)}</span>`;
     const t = AV.title(qs.totalScore);
     const badge = $("#avTitle");
@@ -112,10 +164,13 @@
   }
 
   /* ---------------- 右側：更衣室圖鑑 ---------------- */
-  function renderHint(w) {
+  function renderHint(w, st) {
     const T = AV.TIERS;
+    const locked = !!(st && st.presetLocked);
     const hint = {
-      look: "💡 免費自由造型！點選招牌角色會自動套用推薦髮色、專屬瞳孔與頭臉配件，也可自由微調髮色與表情。",
+      look: locked
+        ? "🔒 已鎖定專屬基礎角色！表情、髮色與所有已解鎖的帽子、服裝、武器與寵物仍可 100% 自由混搭。"
+        : "💡 免費預覽試穿！選定喜歡的基礎角色後，請點擊左側「確定選定此造型」按鈕鎖定你的專屬角色。",
       easy: `🎟️ 每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
       medium: `🎟️ 每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
       hard: `🎟️ 每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
@@ -129,19 +184,29 @@
     });
   }
 
-  function lookCard(group, val, name, thumb, on) {
-    return `<button type="button" class="av-look-card${on ? " on" : ""}" data-look="${group}" data-val="${val}" aria-pressed="${on}">
-      <span class="av-thumb">${thumb}</span><span class="av-look-name">${esc(name)}</span></button>`;
+  function lookCard(group, val, name, thumb, on, lockState = "") {
+    const lockedOther = lockState === "locked";
+    const chosenLocked = lockState === "chosen";
+    const badgeHtml = chosenLocked
+      ? `<span class="av-look-badge is-chosen">✅ 已選定專屬角色</span>`
+      : lockedOther
+        ? `<span class="av-look-badge is-locked">🔒 已鎖定</span>`
+        : "";
+    return `<button type="button" class="av-look-card${on ? " on" : ""}${lockedOther ? " is-preset-locked" : ""}${chosenLocked ? " is-preset-chosen" : ""}" data-look="${group}" data-val="${val}" aria-pressed="${on}">
+      ${badgeHtml}<span class="av-thumb">${thumb}</span><span class="av-look-name">${esc(name)}</span></button>`;
   }
   function renderLookTab(st) {
     const look = st.look;
+    const locked = !!st.presetLocked;
     const maleHairs = AV.HAIR_STYLES.filter((h) => h.group === "male");
     const femaleHairs = AV.HAIR_STYLES.filter((h) => h.group === "female");
     const cardColor = (h) => (look.hair === h.id ? look.hairColor : (h.defaultColor || look.hairColor));
+    const cardLockState = (h) => (!locked ? "" : (look.hair === h.id ? "chosen" : "locked"));
+    const subHint = locked ? "基礎角色已鎖定" : "點選預覽並至左側確認鎖定";
     return `<div class="av-look">
-      <h4>👦 男生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${maleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
-      <h4>👧 女生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${femaleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
-      <h4>🎨 髮色 <small class="av-look-sub">套用角色後仍可自由微調</small></h4><div class="av-look-row swatches">${AV.HAIR_COLORS.map((h) => `<button type="button" class="av-swatch${look.hairColor === h.id ? " on" : ""}" data-look="hairColor" data-val="${h.id}" aria-pressed="${look.hairColor === h.id}">
+      <h4>👦 男生造型 <small class="av-look-sub">${subHint}</small></h4><div class="av-look-row">${maleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id, cardLockState(h))).join("")}</div>
+      <h4>👧 女生造型 <small class="av-look-sub">${subHint}</small></h4><div class="av-look-row">${femaleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id, cardLockState(h))).join("")}</div>
+      <h4>🎨 髮色 <small class="av-look-sub">隨時可自由微調</small></h4><div class="av-look-row swatches">${AV.HAIR_COLORS.map((h) => `<button type="button" class="av-swatch${look.hairColor === h.id ? " on" : ""}" data-look="hairColor" data-val="${h.id}" aria-pressed="${look.hairColor === h.id}">
         <i style="background:linear-gradient(135deg, ${h.top}, ${h.c} 48%, ${h.bot || h.s})"></i>${esc(h.name)}</button>`).join("")}</div>
       <h4>😊 公仔表情 <small class="av-look-sub">5 款自由切換</small></h4><div class="av-look-row">${AV.FACES.map((f) => lookCard("face", f.id, f.name, AV.renderLookThumb({ ...look, face: f.id }), look.face === f.id)).join("")}</div>
     </div>`;
@@ -188,7 +253,7 @@
     const st = AV.getState(), qs = AV.quizStats(), w = AV.wallet(st, qs);
     renderStage(st, qs, w);
     renderBars(qs);
-    renderHint(w);
+    renderHint(w, st);
     renderGrid(st, w);
     if ($("#avLegacy").open) renderLegacy();
   }
@@ -199,7 +264,7 @@
     if (!b) return;
     tab = b.dataset.tab; armedId = null;
     const st = AV.getState(), w = AV.wallet(st);
-    renderHint(w); renderGrid(st, w);
+    renderHint(w, st); renderGrid(st, w);
   });
 
   function handleCard(card) {
@@ -241,7 +306,11 @@
   }
   $("#avGrid").addEventListener("click", (e) => {
     const lk = e.target.closest("[data-look]");
-    if (lk) { AV.setLook(lk.dataset.look, lk.dataset.val); return; }
+    if (lk) {
+      const r = AV.setLook(lk.dataset.look, lk.dataset.val);
+      if (r && !r.ok && r.msg) AV.toast(r.msg, "warn", 3200);
+      return;
+    }
     const card = e.target.closest(".av-card");
     if (card) handleCard(card);
   });

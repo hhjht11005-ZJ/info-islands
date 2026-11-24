@@ -100,7 +100,7 @@
     teacherPassword: "",
     selectedClass: "",
     isPrivacyMode: true,
-    activeTab: "radar", // "radar" | "wrong" | "dispatch"
+    activeTab: "radar", // "radar" | "completion" | "wrong" | "dispatch"
     activeStage: null,
     isMinimized: false,
     luckyRunning: false,
@@ -110,7 +110,13 @@
     dispatchDirty: false,
     dispatchSaving: false,
     dispatchStatus: { text: "", kind: "", showReauth: false },
-    pendingReauthOnly: false
+    pendingReauthOnly: false,
+    compGrade: "all",
+    compClass: "all",
+    compSearch: "",
+    compSort: "seat", // "seat" | "pct" | "score"
+    revealedPins: new Set(),
+    busyActionKey: ""
   };
   let luckyTimer = null;
 
@@ -219,6 +225,7 @@
 
       <nav class="tc-tabs" role="tablist">
         <button type="button" class="tc-tab active" data-tab="radar" role="tab" aria-selected="true">📋 課堂即時進度、抓漏雷達與幸運抽籤</button>
+        <button type="button" class="tc-tab" data-tab="completion" role="tab" aria-selected="false">📊 個別完成度</button>
         <button type="button" class="tc-tab" data-tab="wrong" role="tab" aria-selected="false">🎯 班級高頻錯題診斷 Top 3 ＋ 一鍵投影講解</button>
         <button type="button" class="tc-tab" data-tab="dispatch" role="tab" aria-selected="false">📢 雲端任務派發</button>
       </nav>
@@ -228,6 +235,25 @@
     </div>
   `;
   document.body.appendChild(cockpitWrap);
+
+  /* ---- DOM 建置：學生七大島嶼完成明細 Modal & 自訂確認 Modal ---- */
+  const detailWrap = document.createElement("div");
+  detailWrap.id = "tcDetailModal";
+  detailWrap.className = "tc-projector-wrap tc-submodal-wrap";
+  detailWrap.setAttribute("role", "dialog");
+  detailWrap.setAttribute("aria-modal", "true");
+  detailWrap.hidden = true;
+  detailWrap.innerHTML = `<div class="tc-submodal-card tc-detail-card" id="tcDetailCard"></div>`;
+  document.body.appendChild(detailWrap);
+
+  const confirmWrap = document.createElement("div");
+  confirmWrap.id = "tcConfirmModal";
+  confirmWrap.className = "tc-projector-wrap tc-submodal-wrap";
+  confirmWrap.setAttribute("role", "dialog");
+  confirmWrap.setAttribute("aria-modal", "true");
+  confirmWrap.hidden = true;
+  confirmWrap.innerHTML = `<div class="tc-submodal-card tc-confirm-card" id="tcConfirmCard"></div>`;
+  document.body.appendChild(confirmWrap);
 
   function setGlobalStatus(text = "", kind = "") {
     const el = cockpitWrap.querySelector("#tcGlobalStatus");
@@ -925,10 +951,421 @@
     renderDispatchStatus(statusEl);
   }
 
+  /* ---- 渲染分頁二：📊 全校學生個別完成度總覽與管理 ---- */
+  function parseStudentGradeFromCls(gradeVal, cls) {
+    const g = Number(gradeVal);
+    if (g === 7 || g === 8 || g === 9) return String(g);
+    const s = String(cls || "").trim();
+    if (/^8/.test(s)) return "8";
+    if (/^9/.test(s)) return "9";
+    return "7";
+  }
+
+  function buildCurriculumCatalog() {
+    const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
+    const content = window.CONTENT || {};
+    let totalLevels = 0;
+    const gradeTotal = { "7": 0, "8": 0, "9": 0 };
+    const unitGradeMap = {};
+    const islandCatalog = islands.map((isl) => {
+      const units = (Array.isArray(isl.sequence) ? isl.sequence : []).map((seq, idx) => {
+        const unitKey = `${isl.id}-${idx + 1}`;
+        const q = content[unitKey] && content[unitKey].quiz;
+        const diffs = (q && q.levels)
+          ? ["easy", "medium", "hard"].filter((d) => q.levels[d])
+          : ["single"];
+        const effectiveDiffs = diffs.length > 0 ? diffs : ["single"];
+        const gStr = String(seq.grade || 7);
+        totalLevels += effectiveDiffs.length;
+        if (gradeTotal[gStr] !== undefined) gradeTotal[gStr] += effectiveDiffs.length;
+        unitGradeMap[unitKey] = gStr;
+        return {
+          unitKey,
+          unitName: (content[unitKey] && content[unitKey].unit) || seq.unit || unitKey,
+          grade: gStr,
+          diffs: effectiveDiffs
+        };
+      });
+      return {
+        id: isl.id,
+        name: isl.name,
+        emoji: isl.emoji || "🏝️",
+        units,
+        totalLevels: units.reduce((sum, u) => sum + u.diffs.length, 0)
+      };
+    });
+    return { totalLevels, gradeTotal, unitGradeMap, islandCatalog };
+  }
+
+  function buildMergedStudents(catalog) {
+    const map = new Map();
+    const ensureEntry = (grade, className, seat) => {
+      const cls = String(className || "").trim();
+      const seatNum = Number(seat) || 0;
+      const seatStr = seatNum > 0 ? String(seatNum) : String(seat || "").trim();
+      const g = parseStudentGradeFromCls(grade, cls);
+      const sKey = `${g}_${cls}_${seatStr}`;
+      if (!map.has(sKey)) {
+        map.set(sKey, {
+          studentKey: sKey,
+          grade: g,
+          className: cls,
+          seat: seatStr,
+          seatNum,
+          name: "",
+          inRoster: false,
+          hasCloud: false,
+          totalScore: 0,
+          crownCount: 0,
+          updatedAt: "",
+          pinCode: "",
+          avatar: null,
+          completedProgress: []
+        });
+      }
+      return map.get(sKey);
+    };
+
+    state.data.roster.forEach((r) => {
+      const cls = String(r.className || r.cls || "").trim();
+      if (!cls) return;
+      const entry = ensureEntry(r.grade, cls, r.seat);
+      entry.inRoster = true;
+      if (r.name) entry.name = String(r.name).trim();
+    });
+
+    state.data.students.forEach((s) => {
+      const cls = String(s.className || s.cls || "").trim();
+      if (!cls) return;
+      const entry = ensureEntry(s.grade, cls, s.seat);
+      entry.hasCloud = true;
+      if (s.name && (!entry.name || !entry.inRoster)) entry.name = String(s.name).trim();
+      entry.totalScore = Math.max(entry.totalScore, Number(s.totalScore) || 0);
+      entry.crownCount = Math.max(entry.crownCount, Number(s.crownCount) || 0);
+      entry.updatedAt = String(s.updatedAt || entry.updatedAt || "");
+      entry.pinCode = String(s.pinCode || "").trim();
+      entry.avatar = (s.avatar && typeof s.avatar === "object") ? s.avatar : entry.avatar;
+      entry.completedProgress = Array.isArray(s.completedProgress) ? s.completedProgress : [];
+    });
+
+    const AV = window.AvatarSystem;
+    const hairStyles = (AV && AV.HAIR_STYLES) || [];
+
+    return Array.from(map.values()).map((st) => {
+      const passedSet = new Set();
+      let easyCount = 0, mediumCount = 0, hardCount = 0, gradePassed = 0;
+      (st.completedProgress || []).forEach((tok) => {
+        const parts = String(tok || "").trim().split(":");
+        const unitKey = parts[0] || "";
+        const rawDiff = parts[1] || "single";
+        const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
+        if (!unitKey) return;
+        const cleanTok = `${unitKey}:${diff}`;
+        if (passedSet.has(cleanTok)) return;
+        passedSet.add(cleanTok);
+        if (diff === "medium") mediumCount++;
+        else if (diff === "hard") hardCount++;
+        else easyCount++;
+        if (catalog.unitGradeMap[unitKey] === st.grade) gradePassed++;
+      });
+
+      const passedTotal = passedSet.size;
+      const pctNum = catalog.totalLevels > 0 ? (passedTotal / catalog.totalLevels) * 100 : 0;
+      const gradeTotal = catalog.gradeTotal[st.grade] || 1;
+      const gradePctNum = (gradePassed / gradeTotal) * 100;
+
+      const look = st.avatar && st.avatar.look
+        ? (AV && typeof AV.normalizeLook === "function" ? AV.normalizeLook(st.avatar.look) : st.avatar.look)
+        : null;
+      const presetObj = look ? hairStyles.find((h) => h.id === look.hair) : null;
+
+      return {
+        ...st,
+        passedSet,
+        passedTotal,
+        pctNum,
+        pctText: pctNum.toFixed(1),
+        gradePassed,
+        gradeTotal,
+        gradePctText: gradePctNum.toFixed(1),
+        easyCount,
+        mediumCount,
+        hardCount,
+        presetLocked: !!(st.avatar && st.avatar.presetLocked),
+        presetName: presetObj ? presetObj.name : (look ? look.hair : "尚未設定")
+      };
+    });
+  }
+
+  function renderCompletionRowsHtml(allRows, catalog) {
+    const AV = window.AvatarSystem;
+    const q = state.compSearch.trim().toLowerCase();
+    const filtered = allRows.filter((row) => {
+      if (state.compGrade !== "all" && row.grade !== state.compGrade) return false;
+      if (state.compClass !== "all" && row.className !== state.compClass) return false;
+      if (q) {
+        const hay = `${row.className} ${row.seat} ${row.name} ${row.presetName}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      if (state.compSort === "pct") {
+        if (b.pctNum !== a.pctNum) return b.pctNum - a.pctNum;
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+      } else if (state.compSort === "score") {
+        if (b.totalScore !== a.totalScore) return b.totalScore - a.totalScore;
+        if (b.pctNum !== a.pctNum) return b.pctNum - a.pctNum;
+      }
+      const clsCmp = a.className.localeCompare(b.className, "zh-Hant", { numeric: true });
+      if (clsCmp !== 0) return clsCmp;
+      return a.seatNum - b.seatNum;
+    });
+
+    if (filtered.length === 0) {
+      return `<div class="tc-empty">🔍 找不到符合條件的學生資料。</div>`;
+    }
+
+    return `
+      <div class="tc-comp-summary-bar">
+        <span>顯示 <b>${filtered.length}</b> / ${allRows.length} 位學生</span>
+        <span>全島總關卡數：<b>${catalog.totalLevels}</b> 關（含 7 大島嶼 × 易／中／難）</span>
+      </div>
+      <div class="tc-comp-table-scroll">
+        <table class="tc-comp-table">
+          <thead>
+            <tr>
+              <th>班級座號</th>
+              <th>姓名</th>
+              <th>個人驗證碼</th>
+              <th>選定角色造型</th>
+              <th>全島與年級完成度</th>
+              <th>成績與島嶼明細</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${filtered.map((row) => {
+              const revealed = state.revealedPins.has(row.studentKey);
+              const pinCell = row.pinCode
+                ? `<div class="tc-pin-cell">
+                    <code class="tc-pin-val">${revealed ? esc(row.pinCode) : "••••"}</code>
+                    <button type="button" class="tc-mini-btn tc-pin-eye-btn" data-skey="${esc(row.studentKey)}" title="${revealed ? "隱藏驗證碼" : "查看驗證碼"}">${revealed ? "🙈" : "👁️"}</button>
+                    <button type="button" class="tc-mini-btn warn tc-pin-reset-btn" data-skey="${esc(row.studentKey)}" data-cls="${esc(row.className)}" data-seat="${esc(row.seat)}" data-grade="${esc(row.grade)}" data-name="${esc(row.name)}">重設驗證碼</button>
+                  </div>`
+                : `<span class="tc-pill-muted">尚未設定</span>`;
+
+              const avatarHtml = (row.avatar && row.avatar.look && AV && typeof AV.renderMiniAvatar === "function")
+                ? `<span class="tc-comp-avatar">${AV.renderMiniAvatar(row.avatar, { label: row.presetName })}</span>`
+                : `<span class="tc-comp-avatar empty">?</span>`;
+
+              const roleCell = `<div class="tc-role-cell">
+                ${avatarHtml}
+                <div class="tc-role-meta">
+                  <strong>${esc(row.presetName)}</strong>
+                  <div class="tc-role-tags">
+                    ${row.presetLocked
+                      ? `<span class="tc-lock-tag locked">🔒 已鎖定</span><button type="button" class="tc-mini-btn accent tc-avatar-unlock-btn" data-skey="${esc(row.studentKey)}" data-cls="${esc(row.className)}" data-seat="${esc(row.seat)}" data-grade="${esc(row.grade)}" data-name="${esc(row.name)}">解鎖造型</button>`
+                      : (row.avatar ? `<span class="tc-lock-tag free">試穿中</span>` : `<span class="tc-pill-muted">未登入</span>`)}
+                  </div>
+                </div>
+              </div>`;
+
+              const barPct = Math.min(100, Math.max(0, row.pctNum));
+              return `<tr>
+                <td><span class="tc-seat-chip">${esc(row.className)} · ${String(row.seatNum).padStart(2, "0")}號</span></td>
+                <td class="tc-name-cell">${esc(displayName(row.name, row.seatNum))}</td>
+                <td>${pinCell}</td>
+                <td>${roleCell}</td>
+                <td>
+                  <div class="tc-prog-cell">
+                    <div class="tc-prog-top">
+                      <strong>${row.passedTotal} / ${catalog.totalLevels} 關 (${row.pctText}%)</strong>
+                      <small>所屬 ${esc(row.grade)} 年級：${row.gradePassed} / ${row.gradeTotal} (${row.gradePctText}%)</small>
+                    </div>
+                    <div class="tc-prog-track"><i style="width:${barPct}%"></i></div>
+                    <div class="tc-diff-pills">
+                      <span class="tc-dp easy">易 ${row.easyCount} 關</span>
+                      <span class="tc-dp med">中 ${row.mediumCount} 關</span>
+                      <span class="tc-dp hard">難 ${row.hardCount} 關</span>
+                    </div>
+                  </div>
+                </td>
+                <td>
+                  <div class="tc-stat-act-cell">
+                    <div class="tc-stat-nums"><span>👑 ${row.crownCount}</span><span>⭐ ${row.totalScore.toLocaleString()}</span></div>
+                    <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-skey="${esc(row.studentKey)}">🔍 島嶼明細</button>
+                  </div>
+                </td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function renderCompletionTab(body) {
+    const catalog = buildCurriculumCatalog();
+    const allRows = buildMergedStudents(catalog);
+    const allClasses = Array.from(new Set(allRows.map((r) => r.className).filter(Boolean)))
+      .filter((c) => state.compGrade === "all" || parseStudentGradeFromCls("", c) === state.compGrade)
+      .sort((a, b) => a.localeCompare(b, "zh-Hant", { numeric: true }));
+
+    if (state.compClass !== "all" && !allClasses.includes(state.compClass)) {
+      state.compClass = "all";
+    }
+
+    body.innerHTML = `
+      <section class="tc-panel tc-comp-panel">
+        <div class="tc-comp-toolbar">
+          <label class="tc-ctrl">
+            <span>年級</span>
+            <select id="tcCompGrade">
+              <option value="all"${state.compGrade === "all" ? " selected" : ""}>全部年級</option>
+              <option value="7"${state.compGrade === "7" ? " selected" : ""}>七年級</option>
+              <option value="8"${state.compGrade === "8" ? " selected" : ""}>八年級</option>
+              <option value="9"${state.compGrade === "9" ? " selected" : ""}>九年級</option>
+            </select>
+          </label>
+          <label class="tc-ctrl">
+            <span>班級</span>
+            <select id="tcCompClass">
+              <option value="all"${state.compClass === "all" ? " selected" : ""}>全部班級</option>
+              ${allClasses.map((c) => `<option value="${esc(c)}"${state.compClass === c ? " selected" : ""}>${esc(c)} 班</option>`).join("")}
+            </select>
+          </label>
+          <label class="tc-ctrl tc-ctrl-search">
+            <span>搜尋學生</span>
+            <input type="text" id="tcCompSearch" value="${esc(state.compSearch)}" placeholder="姓名、座號、班級或角色…" autocomplete="off" />
+          </label>
+          <label class="tc-ctrl">
+            <span>排序</span>
+            <select id="tcCompSort">
+              <option value="seat"${state.compSort === "seat" ? " selected" : ""}>班級／座號</option>
+              <option value="pct"${state.compSort === "pct" ? " selected" : ""}>完成度 %</option>
+              <option value="score"${state.compSort === "score" ? " selected" : ""}>總積分</option>
+            </select>
+          </label>
+        </div>
+        <div id="tcCompTableWrap">${renderCompletionRowsHtml(allRows, catalog)}</div>
+      </section>
+    `;
+  }
+
+  function closeDetailModal() {
+    detailWrap.classList.remove("show");
+    detailWrap.classList.add("hidden", "pointer-events-none");
+    detailWrap.hidden = true;
+  }
+
+  function closeConfirmModal() {
+    confirmWrap.classList.remove("show");
+    confirmWrap.classList.add("hidden", "pointer-events-none");
+    confirmWrap.hidden = true;
+  }
+
+  function openStudentDetailModal(studentKey) {
+    const catalog = buildCurriculumCatalog();
+    const allRows = buildMergedStudents(catalog);
+    const st = allRows.find((r) => r.studentKey === studentKey);
+    if (!st) return;
+
+    const card = detailWrap.querySelector("#tcDetailCard");
+    card.innerHTML = `
+      <div class="tc-proj-head">
+        <div class="tc-proj-badges">
+          <span class="tc-proj-badge">${esc(st.className)} 班 ${String(st.seatNum).padStart(2, "0")} 號 · ${esc(displayName(st.name, st.seatNum))}</span>
+          <span class="tc-proj-badge diff">總完成：${st.passedTotal} / ${catalog.totalLevels} 關 (${st.pctText}%)</span>
+          <span class="tc-proj-badge">👑 ${st.crownCount} · ⭐ ${st.totalScore.toLocaleString()}</span>
+        </div>
+        <button type="button" id="tcDetailClose" class="tc-proj-close">✕ 關閉</button>
+      </div>
+      <div class="tc-detail-grid">
+        ${catalog.islandCatalog.map((isl) => {
+          let islPassed = 0;
+          const unitRows = isl.units.map((u) => {
+            const diffBadges = u.diffs.map((d) => {
+              const ok = st.passedSet.has(`${u.unitKey}:${d}`);
+              if (ok) islPassed++;
+              const lbl = DIFF_LABELS[d] || d;
+              return `<span class="tc-unit-diff ${ok ? "ok" : "no"}">${ok ? "✅" : "○"} ${esc(lbl)}</span>`;
+            }).join("");
+            return `<div class="tc-detail-unit">
+              <span class="tc-du-name"><small>${esc(u.grade)}年級</small> ${esc(u.unitName)}</span>
+              <span class="tc-du-diffs">${diffBadges}</span>
+            </div>`;
+          }).join("");
+          const islPct = isl.totalLevels > 0 ? Math.round((islPassed / isl.totalLevels) * 100) : 0;
+          return `<section class="tc-detail-island">
+            <div class="tc-di-head">
+              <h4>${esc(isl.emoji)} ${esc(isl.name)}</h4>
+              <span class="tc-di-prog">${islPassed} / ${isl.totalLevels} (${islPct}%)</span>
+            </div>
+            <div class="tc-prog-track sm"><i style="width:${islPct}%"></i></div>
+            <div class="tc-di-units">${unitRows}</div>
+          </section>`;
+        }).join("")}
+      </div>
+    `;
+    card.querySelector("#tcDetailClose").onclick = closeDetailModal;
+    detailWrap.hidden = false;
+    detailWrap.classList.remove("hidden", "pointer-events-none");
+    detailWrap.classList.add("show");
+  }
+
+  async function postTeacherAction(actionName, payload) {
+    const url = getGasUrl();
+    const pwd = getTeacherPassword();
+    if (!url) throw new Error("尚未設定 GAS_LEADERBOARD_URL");
+    if (!pwd) throw new Error("教師驗證已逾時，請重新登入");
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({ action: actionName, password: pwd, ...payload })
+    });
+    return await parseJsonResponse(res);
+  }
+
+  function openTeacherConfirmModal({ title, msg, confirmLabel, onConfirm }) {
+    const card = confirmWrap.querySelector("#tcConfirmCard");
+    card.innerHTML = `
+      <h3>${esc(title)}</h3>
+      <p class="tc-confirm-msg">${esc(msg)}</p>
+      <p class="tc-inline-status" id="tcConfirmErr" role="alert" hidden></p>
+      <div class="tc-confirm-actions">
+        <button type="button" class="tc-icon-btn" id="tcConfirmCancel">取消</button>
+        <button type="button" class="btn-primary tc-confirm-ok" id="tcConfirmOk">${esc(confirmLabel)}</button>
+      </div>
+    `;
+    card.querySelector("#tcConfirmCancel").onclick = closeConfirmModal;
+    card.querySelector("#tcConfirmOk").onclick = async () => {
+      const okBtn = card.querySelector("#tcConfirmOk");
+      const errEl = card.querySelector("#tcConfirmErr");
+      okBtn.disabled = true;
+      okBtn.textContent = "⏳ 處理中…";
+      errEl.hidden = true;
+      try {
+        await onConfirm();
+        closeConfirmModal();
+      } catch (err) {
+        errEl.hidden = false;
+        errEl.className = "tc-inline-status err";
+        errEl.textContent = `❌ ${(err && err.message) || "操作失敗"}`;
+        okBtn.disabled = false;
+        okBtn.textContent = confirmLabel;
+      }
+    };
+    confirmWrap.hidden = false;
+    confirmWrap.classList.remove("hidden", "pointer-events-none");
+    confirmWrap.classList.add("show");
+  }
+
   function renderMainBody() {
     renderTopBar();
     const body = cockpitWrap.querySelector("#tcMainBody");
     if (state.activeTab === "radar") renderRadarTab(body);
+    else if (state.activeTab === "completion") renderCompletionTab(body);
     else if (state.activeTab === "wrong") renderWrongTab(body);
     else renderDispatchTab(body);
   }
@@ -985,6 +1422,8 @@
     cockpitWrap.classList.add("pointer-events-none");
     restorePill.classList.remove("show");
     closeProjectorModal();
+    closeDetailModal();
+    closeConfirmModal();
     if (state.activeStage !== null && typeof window.previewAllStage === "function") {
       window.previewAllStage("auto");
       state.activeStage = null;
@@ -1067,13 +1506,15 @@
 
   /* ---- 事件綁定（外層容器事件委派） ---- */
   const stopBubble = (e) => { e.stopPropagation(); };
-  [cockpitWrap, authWrap, projWrap].forEach((container) => {
+  [cockpitWrap, authWrap, projWrap, detailWrap, confirmWrap].forEach((container) => {
     container.addEventListener("click", stopBubble);
     container.addEventListener("pointerdown", stopBubble);
     container.addEventListener("mousedown", stopBubble);
     container.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && !isFormFieldTarget(e.target)) {
-        if (container === projWrap && projWrap.classList.contains("show")) closeProjectorModal();
+        if (container === confirmWrap && confirmWrap.classList.contains("show")) closeConfirmModal();
+        else if (container === detailWrap && detailWrap.classList.contains("show")) closeDetailModal();
+        else if (container === projWrap && projWrap.classList.contains("show")) closeProjectorModal();
         else if (container === authWrap && authWrap.classList.contains("show")) closeAuthModal();
         else if (container === cockpitWrap && cockpitWrap.classList.contains("show")) closeCockpit();
       }
@@ -1124,6 +1565,79 @@
   cockpitWrap.addEventListener("click", (e) => {
     const target = e.target;
     if (!target || typeof target.closest !== "function") return;
+
+    const pinEyeBtn = target.closest(".tc-pin-eye-btn");
+    if (pinEyeBtn) {
+      const skey = pinEyeBtn.dataset.skey;
+      if (state.revealedPins.has(skey)) state.revealedPins.delete(skey);
+      else state.revealedPins.add(skey);
+      renderMainBody();
+      return;
+    }
+
+    const pinResetBtn = target.closest(".tc-pin-reset-btn");
+    if (pinResetBtn) {
+      const { skey, cls, seat, grade, name } = pinResetBtn.dataset;
+      const whoLabel = `${cls} 班 ${String(seat).padStart(2, "0")} 號（${displayName(name, seat)}）`;
+      openTeacherConfirmModal({
+        title: "🔑 確定重設個人驗證碼？",
+        msg: `確定要清除 ${whoLabel} 的個人驗證碼嗎？重設後該生下次登入時將可重新設定一組 4~6 碼驗證碼。`,
+        confirmLabel: "確定重設",
+        onConfirm: async () => {
+          const res = await postTeacherAction("reset_student_pin", { studentKey: skey, grade, className: cls, seat });
+          if (res && res.status === "unauthorized") {
+            clearTeacherPassword();
+            throw new Error("教師驗證已逾時，請重新登入");
+          }
+          if (!res || res.status !== "ok") {
+            throw new Error((res && res.message) || "重設驗證碼失敗");
+          }
+          const hit = state.data.students.find((s) => s.studentKey === skey || (`${parseStudentGradeFromCls(s.grade, s.className)}_${s.className}_${s.seat}` === skey));
+          if (hit) hit.pinCode = "";
+          state.revealedPins.delete(skey);
+          renderMainBody();
+          setGlobalStatus(`✅ 已清除 ${whoLabel} 的個人驗證碼`, "ok");
+          setTimeout(() => setGlobalStatus(""), 3200);
+        }
+      });
+      return;
+    }
+
+    const unlockAvBtn = target.closest(".tc-avatar-unlock-btn");
+    if (unlockAvBtn) {
+      const { skey, cls, seat, grade, name } = unlockAvBtn.dataset;
+      const whoLabel = `${cls} 班 ${String(seat).padStart(2, "0")} 號（${displayName(name, seat)}）`;
+      openTeacherConfirmModal({
+        title: "🔓 確定解鎖角色基礎造型？",
+        msg: `確定要解鎖 ${whoLabel} 的基礎角色嗎？解鎖後該生下次登入即可重新挑選其他 8 位基礎角色。`,
+        confirmLabel: "確定解鎖",
+        onConfirm: async () => {
+          const res = await postTeacherAction("unlock_student_avatar", { studentKey: skey, grade, className: cls, seat });
+          if (res && res.status === "unauthorized") {
+            clearTeacherPassword();
+            throw new Error("教師驗證已逾時，請重新登入");
+          }
+          if (!res || res.status !== "ok") {
+            throw new Error((res && res.message) || "解鎖角色失敗");
+          }
+          const hit = state.data.students.find((s) => s.studentKey === skey || (`${parseStudentGradeFromCls(s.grade, s.className)}_${s.className}_${s.seat}` === skey));
+          if (hit) {
+            if (!hit.avatar || typeof hit.avatar !== "object") hit.avatar = {};
+            hit.avatar.presetLocked = false;
+          }
+          renderMainBody();
+          setGlobalStatus(`✅ 已為 ${whoLabel} 解鎖基礎造型`, "ok");
+          setTimeout(() => setGlobalStatus(""), 3200);
+        }
+      });
+      return;
+    }
+
+    const detailBtn = target.closest(".tc-island-detail-btn");
+    if (detailBtn) {
+      openStudentDetailModal(detailBtn.dataset.skey);
+      return;
+    }
 
     if (target.closest("#tcDispatchClear")) {
       e.preventDefault();
@@ -1186,12 +1700,37 @@
     const id = e.target && e.target.id;
     if (id === "tcCfgAnnouncement" || id === "tcCfgTargetIsland" || id === "tcCfgLinkTitle" || id === "tcCfgLinkUrl") {
       syncDispatchDraftFromDom();
+      return;
+    }
+    if (id === "tcCompSearch") {
+      state.compSearch = e.target.value || "";
+      const wrapEl = cockpitWrap.querySelector("#tcCompTableWrap");
+      if (wrapEl) {
+        const catalog = buildCurriculumCatalog();
+        wrapEl.innerHTML = renderCompletionRowsHtml(buildMergedStudents(catalog), catalog);
+      }
     }
   });
 
   cockpitWrap.addEventListener("change", (e) => {
     const target = e.target;
     if (!target) return;
+    if (target.id === "tcCompGrade") {
+      state.compGrade = target.value || "all";
+      state.compClass = "all";
+      renderMainBody();
+      return;
+    }
+    if (target.id === "tcCompClass") {
+      state.compClass = target.value || "all";
+      renderMainBody();
+      return;
+    }
+    if (target.id === "tcCompSort") {
+      state.compSort = target.value || "seat";
+      renderMainBody();
+      return;
+    }
     if (target.id === "tcClassSelect") {
       state.selectedClass = target.value;
       state.luckyResult = null;
@@ -1209,11 +1748,15 @@
 
   restorePill.onclick = showCockpitWorkspace;
   projWrap.addEventListener("click", (e) => { if (e.target === projWrap) closeProjectorModal(); });
+  detailWrap.addEventListener("click", (e) => { if (e.target === detailWrap) closeDetailModal(); });
+  confirmWrap.addEventListener("click", (e) => { if (e.target === confirmWrap) closeConfirmModal(); });
 
   document.addEventListener("keydown", (e) => {
     if (isFormFieldTarget(e.target)) return;
     if (e.key === "Escape") {
-      if (projWrap.classList.contains("show")) closeProjectorModal();
+      if (confirmWrap.classList.contains("show")) closeConfirmModal();
+      else if (detailWrap.classList.contains("show")) closeDetailModal();
+      else if (projWrap.classList.contains("show")) closeProjectorModal();
       else if (authWrap.classList.contains("show")) closeAuthModal();
       else if (cockpitWrap.classList.contains("show")) closeCockpit();
     }

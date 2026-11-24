@@ -139,6 +139,22 @@
   let remoteLeaderboardFetcher = null;
   let lbUploadSeq = 0;
 
+  function collectCompletedProgress(profile) {
+    if (!profile || !profile.cls || !profile.name) return [];
+    const evs = ls.get(evKey({ cls: String(profile.cls).trim(), seat: Number(profile.seat) || profile.seat, name: String(profile.name).trim() }), []);
+    const passedSet = new Set();
+    (Array.isArray(evs) ? evs : []).forEach((e) => {
+      if (!e || e.type !== "quiz") return;
+      const unit = String(e.unit || e.unitId || "").trim();
+      if (!unit) return;
+      if ((Number(e.score) || 0) < 60) return;
+      const rawDiff = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
+      const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
+      passedSet.add(`${unit}:${diff}`);
+    });
+    return Array.from(passedSet).sort();
+  }
+
   function buildLeaderboardPayload(profile) {
     if (!profile || profile.isGatekeeper || profile.isVirtual) return null;
     const className = String(profile.cls || profile.className || "").trim();
@@ -148,18 +164,26 @@
     if (!className || !seat || !name) return null;
     const gradeNum = parseGradeFromCls({ grade: profile.grade, cls: className });
     const grade = String(gradeNum);
-    const evs = ls.get(evKey({ cls: className, seat: Number(seat) || seat, name }), []);
+    const pObj = { cls: className, seat: Number(seat) || seat, name };
+    const evs = ls.get(evKey(pObj), []);
     const stats = summarizeQuizEvents(evs);
+    const completedProgress = collectCompletedProgress(pObj);
+    const avatarState = ls.get(`ii:avatar:${className}-${Number(seat) || seat}-${name}`, null);
+    const payload = {
+      grade,
+      className,
+      seat,
+      name,
+      totalScore: Math.max(0, Math.round(Number(stats.totalScore) || 0)),
+      crownCount: Math.max(0, Math.round(Number(stats.crowns) || 0)),
+      completedProgress
+    };
+    if (avatarState && typeof avatarState === "object") {
+      payload.avatar = avatarState;
+    }
     return {
       studentKey: buildStudentKey(grade, className, seat),
-      payload: {
-        grade,
-        className,
-        seat,
-        name,
-        totalScore: Math.max(0, Math.round(Number(stats.totalScore) || 0)),
-        crownCount: Math.max(0, Math.round(Number(stats.crowns) || 0))
-      },
+      payload,
       quizCount: stats.quizCount,
       updatedAt: stats.latestTs || Date.now()
     };
@@ -195,9 +219,11 @@
     const prev = map[sKey];
     const nextScore = Math.max(0, Math.round(Number(payload.totalScore) || 0));
     const nextCrowns = Math.max(0, Math.round(Number(payload.crownCount) || 0));
+    const nextProgSig = Array.isArray(payload.completedProgress) ? payload.completedProgress.join(",") : (prev && prev.progressSig) || "";
     map[sKey] = {
       totalScore: prev ? Math.max(prev.totalScore || 0, nextScore) : nextScore,
       crownCount: prev ? Math.max(prev.crownCount || 0, nextCrowns) : nextCrowns,
+      progressSig: nextProgSig,
       syncedAt: Date.now()
     };
     ls.set(LB_SYNCED, map);
@@ -231,6 +257,16 @@
     return data;
   }
 
+  async function postGasJson(url, payload) {
+    const r = await fetchWithTimeout(url, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    }, GAS_TIMEOUT_MS);
+    if (!r.ok) throw new Error("伺服器回應 " + r.status);
+    return await r.json();
+  }
+
   async function uploadLeaderboardScore(profile, quizMeta) {
     const built = buildLeaderboardPayload(profile || Store.profile);
     if (!built) return { ok: false, skipped: true };
@@ -246,13 +282,15 @@
       payloadToSend.wrongQuestions = wrongQuestions;
     }
 
-    // 智慧去重上傳：只有當「無錯題」且「總積分與滿分皇冠數未超越上次成功同步紀錄」時才略過
+    // 智慧去重上傳：無錯題、總積分/皇冠未超越且已完成單元清單未變動時才略過
     const lastSynced = getSyncedLeaderboardRecord(built.studentKey);
+    const curProgSig = Array.isArray(built.payload.completedProgress) ? built.payload.completedProgress.join(",") : "";
     if (
       !hasWrongQuestions &&
       lastSynced &&
       built.payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
-      built.payload.crownCount <= (Number(lastSynced.crownCount) || 0)
+      built.payload.crownCount <= (Number(lastSynced.crownCount) || 0) &&
+      curProgSig === (lastSynced.progressSig || "")
     ) {
       return { ok: true, deduplicated: true };
     }
@@ -283,24 +321,31 @@
       const baseStudentKey = buildStudentKey(it.grade || parseGradeFromCls(it.className), it.className, it.seat);
       const wrongQuestions = Array.isArray(it.wrongQuestions) ? it.wrongQuestions : [];
       const hasWrongQuestions = wrongQuestions.length > 0;
+      const completedProgress = Array.isArray(it.completedProgress)
+        ? it.completedProgress
+        : collectCompletedProgress({ cls: it.className, seat: it.seat, name: it.name });
       const payload = {
         grade: String(it.grade || parseGradeFromCls(it.className)),
         className: String(it.className),
         seat: String(it.seat),
         name: String(it.name),
         totalScore: Math.max(0, Math.round(Number(it.totalScore) || 0)),
-        crownCount: Math.max(0, Math.round(Number(it.crownCount) || 0))
+        crownCount: Math.max(0, Math.round(Number(it.crownCount) || 0)),
+        completedProgress
       };
+      if (it.avatar && typeof it.avatar === "object") payload.avatar = it.avatar;
       if (it.unitId) payload.unitId = String(it.unitId);
       if (it.difficulty) payload.difficulty = String(it.difficulty);
       if (hasWrongQuestions) payload.wrongQuestions = wrongQuestions;
 
       const lastSynced = getSyncedLeaderboardRecord(baseStudentKey);
+      const curProgSig = completedProgress.join(",");
       if (
         !hasWrongQuestions &&
         lastSynced &&
         payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
-        payload.crownCount <= (Number(lastSynced.crownCount) || 0)
+        payload.crownCount <= (Number(lastSynced.crownCount) || 0) &&
+        curProgSig === (lastSynced.progressSig || "")
       ) {
         clearPendingLeaderboard(pendingKey, it.seq);
         continue;
@@ -317,6 +362,101 @@
     return flushed;
   }
 
+  function restoreCloudStudentData(profile, student) {
+    if (!profile || !student || typeof student !== "object") return;
+    const key = evKey(profile);
+    const localEvs = ls.get(key, []);
+    const hadLocalEvents = Array.isArray(localEvs) && localEvs.length > 0;
+    const existingPassSet = new Set();
+    (Array.isArray(localEvs) ? localEvs : []).forEach((e) => {
+      if (!e || e.type !== "quiz" || (Number(e.score) || 0) < 60) return;
+      const u = String(e.unit || e.unitId || "").trim();
+      const rd = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
+      const d = /^(easy|medium|hard)$/.test(rd) ? rd : "single";
+      if (u) existingPassSet.add(`${u}:${d}`);
+    });
+
+    const cloudProgress = Array.isArray(student.progress) ? student.progress : [];
+    const addedEvents = [];
+    let crownsLeft = !hadLocalEvents ? Math.max(0, Number(student.crownCount) || 0) : 0;
+
+    cloudProgress.forEach((token, idx) => {
+      const parts = String(token || "").trim().split(":");
+      const unit = parts[0] || "";
+      const diff = /^(easy|medium|hard)$/.test(parts[1] || "") ? parts[1] : "single";
+      if (!unit || existingPassSet.has(`${unit}:${diff}`)) return;
+      const island = unit.split("-")[0] || "";
+      const unitMeta = window.CONTENT && window.CONTENT[unit];
+      const useCrown = crownsLeft > 0;
+      if (useCrown) crownsLeft--;
+      addedEvents.push({
+        eid: `cloud-restore-${unit}-${diff}`,
+        ts: Date.now() - (cloudProgress.length - idx),
+        type: "quiz",
+        island,
+        unit,
+        unitId: unit,
+        unitName: (unitMeta && unitMeta.unit) || unit,
+        grade: parseGradeFromCls(profile),
+        term: 1,
+        difficulty: diff === "single" ? null : diff,
+        quizDifficulty: diff,
+        score: useCrown ? 100 : 80,
+        correct: useCrown ? 5 : 4,
+        total: 5,
+        sec: 0,
+        restoredFromCloud: true
+      });
+    });
+
+    if (addedEvents.length > 0) {
+      ls.set(key, [...(Array.isArray(localEvs) ? localEvs : []), ...addedEvents]);
+    }
+
+    // 還原雲端角色外觀與鎖定狀態
+    if (student.avatar && typeof student.avatar === "object") {
+      if (window.AvatarSystem && typeof window.AvatarSystem.restoreCloudAvatar === "function") {
+        window.AvatarSystem.restoreCloudAvatar(student.avatar, profile);
+      } else {
+        ls.set(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`, student.avatar);
+      }
+    } else if (window.AvatarSystem && typeof window.AvatarSystem.getState === "function") {
+      // 若雲端尚無角色外觀但本機已有，背景補送
+      const localAv = window.AvatarSystem.getState();
+      if (localAv && (localAv.presetLocked || (localAv.unlocked && localAv.unlocked.length > 0))) {
+        Store.saveAvatarToCloud(localAv, profile);
+      }
+    }
+
+    const gradeNum = parseGradeFromCls(profile);
+    const sKey = buildStudentKey(gradeNum, profile.cls, profile.seat);
+    markLeaderboardSynced(sKey, {
+      totalScore: Number(student.totalScore) || 0,
+      crownCount: Number(student.crownCount) || 0,
+      completedProgress: collectCompletedProgress(profile)
+    });
+  }
+
+  async function saveAvatarToCloud(avatarState, explicitProfile) {
+    const p = explicitProfile || Store.profile;
+    const url = getLeaderboardUrl();
+    if (!p || !url || !avatarState || typeof avatarState !== "object") return { ok: false, skipped: true };
+    try {
+      const grade = String(parseGradeFromCls(p));
+      const res = await postGasJson(url, {
+        action: "save_avatar",
+        grade,
+        className: String(p.cls),
+        seat: String(p.seat),
+        name: String(p.name),
+        avatar: avatarState
+      });
+      return { ok: !!(res && res.status === "ok"), data: res };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
   async function post(payload) {
     // text/plain 可避免瀏覽器 CORS 預檢,Apps Script 才收得到
     const r = await fetch(CFG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
@@ -330,25 +470,78 @@
     getLeaderboardUrl,
     profile: ls.get(PROFILE, null),
 
-    /** 登入:grade 7–9、room 班級、seat 座號、name 姓名。回傳 {ok} 或 {ok:false,msg} */
-    async login({ grade, room, seat, name }) {
-      const p = { cls: String(grade) + String(room).padStart(2, "0"), seat: Number(seat), name: String(name).trim() };
+    /** 登入（含 GAS 個人驗證碼首次設定與核對＋雲端外觀／進度還原） */
+    async login({ grade, room, seat, name, pinCode, isConfirmSetup }) {
+      const cls = String(grade) + String(room).padStart(2, "0");
+      const seatNum = Number(seat);
+      const cleanName = String(name || "").trim();
+      const cleanPin = String(pinCode || "").trim();
+      let p = { cls, seat: seatNum, name: cleanName };
+      let loginRes = null;
+
+      const lbUrl = getLeaderboardUrl();
+      if (lbUrl) {
+        try {
+          loginRes = await postGasJson(lbUrl, {
+            action: "student_login",
+            grade: String(grade),
+            className: cls,
+            seat: String(seatNum),
+            name: cleanName,
+            pinCode: cleanPin,
+            isConfirmSetup: !!isConfirmSetup
+          });
+        } catch (e) {
+          return { ok: false, status: "network_error", msg: "無法連線至雲端驗證伺服器：" + e.message };
+        }
+
+        if (!loginRes || typeof loginRes !== "object") {
+          return { ok: false, status: "error", msg: "伺服器未回應有效格式，請稍後再試" };
+        }
+        if (loginRes.status === "need_pin_setup") {
+          return {
+            ok: false,
+            status: "need_pin_setup",
+            maskedName: loginRes.maskedName || "",
+            hasRosterMatch: !!loginRes.hasRosterMatch
+          };
+        }
+        if (loginRes.status === "invalid_pin") {
+          return {
+            ok: false,
+            status: "invalid_pin",
+            msg: "❌ " + (loginRes.message || "驗證碼錯誤！請輸入您初次設定的驗證碼（若忘記請洽資訊老師重設）")
+          };
+        }
+        if (loginRes.status !== "ok") {
+          return { ok: false, status: loginRes.status || "error", msg: loginRes.message || "登入失敗" };
+        }
+        if (loginRes.student && loginRes.student.name) {
+          p = { cls, seat: seatNum, name: String(loginRes.student.name).trim() || cleanName };
+        }
+      }
+
       if (Store.online()) {
         try {
           const r = await post({ action: "login", ...p });
           if (!r.ok) return { ok: false, msg: r.error || "登入失敗" };
         } catch (e) { return { ok: false, msg: "無法連線到成績伺服器:" + e.message }; }
       }
+
       Store.profile = p; ls.set(PROFILE, p);
+      if (loginRes && loginRes.student) {
+        restoreCloudStudentData(p, loginRes.student);
+      }
       try {
         const savedForStudent = readActiveIslandRaw(activeIslandKey(p));
         if (savedForStudent) localStorage.setItem(ACTIVE_ISLAND, savedForStudent);
         else localStorage.removeItem(ACTIVE_ISLAND);
       } catch {}
       syncLeaderboardPool(p);
+      document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
       Store.flush();
       flushLeaderboardPending();
-      return { ok: true };
+      return { ok: true, isNewPin: !!(loginRes && loginRes.isNewPin), student: loginRes && loginRes.student };
     },
     logout() {
       Store.profile = null;
@@ -434,11 +627,13 @@
     /* ---- 年級成績池與遠端對接擴充 ---- */
     parseGradeFromCls,
     summarizeQuizEvents,
+    collectCompletedProgress,
     syncLeaderboardPool,
     buildStudentKey,
     buildLeaderboardPayload,
     uploadLeaderboardScore,
     flushLeaderboardPending,
+    saveAvatarToCloud,
     getPendingLeaderboardUploads(grade) {
       const pending = ls.get(LB_PENDING, {});
       const list = Object.values(pending || {}).filter(Boolean);

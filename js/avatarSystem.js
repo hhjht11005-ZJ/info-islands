@@ -1088,19 +1088,17 @@
    * ------------------------------------------------------------------ */
   const profile = () => (window.Store && window.Store.profile) || null;
   const stateKey = (p) => `ii:avatar:${p.cls}-${p.seat}-${p.name}`;
-  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [] });
+  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], presetLocked: false });
   let guestState = blankState();
+  let cloudSyncTimer = null;
 
-  function getState() {
-    const p = profile();
-    if (!p) return guestState;
-    let raw = null;
-    try { raw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { raw = null; }
+  function sanitizeState(raw) {
     const st = blankState();
     if (raw && typeof raw === "object") {
       st.look = normalizeLook(raw.look);
-      st.unlocked = Array.isArray(raw.unlocked) ? raw.unlocked.filter((id) => ITEM_MAP[id]) : [];
-      st.npcSolved = Array.isArray(raw.npcSolved) ? raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)) : [];
+      st.presetLocked = Boolean(raw.presetLocked);
+      st.unlocked = Array.isArray(raw.unlocked) ? Array.from(new Set(raw.unlocked.filter((id) => ITEM_MAP[id]))) : [];
+      st.npcSolved = Array.isArray(raw.npcSolved) ? Array.from(new Set(raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)))) : [];
       const eq = raw.equipped && typeof raw.equipped === "object" ? raw.equipped : {};
       Object.keys(eq).forEach((slot) => {
         const item = ITEM_MAP[eq[slot]];
@@ -1109,10 +1107,57 @@
     }
     return st;
   }
-  function saveState(st) {
+
+  function getState() {
+    const p = profile();
+    if (!p) return guestState;
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { raw = null; }
+    return sanitizeState(raw);
+  }
+  function saveState(st, opt = {}) {
     const p = profile();
     if (!p) { guestState = st; return; }
     try { localStorage.setItem(stateKey(p), JSON.stringify(st)); } catch (e) { console.warn(e); }
+    if (opt.syncCloud !== false && window.Store && typeof window.Store.saveAvatarToCloud === "function") {
+      if (opt.immediate) {
+        clearTimeout(cloudSyncTimer);
+        window.Store.saveAvatarToCloud(st, p);
+      } else {
+        clearTimeout(cloudSyncTimer);
+        cloudSyncTimer = setTimeout(() => {
+          window.Store.saveAvatarToCloud(getState(), p);
+        }, 450);
+      }
+    }
+  }
+  function restoreCloudAvatar(cloudAv, explicitProfile) {
+    const p = explicitProfile || profile();
+    if (!p || !cloudAv || typeof cloudAv !== "object") return getState();
+    let localRaw = null;
+    try { localRaw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { localRaw = null; }
+    const localSt = sanitizeState(localRaw);
+    const cloudSt = sanitizeState(cloudAv);
+    const mergedUnlocked = Array.from(new Set([...localSt.unlocked, ...cloudSt.unlocked]));
+    const mergedNpcSolved = Array.from(new Set([...localSt.npcSolved, ...cloudSt.npcSolved]));
+    const hasCloudLocked = cloudAv.presetLocked !== undefined;
+    const presetLocked = hasCloudLocked ? Boolean(cloudAv.presetLocked) : localSt.presetLocked;
+    const useCloudLook = Boolean(cloudAv.look && (cloudSt.presetLocked || !localRaw || !localRaw.look));
+    const look = useCloudLook ? cloudSt.look : localSt.look;
+    const eqSource = (Object.keys(cloudSt.equipped).length > 0 && (!localRaw || Object.keys(localSt.equipped).length === 0 || cloudSt.presetLocked))
+      ? cloudSt.equipped
+      : localSt.equipped;
+    const merged = sanitizeState({
+      v: 1,
+      look,
+      presetLocked,
+      unlocked: mergedUnlocked,
+      npcSolved: mergedNpcSolved,
+      equipped: eqSource
+    });
+    try { localStorage.setItem(stateKey(p), JSON.stringify(merged)); } catch (e) { console.warn(e); }
+    emit();
+    return merged;
   }
   const emit = () => document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
 
@@ -1203,6 +1248,9 @@
   function setLook(key, val) {
     const st = getState();
     if (key === "hair") {
+      if (st.presetLocked && val !== st.look.hair) {
+        return { ok: false, locked: true, msg: "🔒 你已選定專屬造型，無法更換其他角色；快去闖關解鎖帽子、衣服、武器與寵物來自由搭配吧！" };
+      }
       const next = normalizeLook({ ...st.look, hair: val });
       const styleObj = HAIR_STYLES.find((x) => x.id === next.hair) || HAIR_STYLES[0];
       st.look = { ...next, hairColor: styleObj.defaultColor };
@@ -1211,6 +1259,15 @@
     }
     saveState(st);
     emit();
+    return { ok: true, look: st.look };
+  }
+  function lockPreset() {
+    const st = getState();
+    if (!profile()) return { ok: false, msg: "請先登入探險護照！" };
+    st.presetLocked = true;
+    saveState(st, { immediate: true });
+    emit();
+    return { ok: true, state: st };
   }
 
   /* ------------------------------------------------------------------
@@ -1500,8 +1557,8 @@
 
   window.AvatarSystem = {
     ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, DEFAULT_LOOK, EYE_PRESETS,
-    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette,
-    getState, quizStats, wallet, title, unlock, toggleEquip, setLook, answerNpc,
+    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar,
+    getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc,
     toast, mountNpcQuiz, downloadCard, esc
   };
 })();
