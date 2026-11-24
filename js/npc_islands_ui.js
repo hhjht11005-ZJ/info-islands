@@ -488,7 +488,9 @@
     }
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     if (!AudioCtx) {
-      alert("目前的瀏覽器不支援 Web Audio API 合成音效。");
+      if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+        window.AvatarSystem.toast("目前的瀏覽器不支援 Web Audio API 合成音效。", "warn");
+      }
       return;
     }
     if (!chipCtx) chipCtx = new AudioCtx();
@@ -702,6 +704,7 @@
         </div>
       </div>
       <div class="npc-card-body" id="npcCardBody"></div>
+      <div class="npc-star-quiz-host" id="npcStarQuizHost"></div>
     </div>
   `;
   document.body.appendChild(modalWrap);
@@ -979,6 +982,9 @@
     modalWrap.querySelector("#npcHostGreeting").textContent = meta.greeting;
 
     renderer();
+    if (window.AvatarSystem && typeof window.AvatarSystem.mountNpcQuiz === "function") {
+      window.AvatarSystem.mountNpcQuiz(modalWrap.querySelector("#npcStarQuizHost"), islandId);
+    }
     modalWrap.classList.add("show");
   }
 

@@ -9,6 +9,7 @@ import "./data/units/island-algo.js";
 import "./data/units/island-data.js";
 import "./data/units/island-ai.js";
 import "./js/store.js";
+import "./js/avatarSystem.js";
 import "./js/audio_manager.js";
 import "./js/cloud_task.js";
 import "./app.js";
