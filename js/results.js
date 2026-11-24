@@ -115,7 +115,7 @@
   function renderHint(w) {
     const T = AV.TIERS;
     const hint = {
-      look: "💡 免費自由捏臉！髮型、髮色、表情隨時切換，左側角色即時更新。",
+      look: "💡 免費自由造型！點選招牌角色會自動套用推薦髮色、專屬瞳孔與頭臉配件，也可自由微調髮色與表情。",
       easy: `🎟️ 每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
       medium: `🎟️ 每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
       hard: `🎟️ 每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
@@ -137,11 +137,12 @@
     const look = st.look;
     const maleHairs = AV.HAIR_STYLES.filter((h) => h.group === "male");
     const femaleHairs = AV.HAIR_STYLES.filter((h) => h.group === "female");
+    const cardColor = (h) => (look.hair === h.id ? look.hairColor : (h.defaultColor || look.hairColor));
     return `<div class="av-look">
-      <h4>👦 男生造型 <small class="av-look-sub">皆可自由點選混搭</small></h4><div class="av-look-row">${maleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id }), look.hair === h.id)).join("")}</div>
-      <h4>👧 女生造型 <small class="av-look-sub">皆可自由點選混搭</small></h4><div class="av-look-row">${femaleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id }), look.hair === h.id)).join("")}</div>
-      <h4>🎨 髮色</h4><div class="av-look-row swatches">${AV.HAIR_COLORS.map((h) => `<button type="button" class="av-swatch${look.hairColor === h.id ? " on" : ""}" data-look="hairColor" data-val="${h.id}" aria-pressed="${look.hairColor === h.id}">
-        <i style="background:linear-gradient(135deg, ${h.shine}, ${h.c} 45%, ${h.s})"></i>${esc(h.name)}</button>`).join("")}</div>
+      <h4>👦 男生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${maleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
+      <h4>👧 女生造型 <small class="av-look-sub">點選套用招牌髮色、瞳孔與頭臉配件</small></h4><div class="av-look-row">${femaleHairs.map((h) => lookCard("hair", h.id, h.name, AV.renderLookThumb({ ...look, hair: h.id, hairColor: cardColor(h) }), look.hair === h.id)).join("")}</div>
+      <h4>🎨 髮色 <small class="av-look-sub">套用角色後仍可自由微調</small></h4><div class="av-look-row swatches">${AV.HAIR_COLORS.map((h) => `<button type="button" class="av-swatch${look.hairColor === h.id ? " on" : ""}" data-look="hairColor" data-val="${h.id}" aria-pressed="${look.hairColor === h.id}">
+        <i style="background:linear-gradient(135deg, ${h.shine}, ${h.c} 45%, ${h.bot || h.s})"></i>${esc(h.name)}</button>`).join("")}</div>
       <h4>😊 公仔表情 <small class="av-look-sub">5 款自由切換</small></h4><div class="av-look-row">${AV.FACES.map((f) => lookCard("face", f.id, f.name, AV.renderLookThumb({ ...look, face: f.id }), look.face === f.id)).join("")}</div>
     </div>`;
   }

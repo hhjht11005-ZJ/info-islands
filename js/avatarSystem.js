@@ -47,23 +47,27 @@
   const rg = (id, stops, cx = "45%", cy = "35%", r = "65%") => `<radialGradient id="${id}" cx="${cx}" cy="${cy}" r="${r}">${stops.map(([o, c, op]) => `<stop offset="${o}" stop-color="${c}"${op != null ? ` stop-opacity="${op}"` : ""}/>`).join("")}</radialGradient>`;
 
   /* ------------------------------------------------------------------
-   * 二、設計師盲盒公仔風（Designer Vinyl Toy）：8 款立體髮型 / 髮色 / 5 款表情
+   * 二、熱門動漫招牌特徵造型（8 款角色預設 / 髮色 / 5 款表情）
    * ------------------------------------------------------------------ */
   const HAIR_STYLES = [
-    { id: "male_fluffy", group: "male", name: "蓬鬆層次短髮" },
-    { id: "male_spiky", group: "male", name: "帥氣刺蝟酷髮" },
-    { id: "male_comma", group: "male", name: "韓系逗號瀏海" },
-    { id: "male_wavy", group: "male", name: "潮流側分微捲" },
-    { id: "female_bob", group: "female", name: "空氣感齊瀏海短髮" },
-    { id: "female_ponytail", group: "female", name: "活力元氣高馬尾" },
-    { id: "female_buns", group: "female", name: "甜美雙丸子頭" },
-    { id: "female_longwavy", group: "female", name: "優雅波浪長捲髮" }
+    { id: "male_gojo", group: "male", name: "白髮眼罩咒術師", defaultColor: "silver", baseHex: "#F1F5F9" },
+    { id: "male_jinwoo", group: "male", name: "暗影君王碎髮", defaultColor: "indigo", baseHex: "#1E1B4B" },
+    { id: "male_isagi", group: "male", name: "雙呆毛前鋒少年", defaultColor: "navy", baseHex: "#172554" },
+    { id: "male_okarun", group: "male", name: "詛咒白髮面具客", defaultColor: "silver", baseHex: "#F8FAFC" },
+    { id: "female_frieren", group: "female", name: "銀髮精靈魔法使", defaultColor: "silver", baseHex: "#E2E8F0" },
+    { id: "female_ai", group: "female", name: "星瞳偶像側馬尾", defaultColor: "violetpink", baseHex: "#9333EA" },
+    { id: "female_bocchi", group: "female", name: "粉髮方塊夾吉他手", defaultColor: "pink", baseHex: "#F472B6" },
+    { id: "female_momo", group: "female", name: "外翹短髮大耳環少女", defaultColor: "caramel", baseHex: "#A14D3A" }
   ];
   const HAIR_COLORS = [
-    { id: "black", name: "星空黑", top: "#484d78", c: "#2b2e4d", s: "#17182b", hl: "#ff4d8d", shine: "#98a0e6" },
-    { id: "brown", name: "焦糖棕", top: "#c78246", c: "#9c5c26", s: "#633611", hl: "#ffd166", shine: "#f5c48c" },
-    { id: "pink", name: "櫻花粉", top: "#ffc2dc", c: "#f492bc", s: "#c95f8d", hl: "#7dd3fc", shine: "#ffeaf3" },
-    { id: "blue", name: "電光藍", top: "#78c6ff", c: "#3498f0", s: "#1756b0", hl: "#ff79c6", shine: "#d6eeff" }
+    { id: "silver", name: "純銀雪白", top: "#FFFFFF", c: "#F1F5F9", s: "#B8C7D9", hl: "#38BDF8", shine: "#FFFFFF" },
+    { id: "indigo", name: "暗影藍黑", top: "#312E81", c: "#1E1B4B", s: "#0F0D2E", hl: "#A855F7", shine: "#818CF8" },
+    { id: "navy", name: "深海靛藍", top: "#1E40AF", c: "#172554", s: "#0B1333", hl: "#10B981", shine: "#60A5FA" },
+    { id: "violetpink", name: "夢幻紫紅", top: "#9333EA", c: "#C026D3", bot: "#EC4899", s: "#6B21A8", hl: "#FDE047", shine: "#F5D0FE" },
+    { id: "pink", name: "櫻花粉晶", top: "#FBCFE8", c: "#F472B6", s: "#BE185D", hl: "#38BDF8", shine: "#FFF1F7" },
+    { id: "caramel", name: "焦糖紅棕", top: "#C96A53", c: "#A14D3A", s: "#692B1E", hl: "#34D399", shine: "#F5C2B4" },
+    { id: "black", name: "星空黑", top: "#484D78", c: "#2B2E4D", s: "#17182B", hl: "#FF4D8D", shine: "#98A0E6" },
+    { id: "blue", name: "電光藍", top: "#78C6FF", c: "#3498F0", s: "#1756B0", hl: "#FF79C6", shine: "#D6EEFF" }
   ];
   const FACES = [
     { id: "calm", name: "呆萌平靜臉" },
@@ -73,25 +77,45 @@
     { id: "teary", name: "委屈淚汪汪" }
   ];
   const LEGACY_HAIR_MAP = {
-    short: "male_fluffy",
-    ponytail: "female_ponytail",
-    wavy: "male_wavy",
-    twintail: "female_buns"
+    male_fluffy: "male_jinwoo",
+    male_spiky: "male_gojo",
+    male_comma: "male_isagi",
+    male_wavy: "male_okarun",
+    female_bob: "female_momo",
+    female_ponytail: "female_ai",
+    female_buns: "female_frieren",
+    female_longwavy: "female_bocchi",
+    short: "male_isagi",
+    ponytail: "female_ai",
+    wavy: "male_okarun",
+    twintail: "female_frieren"
   };
   const LEGACY_FACE_MAP = {
     smile: "calm",
     cool: "calm",
     stars: "happy"
   };
-  const DEFAULT_LOOK = { hair: "male_fluffy", hairColor: "black", face: "calm" };
+  const DEFAULT_LOOK = { hair: "male_gojo", hairColor: "silver", face: "calm" };
+
+  function getHairPalette(hairId, hairColorId) {
+    const base = HAIR_COLORS.find((x) => x.id === hairColorId) || HAIR_COLORS[0];
+    if (hairColorId === "silver") {
+      if (hairId === "male_okarun") return { ...base, top: "#FFFFFF", c: "#F8FAFC", s: "#CBD5E1", hl: "#EF4444" };
+      if (hairId === "female_frieren") return { ...base, top: "#F8FAFC", c: "#E2E8F0", s: "#94A3B8", hl: "#EF4444" };
+    }
+    return base;
+  }
 
   function normalizeLook(rawLook) {
     const src = rawLook && typeof rawLook === "object" ? rawLook : {};
-    const rawHair = LEGACY_HAIR_MAP[src.hair] || src.hair;
+    const mappedLegacy = LEGACY_HAIR_MAP[src.hair];
+    const rawHair = mappedLegacy || src.hair;
+    const styleObj = HAIR_STYLES.find((x) => x.id === rawHair) || HAIR_STYLES[0];
+    const hair = styleObj.id;
     const rawFace = LEGACY_FACE_MAP[src.face] || src.face;
-    const hair = HAIR_STYLES.some((x) => x.id === rawHair) ? rawHair : DEFAULT_LOOK.hair;
-    const hairColor = HAIR_COLORS.some((x) => x.id === src.hairColor) ? src.hairColor : DEFAULT_LOOK.hairColor;
     const face = FACES.some((x) => x.id === rawFace) ? rawFace : DEFAULT_LOOK.face;
+    const hasValidColor = HAIR_COLORS.some((x) => x.id === src.hairColor);
+    const hairColor = (!mappedLegacy && hasValidColor) ? src.hairColor : styleObj.defaultColor;
     return { hair, hairColor, face };
   }
 
@@ -108,180 +132,285 @@
     : `<path d="M57 90 Q58 42 120 40 Q182 42 183 90 Q168 58 120 56 Q72 58 57 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>
        ${shinePath ? shine(h, shinePath) : ""}`;
 
-  // 8 款立體雕塑髮型（各自獨立之 back 後髮 / crown 頭頂造型 / sideburns 鬢角 / bangs 前額瀏海，彼此絕不共用齊瀏海）
+  // 8 款招牌動漫角色立體雕塑髮型 ＋ 專屬髮飾與暗影微粒
   const HAIR = {
-    // 男生款 1｜蓬鬆層次短髮：高低錯落鋸齒狀立體雲朵碎瀏海（中長側短）＋蓬鬆鬢角
-    male_fluffy: {
-      back: (h, c) => `<path d="M53 118 Q48 44 120 38 Q192 44 187 118 Q182 135 168 139 L72 139 Q58 135 53 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+    // 1｜白髮眼罩咒術師（五條悟特徵）：純銀白髮、向上放射狀多層次銳利沖天刺蝟髮束
+    male_gojo: {
+      back: (h, c) => `<path d="M54 114 L42 82 L56 68 L48 40 L76 46 L88 14 L112 36 L128 10 L144 36 L172 16 L168 46 L195 42 L182 70 L196 84 L184 114 Q176 134 164 138 L76 138 Q64 134 54 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
         ? openTopCap(h, c, headId)
-        : `<path d="M55 92 Q50 56 76 42 Q98 30 124 36 Q152 29 172 44 Q190 58 185 92 Q168 62 120 60 Q72 62 55 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M82 49 Q112 37 146 45")}`,
-      sideburns: (h, c) => `<path d="M56 86 Q47 108 56 128 Q64 134 69 123 Q72 108 66 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M184 86 Q193 108 184 128 Q176 134 171 123 Q168 108 174 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M58 88 Q68 54 120 53 Q172 54 182 88 L171 72 L162 86 L151 69 L139 94 L128 73 L118 101 L107 72 L95 93 L84 71 L73 85 L66 74 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M96 63 Q96 76 95 86 M119 60 Q119 78 118 92 M141 64 Q140 76 139 87" fill="none" stroke="${h.s}" stroke-width="1.6" stroke-linecap="round" opacity=".5"/>`
-    },
-
-    // 男生款 2｜帥氣刺蝟酷髮：完全露出額頭（無任何向下垂落瀏海），髮束全數向上抓出尖刺
-    male_spiky: {
-      back: (h, c) => `<path d="M56 114 L46 84 L58 74 Q64 42 120 38 Q176 42 182 74 L194 84 L184 114 Q176 134 164 138 L76 138 Q64 134 56 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
-      crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? openTopCap(h, c, headId)
-        : `<path d="M56 90 L46 68 L64 66 L56 39 L84 48 L94 18 L114 40 L130 14 L144 41 L172 22 L166 52 L194 46 L178 72 L190 82 L183 92 Q166 64 120 61 Q74 64 56 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          <path d="M98 32 L109 49 M130 26 L135 47 M161 34 L154 53" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".65"/>`,
-      sideburns: (h, c) => `<path d="M56 84 L49 110 L62 128 L68 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M184 84 L191 110 L178 128 L172 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+        : `<path d="M55 90 L42 64 L62 62 L52 34 L80 42 L91 11 L112 35 L127 9 L142 35 L170 15 L167 45 L196 39 L179 68 L193 79 L184 92 Q166 62 120 59 Q74 62 55 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          <path d="M94 26 L106 46 M127 22 L132 45 M160 28 L153 49 M66 44 L78 55" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".75"/>
+          <path d="M108 38 L114 54 M138 38 L136 53" fill="none" stroke="${h.s}" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>`,
+      sideburns: (h, c) => `<path d="M56 84 L48 110 L61 128 L68 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M184 84 L192 110 L179 128 L172 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
       bangs: (h, c, headId) => COVER_HATS.has(headId)
-        ? `<path d="M64 82 Q78 58 120 56 Q162 58 176 82 Q156 64 120 62 Q84 64 64 82 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.9" stroke-linejoin="round"/>`
-        : `<path d="M62 84 Q76 58 120 55 Q164 58 178 84 Q158 63 144 64 L148 48 L134 61 L122 44 L112 61 L96 47 L100 63 Q80 65 62 84 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`
+        ? `<path d="M63 83 Q78 58 120 56 Q162 58 177 83 Q156 64 120 62 Q84 64 63 83 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.9" stroke-linejoin="round"/>`
+        : `<path d="M60 85 Q74 58 120 55 Q166 58 180 85 Q158 64 146 66 L151 48 L136 62 L123 42 L113 61 L96 45 L99 63 Q80 65 60 85 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`
     },
 
-    // 男生款 3｜韓系逗號瀏海：3:7 側分露出右額，左側大「C 字逗號弧形」掛於額側
-    male_comma: {
-      back: (h, c) => `<path d="M57 118 Q52 44 120 40 Q188 44 183 118 Q178 134 166 138 L74 138 Q62 134 57 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
+    // 2｜暗影君王碎髮（成振宇特徵）：深藍黑髮、不規則尖角狼尾碎瀏海（微遮左眼）＋後頸微翹＋暗影微粒
+    male_jinwoo: {
+      back: (h, c) => `<path d="M54 118 Q48 44 120 38 Q192 44 186 118 Q183 132 174 138 L202 146 Q184 150 166 141 L74 141 Q56 150 38 146 L66 138 Q57 132 54 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
       crown: (h, c, headId) => COVER_HATS.has(headId)
         ? openTopCap(h, c, headId)
-        : `<path d="M57 92 Q54 44 122 40 Q138 40 144 51 Q152 40 165 44 Q186 52 183 92 Q168 62 146 61 Q110 58 57 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M78 53 Q106 43 132 49")}`,
-      sideburns: (h, c) => `<path d="M58 84 Q54 110 64 128 L70 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M182 84 Q186 110 176 128 L170 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `
-        <path d="M58 92 Q60 54 136 53 Q144 54 146 62 Q122 62 117 88 Q114 103 95 101 Q104 88 98 76 Q82 76 68 98 Q60 98 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M148 56 Q172 58 182 90 Q173 84 166 73 Q156 66 146 62 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M84 65 Q107 63 108 89" fill="none" stroke="${h.shine}" stroke-width="2.5" stroke-linecap="round" opacity=".55"/>`
+        : `<path d="M55 92 Q52 44 120 38 Q188 44 185 92 Q168 60 120 58 Q72 60 55 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          ${shine(h, "M82 50 Q114 39 148 47")}`,
+      sideburns: (h, c) => `<path d="M56 84 L46 116 L59 138 L68 112 L67 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M184 84 L194 116 L181 138 L172 112 L173 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M58 90 Q66 53 120 52 Q174 53 182 90 L170 76 L163 97 L151 74 L141 103 L130 75 L119 98 L111 76 L101 117 L93 79 L80 99 L73 77 L64 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M98 63 Q102 88 101 112 M139 63 Q141 80 141 96" fill="none" stroke="${h.shine}" stroke-width="1.6" stroke-linecap="round" opacity=".55"/>`,
+      aura: (h, c) => `<g opacity=".82">
+        <path d="M56 172 Q42 156 54 138 Q56 154 66 164 Z" fill="#1e1b4b" stroke="#a855f7" stroke-width="1.3" filter="${c.sglow}"/>
+        <path d="M184 168 Q199 151 187 134 Q183 149 175 160 Z" fill="#1e1b4b" stroke="#a855f7" stroke-width="1.3" filter="${c.sglow}"/>
+        <path d="M46 148 L50 140 L54 148 L50 156 Z" fill="#a855f7" opacity=".88" filter="${c.sglow}"/>
+        <path d="M190 144 L194 137 L198 144 L194 151 Z" fill="#c084fc" opacity=".9" filter="${c.sglow}"/>
+        <circle cx="64" cy="144" r="2.2" fill="#d8b4fe" opacity=".85"/>
+      </g>`
     },
 
-    // 男生款 4｜潮流側分微捲：左側大斜分露左額，S 型波浪瀏海大角度斜掃過右眉角
-    male_wavy: {
-      back: (h, c) => `<path d="M55 120 Q49 46 120 40 Q191 46 185 120 Q181 138 166 142 L74 142 Q59 138 55 120Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
-      crown: (h, c, headId) => COVER_HATS.has(headId)
-        ? openTopCap(h, c, headId)
-        : `<path d="M55 92 Q53 46 80 43 Q90 36 124 38 Q186 42 185 92 Q164 62 96 58 Q70 62 55 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-          ${shine(h, "M98 48 Q128 41 156 50")}`,
-      sideburns: (h, c) => `<path d="M57 84 Q51 110 60 130 Q68 122 68 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M183 84 Q190 112 179 134 Q171 124 172 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `
-        <path d="M86 54 Q140 50 176 74 Q183 92 170 105 Q154 108 144 96 Q128 82 104 75 Q90 70 84 62 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M58 92 Q63 62 86 54 Q82 68 72 80 Q63 88 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M108 63 Q138 69 160 91" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".55"/>`
-    },
-
-    // 女生款 1｜空氣感齊瀏海短髮（唯一保留水平齊瀏海）：帶透氣縫隙的水平內彎齊瀏海＋圓潤包柏頭
-    female_bob: {
-      back: (h, c) => `<path d="M52 118 Q46 44 120 39 Q194 44 188 118 Q191 154 166 158 Q154 158 148 148 L92 148 Q86 158 74 158 Q49 154 52 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
-      crown: (h, c, headId) => openTopCap(h, c, headId, "M80 51 Q120 40 160 51"),
-      sideburns: (h, c) => `<path d="M53 86 Q45 124 58 149 Q69 154 74 143 Q66 126 67 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M187 86 Q195 124 182 149 Q171 154 166 143 Q174 126 173 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `<path d="M60 88 Q66 53 120 53 Q174 53 180 88 Q166 92 154 90 Q149 71 144 90 Q132 92 126 90 Q121 70 116 90 Q106 92 96 90 Q91 71 86 90 Q74 92 60 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M78 70 L76 85 M106 67 L106 85 M134 67 L134 85 M162 70 L164 85" fill="none" stroke="${h.s}" stroke-width="1.4" stroke-linecap="round" opacity=".45"/>`
-    },
-
-    // 女生款 2｜活力元氣高馬尾：中分八字瀏海（正中露出倒 V 額頭肌膚）＋高馬尾
-    female_ponytail: {
-      back: (h, c) => `<path d="M148 54 Q198 32 214 80 Q222 128 196 176 Q191 148 188 128 Q182 96 156 72 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-        <path d="M174 60 Q204 98 196 156" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round" opacity=".58"/>
-        <path d="M176 56 Q198 84 198 118" fill="none" stroke="${h.shine}" stroke-width="2.4" stroke-linecap="round" opacity=".55"/>
-        <path d="M57 116 Q52 44 120 40 Q188 44 183 116 Q178 134 166 138 L74 138 Q62 134 57 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
+    // 3｜雙呆毛前鋒少年（潔世一特徵）：深海靛藍黑髮、運動短碎髮＋頭頂超大 V 字形雙呆毛
+    male_isagi: {
+      back: (h, c) => `<path d="M56 116 Q52 44 120 40 Q188 44 184 116 Q178 134 166 138 L74 138 Q62 134 56 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
       crown: (h, c, headId) => {
-        const tie = COVER_HATS.has(headId) ? "" : `<circle cx="155" cy="52" r="7.5" fill="${h.hl}" stroke="${OL}" stroke-width="2"/><circle cx="153" cy="49.5" r="2.2" fill="#fff" opacity=".85"/>`;
-        return `${openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q110 41 138 47")}${tie}`;
+        const ahoge = `<g>
+          <path d="M119 46 Q102 22 80 9 Q103 18 117 41 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M121 46 Q138 22 160 9 Q137 18 123 41 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M90 15 Q104 23 114 38 M150 15 Q136 23 126 38" fill="none" stroke="${h.shine}" stroke-width="1.6" stroke-linecap="round" opacity=".7"/>
+        </g>`;
+        if (COVER_HATS.has(headId)) {
+          return `${ahoge}${openTopCap(h, c, headId)}`;
+        }
+        return `${ahoge}<path d="M57 90 Q57 42 120 40 Q183 42 183 90 Q168 58 120 56 Q72 58 57 90 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2"/>
+          ${shine(h, "M82 51 Q110 41 142 47")}`;
       },
-      sideburns: (h, c) => `<path d="M57 86 Q50 112 62 138 Q70 132 68 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M183 86 Q190 112 178 138 Q170 132 172 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `
-        <path d="M58 96 Q62 56 118 52 Q110 74 91 96 Q75 113 60 120 Q55 108 58 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M182 96 Q178 56 122 52 Q130 74 149 96 Q165 113 180 120 Q185 108 182 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M106 64 Q90 84 72 102 M134 64 Q150 84 168 102" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
+      sideburns: (h, c) => `<path d="M57 84 Q51 108 61 126 L69 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M183 84 Q189 108 179 126 L171 98 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M59 88 Q68 54 120 53 Q172 54 181 88 L170 74 L161 89 L149 70 L138 92 L127 71 L118 95 L108 71 L96 92 L85 70 L74 87 L67 74 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M94 64 L96 84 M120 61 L119 86 M145 64 L141 84" fill="none" stroke="${h.shine}" stroke-width="1.7" stroke-linecap="round" opacity=".5"/>`
     },
 
-    // 女生款 3｜甜美雙丸子頭：無瀏海完全露額頭（僅髮際線兩撮俏皮小胎毛）＋臉側細長鬢角＋雙丸子
-    female_buns: {
-      back: (h, c) => `<path d="M57 116 Q52 44 120 40 Q188 44 183 116 Q178 134 166 138 L74 138 Q62 134 57 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>`,
+    // 4｜詛咒白髮面具客（厄卡倫變身特徵）：純白雪霧髮、大體積炸開閃電波浪捲髮束
+    male_okarun: {
+      back: (h, c) => `<path d="M44 114 Q30 88 46 66 Q36 42 66 36 Q82 14 110 26 Q134 10 156 28 Q186 18 196 46 Q214 68 194 92 Q204 118 182 134 Q168 142 154 136 L86 136 Q72 142 58 134 Q42 126 44 114 Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+      crown: (h, c, headId) => COVER_HATS.has(headId)
+        ? openTopCap(h, c, headId)
+        : `<path d="M46 92 Q32 62 56 44 Q64 20 96 28 Q118 8 144 26 Q178 16 188 46 Q210 66 192 92 Q178 72 162 66 Q142 58 120 58 Q98 58 78 66 Q60 72 46 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+          <path d="M64 46 Q86 30 108 38 M124 26 Q150 22 172 40 M178 52 Q196 64 186 80" fill="none" stroke="${h.s}" stroke-width="1.8" stroke-linecap="round" opacity=".55"/>
+          ${shine(h, "M84 44 Q118 32 154 42")}`,
+      sideburns: (h, c) => `<path d="M52 82 Q36 96 44 114 Q52 126 63 122 Q68 106 64 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M188 82 Q204 96 196 114 Q188 126 177 122 Q172 106 176 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M54 90 Q62 52 120 51 Q178 52 186 90 Q173 74 162 84 Q152 62 138 82 Q126 62 115 86 Q104 60 92 84 Q80 64 68 83 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`
+    },
+
+    // 5｜銀髮精靈魔法使（芙莉蓮特徵）：珍珠銀白髮、中分八字瀏海＋蓬鬆低雙馬尾（精靈尖耳與紅寶石耳環在 headBase）
+    female_frieren: {
+      back: (h, c) => `<g>
+        <path d="M64 112 Q42 126 36 168 Q32 204 52 216 Q66 212 68 184 Q72 152 72 120 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M176 112 Q198 126 204 168 Q208 204 188 216 Q174 212 172 184 Q168 152 168 120 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+        <path d="M50 144 Q44 176 52 202 M190 144 Q196 176 188 202" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
+        <circle cx="63" cy="116" r="5" fill="#475569" stroke="${OL}" stroke-width="1.6"/>
+        <circle cx="177" cy="116" r="5" fill="#475569" stroke="${OL}" stroke-width="1.6"/>
+        <path d="M56 116 Q52 44 120 40 Q188 44 184 116 Q178 134 166 138 L74 138 Q62 134 56 116Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3"/>
+      </g>`,
+      crown: (h, c, headId) => openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q120 41 160 51"),
+      sideburns: (h, c) => `<path d="M57 86 Q50 116 61 144 Q69 138 69 112 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M183 86 Q190 116 179 144 Q171 138 171 112 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M58 95 Q62 54 119 52 Q112 74 93 92 Q78 104 61 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M182 95 Q178 54 121 52 Q128 74 147 92 Q162 104 179 106 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M106 63 Q92 80 74 94 M134 63 Q148 80 166 94" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".65"/>`
+    },
+
+    // 6｜星瞳偶像側馬尾（星野愛特徵）：紫紅漸層髮、空氣斜瀏海＋右側高束大側馬尾＋粉白兔子造型髮飾
+    female_ai: {
+      back: (h, c) => `<g>
+        <path d="M150 52 Q204 26 218 82 Q226 134 198 184 Q192 150 189 124 Q182 88 156 68 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+        <path d="M178 56 Q208 98 198 164" fill="none" stroke="${h.s}" stroke-width="2.4" stroke-linecap="round" opacity=".5"/>
+        <path d="M180 52 Q202 82 200 120" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".55"/>
+        <path d="M53 118 Q47 44 120 39 Q193 44 187 118 Q194 174 178 224 L62 224 Q46 174 53 118Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+      </g>`,
       crown: (h, c, headId) => {
         const covered = COVER_HATS.has(headId);
-        const buns = covered ? "" : `
-          <g>
-            <circle cx="72" cy="40" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-            <path d="M62 33 Q72 25 82 34" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
-            <path d="M63 44 Q72 39 81 44" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-            <rect x="64" y="50" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(-24 72 53)"/>
-            <circle cx="168" cy="40" r="20" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.3"/>
-            <path d="M158 33 Q168 25 178 34" fill="none" stroke="${h.shine}" stroke-width="3" stroke-linecap="round" opacity=".65"/>
-            <path d="M159 44 Q168 39 177 44" fill="none" stroke="${h.s}" stroke-width="2" stroke-linecap="round" opacity=".55"/>
-            <rect x="160" y="50" width="16" height="6" rx="3" fill="${h.hl}" stroke="${OL}" stroke-width="1.6" transform="rotate(24 168 53)"/>
-          </g>`;
-        return `${buns}${openTopCap(h, c, headId, covered ? "" : "M92 50 Q120 43 148 50")}`;
+        const by = covered ? 58 : 48;
+        const bx = covered ? 164 : 158;
+        const bunnyClip = `<g transform="translate(${bx} ${by}) rotate(18)">
+          <ellipse cx="-6" cy="-14" rx="4.5" ry="11" fill="#ffffff" stroke="${OL}" stroke-width="1.8" transform="rotate(-12 -6 -14)"/>
+          <ellipse cx="-6" cy="-14" rx="2.1" ry="7" fill="#f472b6" transform="rotate(-12 -6 -14)"/>
+          <ellipse cx="6" cy="-14" rx="4.5" ry="11" fill="#ffffff" stroke="${OL}" stroke-width="1.8" transform="rotate(12 6 -14)"/>
+          <ellipse cx="6" cy="-14" rx="2.1" ry="7" fill="#f472b6" transform="rotate(12 6 -14)"/>
+          <ellipse cx="0" cy="-1" rx="10" ry="7.5" fill="#ffffff" stroke="${OL}" stroke-width="1.9"/>
+          <path d="M-8 6 L-1 2 L-8 -2 Z" fill="#ec4899" stroke="${OL}" stroke-width="1.3" stroke-linejoin="round"/>
+          <path d="M8 6 L1 2 L8 -2 Z" fill="#ec4899" stroke="${OL}" stroke-width="1.3" stroke-linejoin="round"/>
+          <circle cx="0" cy="2" r="2.6" fill="#f472b6" stroke="${OL}" stroke-width="1.2"/>
+        </g>`;
+        return `${openTopCap(h, c, headId, covered ? "" : "M80 51 Q110 41 138 47")}${bunnyClip}`;
       },
-      sideburns: (h, c) => `<path d="M57 84 Q51 118 60 146 Q67 150 69 134 Q66 112 68 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-        <path d="M183 84 Q189 118 180 146 Q173 150 171 134 Q174 112 172 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `
-        <path d="M84 62 Q90 71 96 67 Q93 61 91 58 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.6" stroke-linejoin="round"/>
-        <path d="M156 62 Q150 71 144 67 Q147 61 149 58 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="1.6" stroke-linejoin="round"/>`
+      sideburns: (h, c) => `<path d="M56 86 Q48 122 60 156 Q68 152 68 118 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
+        <path d="M184 86 Q192 122 180 156 Q172 152 172 118 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M58 92 Q66 53 122 52 Q174 54 182 90 Q168 88 156 83 Q150 67 142 84 Q128 87 115 86 Q109 68 102 86 Q86 88 73 84 Q64 90 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M88 64 Q85 76 83 84 M124 62 Q122 76 120 84 M154 64 Q156 75 158 82" fill="none" stroke="${h.shine}" stroke-width="1.8" stroke-linecap="round" opacity=".55"/>`
     },
 
-    // 女生款 4｜優雅波浪長捲髮：中分無短瀏海，長髮從頭頂分線直接向兩側垂落至身後大波浪
-    female_longwavy: {
-      back: (h, c) => `<path d="M52 114 Q44 42 120 38 Q196 42 188 114 Q202 146 192 178 Q206 212 186 244 Q172 252 162 240 L78 240 Q68 252 54 244 Q34 212 48 178 Q38 146 52 114Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
-        <path d="M55 156 Q44 186 58 214 Q48 228 62 242" fill="none" stroke="${h.c}" stroke-width="4" stroke-linecap="round" opacity=".55"/>
-        <path d="M185 156 Q196 186 182 214 Q192 228 178 242" fill="none" stroke="${h.c}" stroke-width="4" stroke-linecap="round" opacity=".55"/>`,
-      crown: (h, c, headId) => openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q118 41 158 51"),
-      sideburns: (h, c) => `<path d="M54 84 Q44 126 56 164 Q64 176 72 164 Q65 138 70 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
-        <path d="M186 84 Q196 126 184 164 Q176 176 168 164 Q175 138 170 100 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
-      bangs: (h, c) => `
-        <path d="M56 96 Q58 54 118 51 Q100 66 82 88 Q68 106 62 126 Q53 114 56 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M184 96 Q182 54 122 51 Q140 66 158 88 Q172 106 178 126 Q187 114 184 96 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
-        <path d="M98 64 Q80 82 68 108 M142 64 Q160 82 172 108" fill="none" stroke="${h.shine}" stroke-width="2.2" stroke-linecap="round" opacity=".5"/>`
+    // 7｜粉髮方塊夾吉他手（小孤獨特徵）：櫻花粉晶髮、及腰超長直髮＋右側天藍與亮黃雙立體方塊髮夾
+    female_bocchi: {
+      back: (h, c) => `<path d="M52 114 Q47 42 120 38 Q193 42 188 114 L194 246 Q180 256 164 248 L76 248 Q60 256 46 246 Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>
+        <path d="M62 152 L58 238 M178 152 L182 238" fill="none" stroke="${h.shine}" stroke-width="2.6" stroke-linecap="round" opacity=".45"/>`,
+      crown: (h, c, headId) => openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M80 51 Q120 40 160 51"),
+      sideburns: (h, c) => {
+        const clips = `<g transform="translate(172 86) rotate(-14)">
+          <rect x="-13" y="-6" width="11.5" height="11.5" rx="2.4" fill="#38bdf8" stroke="${OL}" stroke-width="2"/>
+          <rect x="-10.8" y="-3.8" width="4.5" height="3.2" rx="1" fill="#bae6fd" opacity=".85"/>
+          <rect x="0.5" y="-6" width="11.5" height="11.5" rx="2.4" fill="#facc15" stroke="${OL}" stroke-width="2"/>
+          <rect x="2.7" y="-3.8" width="4.5" height="3.2" rx="1" fill="#fef9c3" opacity=".85"/>
+        </g>`;
+        return `<path d="M55 84 Q47 128 57 166 Q65 174 71 160 Q65 130 68 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+          <path d="M185 84 Q193 128 183 166 Q175 174 169 160 Q175 130 172 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>${clips}`;
+      },
+      bangs: (h, c) => `<path d="M60 88 Q66 53 120 53 Q174 53 180 88 Q165 92 152 89 Q146 72 140 89 Q126 92 114 89 Q106 72 99 89 Q84 92 60 88 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M84 68 L82 84 M118 65 L118 85 M154 68 L156 84" fill="none" stroke="${h.s}" stroke-width="1.4" stroke-linecap="round" opacity=".45"/>`
+    },
+
+    // 8｜外翹短髮大耳環少女（綾瀨桃特徵）：焦糖紅棕髮、齊肩層次短髮＋兩側髮尾向外上方「外翹翻飛」
+    female_momo: {
+      back: (h, c) => `<path d="M52 114 Q48 44 120 39 Q192 44 188 114 Q196 130 212 122 Q204 146 174 145 L66 145 Q36 146 28 122 Q44 130 52 114 Z" fill="${hairBackFill(c)}" stroke="${OL}" stroke-width="2.3" stroke-linejoin="round"/>`,
+      crown: (h, c, headId) => openTopCap(h, c, headId, COVER_HATS.has(headId) ? "" : "M82 51 Q120 40 158 51"),
+      sideburns: (h, c) => `<path d="M56 86 Q50 116 40 132 Q31 136 27 124 Q38 144 64 142 Q71 124 68 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M184 86 Q190 116 200 132 Q209 136 213 124 Q202 144 176 142 Q169 124 172 94 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>`,
+      bangs: (h, c) => `<path d="M58 92 Q66 53 126 52 Q174 54 182 90 Q168 85 156 76 Q146 92 132 82 Q122 93 108 82 Q93 90 78 78 Q68 87 58 92 Z" fill="${hairFill(c)}" stroke="${OL}" stroke-width="2.1" stroke-linejoin="round"/>
+        <path d="M98 63 Q112 72 126 78 M138 62 Q150 70 162 78" fill="none" stroke="${h.shine}" stroke-width="2" stroke-linecap="round" opacity=".5"/>`
     }
   };
 
-  // 盲盒公仔立體大眼（寬眼距、瞳孔漸層＋雙白高光）
+  // 各造型專屬瞳孔色彩與特效樣式
+  const EYE_PRESETS = {
+    male_gojo: { top: "#7dd3fc", mid: "#38bdf8", bot: "#0284c7", ring: "#bae6fd", scleraGlow: true },
+    male_jinwoo: { top: "#e9d5ff", mid: "#a855f7", bot: "#581c87", ring: "#d8b4fe", sharp: true, energyTrail: true },
+    male_isagi: { top: "#6ee7b7", mid: "#10b981", bot: "#065f46", ring: "#a7f3d0", crossStar: true },
+    male_okarun: { top: "#fca5a5", mid: "#dc2626", bot: "#450a0a", ring: "#f87171", curseMarks: true },
+    female_frieren: { top: "#a7f3d0", mid: "#34d399", bot: "#047857", ring: "#6ee7b7", halfLid: true },
+    female_ai: { top: "#7c3aed", mid: "#c026d3", bot: "#f472b6", ring: "#f5d0fe", starPupil: true },
+    female_bocchi: { top: "#bfdbfe", mid: "#60a5fa", bot: "#1d4ed8", ring: "#93c5fd", shyBlush: true },
+    female_momo: { top: "#fbbf24", mid: "#b45309", bot: "#451a03", ring: "#fcd34d", bigEyes: true }
+  };
+
+  // 盲盒公仔立體大眼（寬眼距＋各角色專屬瞳孔、星芒、六眼、半垂眼瞼）
   function vinylEye(x, c, opts = {}) {
-    const ry = opts.ry || 10.5;
-    const rx = opts.rx || 8.5;
+    const ep = EYE_PRESETS[opts.hairId] || EYE_PRESETS.male_gojo;
+    const ry = opts.ry || (ep.bigEyes ? 11.2 : ep.sharp ? 9.4 : 10.5);
+    const rx = opts.rx || (ep.bigEyes ? 9.0 : 8.5);
     const cy = opts.cy || 112;
-    const lid = opts.flatTop
-      ? `<path d="M${x - rx - 1} ${cy - 3} L${x + rx + 1} ${cy - 3}" stroke="#20162b" stroke-width="3.2" stroke-linecap="round"/>`
-      : `<path d="M${x - rx - 0.5} ${cy - 3.5} Q${x} ${cy - ry - 2.5} ${x + rx + 0.5} ${cy - 3.5}" fill="none" stroke="#20162b" stroke-width="2.6" stroke-linecap="round"/>`;
-    return `<ellipse cx="${x}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#${c.u}-iris)" stroke="#20162b" stroke-width="1.4"/>
-      <ellipse cx="${x}" cy="${cy + ry * 0.42}" rx="${rx * 0.65}" ry="${ry * 0.34}" fill="#9381d8" opacity=".42"/>
-      ${lid}
-      <circle cx="${x - 2.6}" cy="${cy - 3.8}" r="3.1" fill="#ffffff"/>
-      <circle cx="${x + 2.8}" cy="${cy + 3.4}" r="1.4" fill="#ffffff" opacity=".95"/>`;
+    let out = "";
+    if (ep.scleraGlow) {
+      out += `<ellipse cx="${x}" cy="${cy}" rx="${rx + 2.4}" ry="${ry + 1.6}" fill="#e0f2fe" stroke="#38bdf8" stroke-width="1.2" opacity=".95" filter="${c.sglow}"/>`;
+    }
+    out += `<ellipse cx="${x}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#${c.u}-iris)" stroke="#20162b" stroke-width="1.4"${ep.scleraGlow || ep.energyTrail ? ` filter="${c.sglow}"` : ""}/>`;
+    out += `<ellipse cx="${x}" cy="${cy + ry * 0.36}" rx="${rx * 0.66}" ry="${ry * 0.34}" fill="${ep.ring}" opacity=".48"/>`;
+    if (ep.scleraGlow) {
+      out += `<circle cx="${x}" cy="${cy}" r="${(rx * 0.56).toFixed(1)}" fill="none" stroke="#e0f2fe" stroke-width="1.6" opacity=".92"/>`;
+      out += `<circle cx="${x}" cy="${cy}" r="${(rx * 0.3).toFixed(1)}" fill="#0c4a6e"/>`;
+    }
+    if (ep.crossStar) {
+      out += `<path d="${starPath(x, cy + 0.5, 6.4, 1.5, 4)}" fill="#ecfdf5" opacity=".95"/>`;
+      out += `<circle cx="${x}" cy="${cy + 0.5}" r="2.1" fill="#ffffff"/>`;
+    }
+    if (ep.starPupil) {
+      out += `<path d="${starPath(x, cy + 0.5, 7.2, 3.0, 6)}" fill="#fde68a" stroke="#f472b6" stroke-width="0.9"/>`;
+      out += `<path d="${starPath(x, cy + 0.5, 5.2, 2.0, 6)}" fill="#ffffff"/>`;
+    }
+    if (ep.halfLid) {
+      out += `<path d="M${x - rx - 1.2} ${cy - ry - 1} H${x + rx + 1.2} V${cy - 2.6} Q${x} ${cy - 1.2} ${x - rx - 1.2} ${cy - 2.6} Z" fill="url(#${c.u}-skin)"/>`;
+    }
+    const lid = ep.halfLid
+      ? `<path d="M${x - rx - 1} ${cy - 2.6} Q${x} ${cy - 1.2} ${x + rx + 1} ${cy - 2.6}" fill="none" stroke="#20162b" stroke-width="2.7" stroke-linecap="round"/>`
+      : (opts.flatTop || ep.sharp)
+        ? `<path d="M${x - rx - 1.2} ${cy - 3.2} L${x + rx + 1.2} ${cy - 3.2}" stroke="#20162b" stroke-width="3.2" stroke-linecap="round"/>`
+        : `<path d="M${x - rx - 0.5} ${cy - 3.5} Q${x} ${cy - ry - 2.5} ${x + rx + 0.5} ${cy - 3.5}" fill="none" stroke="#20162b" stroke-width="2.6" stroke-linecap="round"/>`;
+    out += lid;
+    out += `<circle cx="${x - 2.6}" cy="${cy - 3.4}" r="2.9" fill="#ffffff"/>`;
+    out += `<circle cx="${x + 2.8}" cy="${cy + 3.4}" r="1.4" fill="#ffffff" opacity=".95"/>`;
+    return out;
   }
 
-  // 5 款盲盒公仔表情
+  // 角色臉部招牌配件（五條眼罩開右眼縫 / 厄卡倫眼下紅紋＋圓框眼鏡＋獠牙口罩 / 成振宇眼角流光）
+  function characterFaceOverlay(hairId, c, faceId, exprId) {
+    let s = "";
+    if (hairId === "male_jinwoo") {
+      s += `<path d="M84 109 Q73 107 65 101 Q74 109 83 113 Z" fill="#c084fc" opacity=".88" filter="${c.sglow}"/>`;
+      s += `<path d="M156 109 Q167 107 175 101 Q166 109 157 113 Z" fill="#c084fc" opacity=".88" filter="${c.sglow}"/>`;
+    }
+    if (hairId === "male_okarun") {
+      // 鮮紅垂直咒紋（保留於臉頰眼下）
+      s += `<path d="M92.5 123 L97.5 123 L96 138 L94 138 Z" fill="#ef4444" stroke="#991b1b" stroke-width=".8"/>`;
+      s += `<path d="M142.5 123 L147.5 123 L146 138 L144 138 Z" fill="#ef4444" stroke="#991b1b" stroke-width=".8"/>`;
+      // 若尚未戴上獎勵眼鏡，顯示圓框眼鏡＋黑底白齒鋸齒狀獠牙口罩
+      if (!faceId) {
+        s += `<g>
+          <circle cx="95" cy="112" r="14.5" fill="#ffffff" fill-opacity=".14" stroke="#334155" stroke-width="2.4"/>
+          <circle cx="145" cy="112" r="14.5" fill="#ffffff" fill-opacity=".14" stroke="#334155" stroke-width="2.4"/>
+          <path d="M109.5 110 Q120 107 130.5 110 M59 109 L80.5 110 M181 109 L159.5 110" fill="none" stroke="#334155" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M86 105 L93 99" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity=".65"/>
+          <path d="M136 105 L143 99" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round" opacity=".65"/>
+        </g>`;
+        s += `<g>
+          <path d="M62 117 L79 127 M178 117 L161 127 M63 134 L82 141 M177 134 L158 141" stroke="#18181b" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M77 125 Q120 119 163 125 L159 147 Q120 157 81 147 Z" fill="#111827" stroke="#000" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M85 130 L91 139 L97 130 L103 139 L109 130 L115 139 L120 130 L125 139 L131 130 L137 139 L143 130 L149 139 L155 130 L153 142 L147 134 L141 144 L135 134 L129 144 L123 134 L117 144 L111 134 L105 144 L99 134 L93 144 L87 135 Z" fill="#ffffff"/>
+        </g>`;
+      }
+    }
+    if (hairId === "male_gojo" && !faceId) {
+      // 純黑立體布質眼罩：右側拉開一道縫隙露出高亮度六眼瞳孔
+      const rightEyeSlit = exprId === "happy"
+        ? `<path d="M134 113 Q145 99 156 113" fill="none" stroke="#38bdf8" stroke-width="3.8" stroke-linecap="round" filter="${c.sglow}"/>`
+        : vinylEye(145, c, { hairId });
+      s += `<g>
+        <path d="M57 93 Q96 86 130 92 Q158 88 183 94 L182 103 Q155 96 132 102 Q146 96 158 103 L179 102 L180 123 Q158 122 145 124 Q134 126 126 121 L120 124 Q90 129 58 122 Z" fill="#141418" stroke="#050507" stroke-width="1.9" stroke-linejoin="round"/>
+        <ellipse cx="145" cy="112" rx="14.5" ry="11.5" fill="#e0f2fe" stroke="#09090b" stroke-width="2"/>
+        ${rightEyeSlit}
+        <path d="M128 103 Q145 97 161 104" fill="none" stroke="#3f3f46" stroke-width="2.1" stroke-linecap="round"/>
+        <path d="M128 121 Q145 126 161 121" fill="none" stroke="#3f3f46" stroke-width="2.1" stroke-linecap="round"/>
+        <path d="M68 102 Q92 98 115 102 M72 114 Q94 111 114 114" fill="none" stroke="#27272a" stroke-width="1.6" stroke-linecap="round"/>
+      </g>`;
+    }
+    return s;
+  }
+
+  // 5 款盲盒公仔表情（整合各角色專屬瞳孔與臉部招牌特徵）
   const FACE = {
-    calm: (h, c) => `${vinylEye(95, c)}${vinylEye(145, c)}
+    calm: (h, c, hairId, faceId) => `${vinylEye(95, c, { hairId })}${vinylEye(145, c, { hairId })}
       <path d="M86 94 Q95 89 104 93" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M136 93 Q145 89 154 94" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M115.5 134.5 Q120 137.5 124.5 134.5" fill="none" stroke="${OL}" stroke-width="2.5" stroke-linecap="round"/>
-      <path d="M118 138.5 Q120 139.6 122 138.5" fill="none" stroke="#d99a7e" stroke-width="1.6" stroke-linecap="round"/>`,
+      <path d="M118 138.5 Q120 139.6 122 138.5" fill="none" stroke="#d99a7e" stroke-width="1.6" stroke-linecap="round"/>
+      ${characterFaceOverlay(hairId, c, faceId, "calm")}`,
 
-    happy: (h) => `<path d="M85 113 Q95 99 105 113" fill="none" stroke="#2a1a1f" stroke-width="3.6" stroke-linecap="round"/>
+    happy: (h, c, hairId, faceId) => `<path d="M85 113 Q95 99 105 113" fill="none" stroke="#2a1a1f" stroke-width="3.6" stroke-linecap="round"/>
       <path d="M83 111 L87 113" stroke="#2a1a1f" stroke-width="2.2" stroke-linecap="round"/>
       <path d="M135 113 Q145 99 155 113" fill="none" stroke="#2a1a1f" stroke-width="3.6" stroke-linecap="round"/>
       <path d="M157 111 L153 113" stroke="#2a1a1f" stroke-width="2.2" stroke-linecap="round"/>
       <path d="M86 92 Q95 86 104 91" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M136 91 Q145 86 154 92" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M110 130 Q120 146 130 130 Z" fill="#c93b52" stroke="${OL}" stroke-width="2" stroke-linejoin="round"/>
-      <path d="M114.5 136.5 Q120 142.5 125.5 136.5 Q120 133.5 114.5 136.5 Z" fill="#ff8fa3"/>`,
+      <path d="M114.5 136.5 Q120 142.5 125.5 136.5 Q120 133.5 114.5 136.5 Z" fill="#ff8fa3"/>
+      ${characterFaceOverlay(hairId, c, faceId, "happy")}`,
 
-    angry: (h, c) => `${vinylEye(95, c, { ry: 9.2, cy: 113, flatTop: true })}${vinylEye(145, c, { ry: 9.2, cy: 113, flatTop: true })}
+    angry: (h, c, hairId, faceId) => `${vinylEye(95, c, { ry: 9.2, cy: 113, flatTop: true, hairId })}${vinylEye(145, c, { ry: 9.2, cy: 113, flatTop: true, hairId })}
       <path d="M84 95 L105 102" fill="none" stroke="${h.s}" stroke-width="3" stroke-linecap="round"/>
       <path d="M156 95 L135 102" fill="none" stroke="${h.s}" stroke-width="3" stroke-linecap="round"/>
       <ellipse cx="77" cy="129" rx="13" ry="7.5" fill="url(#${c.u}-blush)"/>
       <ellipse cx="163" cy="129" rx="13" ry="7.5" fill="url(#${c.u}-blush)"/>
       <path d="M111 135 Q115.5 131.5 120 135 Q124.5 131.5 129 135" fill="none" stroke="${OL}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M104 130 Q101 134 104 138 M136 130 Q139 134 136 138" fill="none" stroke="#d98c72" stroke-width="1.8" stroke-linecap="round"/>`,
+      <path d="M104 130 Q101 134 104 138 M136 130 Q139 134 136 138" fill="none" stroke="#d98c72" stroke-width="1.8" stroke-linecap="round"/>
+      ${characterFaceOverlay(hairId, c, faceId, "angry")}`,
 
-    surprised: (h, c) => `${vinylEye(95, c, { rx: 9.2, ry: 11.2, cy: 112 })}${vinylEye(145, c, { rx: 9.2, ry: 11.2, cy: 112 })}
+    surprised: (h, c, hairId, faceId) => `${vinylEye(95, c, { rx: 9.2, ry: 11.2, cy: 112, hairId })}${vinylEye(145, c, { rx: 9.2, ry: 11.2, cy: 112, hairId })}
       <path d="M86 89 Q95 83 104 88" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M136 88 Q145 83 154 89" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <ellipse cx="120" cy="136" rx="5.2" ry="6.4" fill="#d94862" stroke="${OL}" stroke-width="2.1"/>
-      <ellipse cx="120" cy="138" rx="3" ry="2.6" fill="#ff94a8"/>`,
+      <ellipse cx="120" cy="138" rx="3" ry="2.6" fill="#ff94a8"/>
+      ${characterFaceOverlay(hairId, c, faceId, "surprised")}`,
 
-    teary: (h, c) => `${vinylEye(95, c, { rx: 8.8, ry: 10.6, cy: 113 })}${vinylEye(145, c, { rx: 8.8, ry: 10.6, cy: 113 })}
+    teary: (h, c, hairId, faceId) => `${vinylEye(95, c, { rx: 8.8, ry: 10.6, cy: 113, hairId })}${vinylEye(145, c, { rx: 8.8, ry: 10.6, cy: 113, hairId })}
       <ellipse cx="95" cy="120.5" rx="6.8" ry="2.6" fill="#9fe3ff" opacity=".62"/>
       <ellipse cx="145" cy="120.5" rx="6.8" ry="2.6" fill="#9fe3ff" opacity=".62"/>
       <path d="M84 118 Q77 125 81 129 Q86 129 84 118 Z" fill="url(#${c.u}-tear)" stroke="#4ea8de" stroke-width="1"/>
@@ -290,7 +419,8 @@
       <circle cx="158.5" cy="125.5" r="1" fill="#fff"/>
       <path d="M84 100 Q94 93 105 94" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
       <path d="M156 100 Q146 93 135 94" fill="none" stroke="${h.s}" stroke-width="2.6" stroke-linecap="round"/>
-      <path d="M113 137 Q116.5 133.5 120 136 Q123.5 133.5 127 137" fill="none" stroke="${OL}" stroke-width="2.4" stroke-linecap="round"/>`
+      <path d="M113 137 Q116.5 133.5 120 136 Q123.5 133.5 127 137" fill="none" stroke="${OL}" stroke-width="2.4" stroke-linecap="round"/>
+      ${characterFaceOverlay(hairId, c, faceId, "teary")}`
   };
 
   /* ------------------------------------------------------------------
@@ -312,18 +442,52 @@
     </g>`;
   const defShorts = (c) => `<path d="M84 202 L156 202 L159 231 Q140 235 122 230 L120 222 L118 230 Q100 235 81 231 Z" fill="url(#${c.u}-shorts)" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>`;
   const neck = (c) => `<rect x="110" y="142" width="20" height="17" rx="7" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="1.9"/>`;
+  const momoChoker = () => `<g>
+    <path d="M108 147 Q120 152 132 147 L132 153 Q120 158 108 153 Z" fill="#18181b" stroke="#09090b" stroke-width="1.4" stroke-linejoin="round"/>
+    <circle cx="120" cy="151.5" r="2.1" fill="#e2e8f0" stroke="#475569" stroke-width=".8"/>
+  </g>`;
   const defTop = (c) => `<path d="${TORSO}" fill="url(#${c.u}-defTop)" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
     <path d="M104 153 Q120 165 136 153" fill="none" stroke="#6ec5e9" stroke-width="3.2" stroke-linecap="round"/>
     <path d="M96 164 Q102 186 98 206" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".55"/>
     <path d="${starPath(120, 186, 9.5, 4.2)}" fill="#ffd166" stroke="#d99b00" stroke-width="1.3"/>`;
-  const headBase = (c) => `
-    <circle cx="58" cy="110" r="10.5" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2"/>
-    <circle cx="56.5" cy="110" r="5.5" fill="url(#${c.u}-ear)"/>
-    <circle cx="182" cy="110" r="10.5" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2"/>
-    <circle cx="183.5" cy="110" r="5.5" fill="url(#${c.u}-ear)"/>
-    <path d="M120 46 C161 46 181 69 181 103 C181 134 159 150 120 150 C81 150 59 134 59 103 C59 69 79 46 120 46 Z" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.4"/>
-    <ellipse cx="77" cy="128" rx="12" ry="6.8" fill="url(#${c.u}-blush)"/>
-    <ellipse cx="163" cy="128" rx="12" ry="6.8" fill="url(#${c.u}-blush)"/>`;
+  const headBase = (c, hairId) => {
+    let earsHtml = `
+      <circle cx="58" cy="110" r="10.5" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2"/>
+      <circle cx="56.5" cy="110" r="5.5" fill="url(#${c.u}-ear)"/>
+      <circle cx="182" cy="110" r="10.5" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2"/>
+      <circle cx="183.5" cy="110" r="5.5" fill="url(#${c.u}-ear)"/>`;
+    if (hairId === "female_frieren") {
+      earsHtml = `
+        <g>
+          <path d="M64 102 Q42 99 24 106 Q40 118 62 119 Z" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M58 106 Q44 105 33 108 Q45 113 58 114 Z" fill="url(#${c.u}-ear)"/>
+          <path d="M176 102 Q198 99 216 106 Q200 118 178 119 Z" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M182 106 Q196 105 207 108 Q195 113 182 114 Z" fill="url(#${c.u}-ear)"/>
+          <circle cx="53" cy="120" r="2.6" fill="none" stroke="#f59e0b" stroke-width="1.9"/>
+          <path d="M53 122 L59 131 L53 140 L47 131 Z" fill="#ef4444" stroke="#f59e0b" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="51.5" cy="129" r="1.3" fill="#fecaca"/>
+          <circle cx="187" cy="120" r="2.6" fill="none" stroke="#f59e0b" stroke-width="1.9"/>
+          <path d="M187 122 L193 131 L187 140 L181 131 Z" fill="#ef4444" stroke="#f59e0b" stroke-width="1.8" stroke-linejoin="round"/>
+          <circle cx="185.5" cy="129" r="1.3" fill="#fecaca"/>
+        </g>`;
+    } else if (hairId === "female_momo") {
+      earsHtml += `
+        <g>
+          <circle cx="52" cy="125" r="9.5" fill="none" stroke="${OL}" stroke-width="5.6"/>
+          <circle cx="52" cy="125" r="9.5" fill="none" stroke="#34d399" stroke-width="3.6"/>
+          <circle cx="55.5" cy="117" r="2.4" fill="#6ee7b7" stroke="${OL}" stroke-width="1.2"/>
+          <circle cx="188" cy="125" r="9.5" fill="none" stroke="${OL}" stroke-width="5.6"/>
+          <circle cx="188" cy="125" r="9.5" fill="none" stroke="#34d399" stroke-width="3.6"/>
+          <circle cx="184.5" cy="117" r="2.4" fill="#6ee7b7" stroke="${OL}" stroke-width="1.2"/>
+        </g>`;
+    }
+    const blushRx = hairId === "female_bocchi" ? 14.2 : 12;
+    const blushRy = hairId === "female_bocchi" ? 7.8 : 6.8;
+    return `${earsHtml}
+      <path d="M120 46 C161 46 181 69 181 103 C181 134 159 150 120 150 C81 150 59 134 59 103 C59 69 79 46 120 46 Z" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.4"/>
+      <ellipse cx="77" cy="128" rx="${blushRx}" ry="${blushRy}" fill="url(#${c.u}-blush)"/>
+      <ellipse cx="163" cy="128" rx="${blushRx}" ry="${blushRy}" fill="url(#${c.u}-blush)"/>`;
+  };
   const HAND_R = { x: 164, y: 203 };
   const rightHand = (c) => `<circle cx="${HAND_R.x}" cy="${HAND_R.y}" r="8.4" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.1"/>`;
   function arms(top, c) {
@@ -793,9 +957,10 @@
   function renderAvatar(st, opt = {}) {
     const u = "av" + ++SEQ + "x" + Math.floor(Math.random() * 1e4);
     const look = normalizeLook(st && st.look);
-    const hc = HAIR_COLORS.find((x) => x.id === look.hairColor) || HAIR_COLORS[0];
+    const hc = getHairPalette(look.hair, look.hairColor);
     const hair = HAIR[look.hair] || HAIR[DEFAULT_LOOK.hair];
     const face = FACE[look.face] || FACE[DEFAULT_LOOK.face];
+    const ep = EYE_PRESETS[look.hair] || EYE_PRESETS.male_gojo;
     const c = { u, h: hc, glow: `url(#${u}-glow)`, sglow: `url(#${u}-sglow)` };
     const eq = (st && st.equipped) || {};
     const it = (slot) => {
@@ -805,6 +970,8 @@
     const L = (item, layer) => (item && item.L && item.L[layer] ? item.L[layer](c) : "");
     const I = { head: it("head"), face: it("face"), top: it("top"), bottom: it("bottom"), outer: it("outer"), weapon: it("weapon"), pet: it("pet"), aura: it("aura"), bg: it("bg"), mount: it("mount") };
     const headId = I.head ? I.head.id : "";
+    const faceId = I.face ? I.face.id : "";
+    const keepLongBackWithHood = look.hair === "female_frieren" || look.hair === "female_ai" || look.hair === "female_bocchi" || look.hair === "female_momo";
     const size = opt.width ? ` width="${opt.width}" height="${opt.height}"` : "";
     const animIdleCls = opt.noAnim ? "" : (I.mount ? "av-hover" : "av-idle");
     let s = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${opt.viewBox || "0 0 240 300"}"${size} class="av-svg ${opt.cls || ""}" role="img" aria-label="${esc(opt.label || "盲盒公仔角色")}">`;
@@ -814,9 +981,9 @@
       ${rg(`${u}-skin`, [[0, "#fff2e6"], [0.48, "#ffe1c8"], [0.86, "#f7c9a6"], [1, "#e8ae86"]], "42%", "34%", "65%")}
       ${rg(`${u}-ear`, [[0, "#f4b998"], [1, "#dfa07b"]], "50%", "45%", "55%")}
       ${rg(`${u}-blush`, [[0, "#ff7a9e", 0.72], [0.6, "#ff94b2", 0.35], [1, "#ff94b2", 0]], "50%", "50%", "50%")}
-      ${lg(`${u}-hair`, [[0, hc.top], [0.45, hc.c], [1, hc.s]], 0.75, 1)}
-      ${lg(`${u}-hairBack`, [[0, hc.c], [1, hc.s]], 0, 1)}
-      ${lg(`${u}-iris`, [[0, "#1a1528"], [0.58, "#2d2444"], [1, "#5a4684"]], 0, 1)}
+      ${lg(`${u}-hair`, hc.bot ? [[0, hc.top], [0.5, hc.c], [1, hc.bot]] : [[0, hc.top], [0.45, hc.c], [1, hc.s]], 0.75, 1)}
+      ${lg(`${u}-hairBack`, hc.bot ? [[0, hc.top], [0.52, hc.c], [1, hc.bot]] : [[0, hc.c], [1, hc.s]], 0, 1)}
+      ${lg(`${u}-iris`, [[0, ep.bot], [0.55, ep.mid], [1, ep.top]], 0, 1)}
       ${lg(`${u}-tear`, [[0, "#e6f9ff"], [1, "#5dc2ff"]], 0, 1)}
       ${lg(`${u}-boot`, [[0, "#ffffff"], [0.55, "#eaf0f7"], [1, "#c8d5e5"]], 0.3, 1)}
       ${lg(`${u}-shorts`, [[0, "#5275a4"], [1, "#2c4263"]], 0.2, 1)}
@@ -831,11 +998,13 @@
     }
     s += animIdleCls ? `<g class="${animIdleCls}">` : `<g>`;
     if (I.mount) s += L(I.mount, "main") + `<g transform="translate(0 -10)">`;
-    s += L(I.outer, "back") + L(I.head, "back") + (headId === "hacker_hood" ? "" : hair.back(hc, c, headId));
+    s += L(I.outer, "back") + L(I.head, "back") + ((headId === "hacker_hood" && !keepLongBackWithHood) ? "" : hair.back(hc, c, headId));
     s += legs(c) + (I.bottom ? L(I.bottom, "main") : defShorts(c)) + shoes(c);
     s += neck(c) + (I.top ? L(I.top, "main") : defTop(c)) + L(I.bottom, "over");
     s += arms(I.top, c) + L(I.outer, "front");
-    s += headBase(c) + face(hc, c) + hair.crown(hc, c, headId) + hair.sideburns(hc, c, headId) + hair.bangs(hc, c, headId) + L(I.head, "front") + L(I.face, "front");
+    if (look.hair === "female_momo") s += momoChoker();
+    if (hair.aura) s += hair.aura(hc, c, headId);
+    s += headBase(c, look.hair) + face(hc, c, look.hair, faceId) + hair.crown(hc, c, headId) + hair.sideburns(hc, c, headId) + hair.bangs(hc, c, headId) + L(I.head, "front") + L(I.face, "front");
     if (I.weapon) s += `<g class="${opt.noAnim ? "" : "av-weapon "}av-legend">${L(I.weapon, "main")}</g>` + rightHand(c);
     if (I.mount) s += `</g>`;
     s += `</g>`;
@@ -854,14 +1023,14 @@
   }
   function renderLookThumb(look) {
     return renderAvatar({ look, equipped: {} }, {
-      viewBox: "26 10 188 172", noBg: true, noShadow: true, noAnim: true, cls: "av-thumb-svg", label: "造型預覽"
+      viewBox: "22 4 196 178", noBg: true, noShadow: true, noAnim: true, cls: "av-thumb-svg", label: "造型預覽"
     });
   }
   /** 風雲榜 42px 圓形迷你公仔頭像 */
   function renderMiniAvatar(stOrLook, opt = {}) {
     const st = stOrLook && stOrLook.look ? stOrLook : { look: stOrLook || DEFAULT_LOOK, equipped: {} };
     return renderAvatar(st, {
-      viewBox: "42 22 156 156", noBg: true, noShadow: true, noAnim: true, cls: opt.cls || "av-mini-svg", label: opt.label || "冒險者頭像"
+      viewBox: "26 4 188 188", noBg: true, noShadow: true, noAnim: true, cls: opt.cls || "av-mini-svg", label: opt.label || "冒險者頭像"
     });
   }
 
@@ -984,7 +1153,13 @@
   }
   function setLook(key, val) {
     const st = getState();
-    st.look = normalizeLook({ ...st.look, [key]: val });
+    if (key === "hair") {
+      const next = normalizeLook({ ...st.look, hair: val });
+      const styleObj = HAIR_STYLES.find((x) => x.id === next.hair) || HAIR_STYLES[0];
+      st.look = { ...next, hairColor: styleObj.defaultColor };
+    } else {
+      st.look = normalizeLook({ ...st.look, [key]: val });
+    }
     saveState(st);
     emit();
   }
@@ -1275,8 +1450,8 @@
   }
 
   window.AvatarSystem = {
-    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, DEFAULT_LOOK,
-    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook,
+    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, DEFAULT_LOOK, EYE_PRESETS,
+    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette,
     getState, quizStats, wallet, title, unlock, toggleEquip, setLook, answerNpc,
     toast, mountNpcQuiz, downloadCard, esc
   };

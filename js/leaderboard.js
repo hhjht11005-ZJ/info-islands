@@ -425,14 +425,14 @@
       return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar(AV.getState(), { label: "我的頭像" })}</span>`;
     }
     const hairs = AV.HAIR_STYLES || [];
-    const colors = AV.HAIR_COLORS || [];
     const faces = AV.FACES || [];
     const seed = hashSeed(entry.studentKey || `${entry.className}_${entry.seat}_${entry.maskedName}`);
+    const pickedHair = hairs[seed % hairs.length] || {};
     const look = entry.avatarLook && typeof entry.avatarLook === "object"
       ? entry.avatarLook
       : {
-          hair: (hairs[seed % hairs.length] || {}).id || "male_fluffy",
-          hairColor: (colors[(seed >>> 4) % colors.length] || {}).id || "black",
+          hair: pickedHair.id || "male_gojo",
+          hairColor: pickedHair.defaultColor || "silver",
           face: (faces[(seed >>> 8) % faces.length] || {}).id || "calm"
         };
     return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar({ look, equipped: {} }, { label: entry.maskedName })}</span>`;

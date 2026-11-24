@@ -10885,18 +10885,20 @@
     headMesh.castShadow = true;
     headGroup.add(headMesh);
 
-    // 兩側對稱半圓形小耳朵
+    // 兩側對稱半圓形小耳朵（精靈造型時自動隱藏改掛尖耳）
+    const roundEarsGroup = new THREE.Group();
+    headGroup.add(roundEarsGroup);
     [-1, 1].forEach((side) => {
       const ear = new THREE.Mesh(new THREE.SphereGeometry(0.105, 10, 8), skinMat);
       ear.scale.set(0.55, 0.92, 0.72);
       ear.position.set(side * 0.48, 0.39, 0.0);
       ear.castShadow = true;
-      headGroup.add(ear);
+      roundEarsGroup.add(ear);
 
       const earInner = new THREE.Mesh(new THREE.SphereGeometry(0.058, 8, 6), innerEarMat);
       earInner.scale.set(0.42, 0.78, 0.65);
       earInner.position.set(side * 0.495, 0.39, 0.02);
-      headGroup.add(earInner);
+      roundEarsGroup.add(earInner);
     });
 
     // 粉嫩腮紅（兩側對稱）
@@ -10969,174 +10971,318 @@
       return m;
     }
 
-    // ---- 5 款 3D 公仔表情 ----
-    function rebuildFace3D(faceId, hairShadeHex) {
+    // ---- 5 款 3D 公仔表情 ＋ 8 款招牌角色專屬發光瞳孔（純 emissive 材質，禁用 PointLight） ----
+    function rebuildFace3D(faceId, hairShadeHex, hairId = "male_gojo", faceEquipId = "") {
       clearGroup(faceExprMount);
       const browMat = new THREE.MeshStandardMaterial({ color: hairShadeHex, roughness: 0.5 });
+
+      const EYE_3D = {
+        male_gojo: { color: 0x38bdf8, emissive: 0x38bdf8, intensity: 1.15, scleraGlow: true },
+        male_jinwoo: { color: 0xc084fc, emissive: 0xa855f7, intensity: 1.05, sharp: true, energyTrail: true },
+        male_isagi: { color: 0x34d399, emissive: 0x10b981, intensity: 0.95, crossStar: true },
+        male_okarun: { color: 0xef4444, emissive: 0xb91c1c, intensity: 0.5 },
+        female_frieren: { color: 0x34d399, emissive: 0x10b981, intensity: 0.45, halfLid: true },
+        female_ai: { color: 0xc026d3, emissive: 0x9333ea, intensity: 0.7, starPupil: true },
+        female_bocchi: { color: 0x60a5fa, emissive: 0x3b82f6, intensity: 0.35 },
+        female_momo: { color: 0xd97706, emissive: 0x92400e, intensity: 0.25, bigEyes: true }
+      };
+      const ep = EYE_3D[hairId] || EYE_3D.male_gojo;
+      const customEyeMat = new THREE.MeshStandardMaterial({
+        color: ep.color,
+        emissive: ep.emissive,
+        emissiveIntensity: ep.intensity,
+        roughness: 0.16,
+        metalness: 0.08
+      });
+
+      function buildEyeMesh(side, sx, sy) {
+        if (ep.scleraGlow) {
+          const rimMat = new THREE.MeshStandardMaterial({
+            color: 0xe0f2fe,
+            emissive: 0x7dd3fc,
+            emissiveIntensity: 0.55,
+            roughness: 0.2
+          });
+          addPart(faceExprMount, new THREE.SphereGeometry(0.084, 12, 10), rimMat, side * 0.185, 0.375, 0.41, 0, 0, 0, sx, sy, 0.36);
+        }
+        addPart(faceExprMount, new THREE.SphereGeometry(0.07, 12, 10), customEyeMat, side * 0.185, 0.375, 0.422, 0, 0, 0, sx, sy, 0.42);
+        addPart(faceExprMount, new THREE.SphereGeometry(0.022, 8, 6), eyeWhiteMat, side * 0.185 - 0.022, 0.405, 0.454);
+        addPart(faceExprMount, new THREE.SphereGeometry(0.011, 6, 6), eyeWhiteMat, side * 0.185 + 0.024, 0.345, 0.452);
+
+        if (ep.starPupil) {
+          const starWhite = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffffff, emissiveIntensity: 0.95, roughness: 0.1 });
+          const starGold = new THREE.MeshStandardMaterial({ color: 0xfde68a, emissive: 0xf472b6, emissiveIntensity: 0.65, roughness: 0.15 });
+          addPart(faceExprMount, new THREE.OctahedronGeometry(0.036, 0), starGold, side * 0.185, 0.375, 0.453, 0, 0, 0, 1, 1, 0.35);
+          addPart(faceExprMount, new THREE.BoxGeometry(0.068, 0.015, 0.015), starWhite, side * 0.185, 0.375, 0.458);
+          addPart(faceExprMount, new THREE.BoxGeometry(0.015, 0.068, 0.015), starWhite, side * 0.185, 0.375, 0.458);
+        }
+        if (ep.crossStar) {
+          const crossMat = new THREE.MeshStandardMaterial({ color: 0xecfdf5, emissive: 0x6ee7b7, emissiveIntensity: 0.9, roughness: 0.15 });
+          addPart(faceExprMount, new THREE.BoxGeometry(0.072, 0.014, 0.015), crossMat, side * 0.185, 0.375, 0.456);
+          addPart(faceExprMount, new THREE.BoxGeometry(0.014, 0.072, 0.015), crossMat, side * 0.185, 0.375, 0.456);
+        }
+        if (ep.halfLid) {
+          addPart(faceExprMount, new THREE.BoxGeometry(0.145, 0.038, 0.045), skinMat, side * 0.185, 0.43, 0.432);
+          addPart(faceExprMount, new THREE.BoxGeometry(0.145, 0.016, 0.032), browMat, side * 0.185, 0.412, 0.445);
+        }
+        if (ep.energyTrail) {
+          const trailMat = new THREE.MeshStandardMaterial({ color: 0xd8b4fe, emissive: 0xa855f7, emissiveIntensity: 0.9, roughness: 0.2 });
+          addPart(faceExprMount, new THREE.BoxGeometry(0.095, 0.018, 0.018), trailMat, side * 0.28, 0.39, 0.405, 0, side * -0.45, side * 0.22);
+        }
+      }
 
       if (faceId === "happy") {
         // 彎月開心笑：眯眯弧形眼 + 微笑開口
         [-1, 1].forEach((side) => {
-          addPart(faceExprMount, new THREE.TorusGeometry(0.068, 0.018, 6, 12, Math.PI), eyeMat, side * 0.185, 0.365, 0.425, 0, 0, 0);
+          const happyEyeMat = hairId === "male_gojo" && side === 1 && !faceEquipId ? customEyeMat : eyeMat;
+          addPart(faceExprMount, new THREE.TorusGeometry(0.068, 0.018, 6, 12, Math.PI), happyEyeMat, side * 0.185, 0.365, 0.425, 0, 0, 0);
           addPart(faceExprMount, new THREE.BoxGeometry(0.11, 0.02, 0.02), browMat, side * 0.185, 0.52, 0.415, 0, 0, side * -0.1);
         });
         addPart(faceExprMount, new THREE.SphereGeometry(0.055, 10, 8), mouthOpenMat, 0, 0.245, 0.43, 0, 0, 0, 1.15, 0.85, 0.4);
-        return;
+      } else {
+        // 寬眼距立體大眼珠（calm / angry / surprised / teary）
+        const eyeSy = faceId === "angry" ? 1.05 : faceId === "surprised" ? 1.32 : ep.bigEyes ? 1.28 : ep.sharp ? 1.08 : 1.2;
+        const eyeSx = faceId === "surprised" ? 1.02 : ep.bigEyes ? 0.96 : 0.92;
+        [-1, 1].forEach((side) => buildEyeMesh(side, eyeSx, eyeSy));
+
+        if (faceId === "angry") {
+          [-1, 1].forEach((side) => {
+            addPart(faceExprMount, new THREE.BoxGeometry(0.13, 0.026, 0.024), browMat, side * 0.175, 0.495, 0.425, 0, 0, side * -0.35);
+          });
+          addPart(faceExprMount, new THREE.TorusGeometry(0.036, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.235, 0.435, 0, 0, 0);
+        } else if (faceId === "surprised") {
+          [-1, 1].forEach((side) => {
+            addPart(faceExprMount, new THREE.BoxGeometry(0.11, 0.02, 0.02), browMat, side * 0.185, 0.545, 0.405, 0, 0, side * 0.12);
+          });
+          addPart(faceExprMount, new THREE.SphereGeometry(0.042, 10, 8), mouthOpenMat, 0, 0.24, 0.435, 0, 0, 0, 0.9, 1.15, 0.45);
+        } else if (faceId === "teary") {
+          [-1, 1].forEach((side) => {
+            addPart(faceExprMount, new THREE.BoxGeometry(0.12, 0.022, 0.022), browMat, side * 0.185, 0.505, 0.42, 0, 0, side * 0.32);
+            addPart(faceExprMount, new THREE.SphereGeometry(0.034, 8, 6), tearMat, side * 0.255, 0.315, 0.42, 0, 0, side * -0.25, 0.85, 1.25, 0.65);
+          });
+          addPart(faceExprMount, new THREE.TorusGeometry(0.032, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.235, 0.435, 0, 0, 0);
+        } else {
+          // calm 呆萌平靜臉
+          [-1, 1].forEach((side) => {
+            addPart(faceExprMount, new THREE.BoxGeometry(0.11, 0.02, 0.02), browMat, side * 0.185, 0.51, 0.415, 0, 0, side * -0.05);
+          });
+          addPart(faceExprMount, new THREE.TorusGeometry(0.032, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.255, 0.435, 0, 0, Math.PI);
+        }
       }
 
-      // 寬眼距立體大眼珠（calm / angry / surprised / teary）
-      const eyeSy = faceId === "angry" ? 1.05 : faceId === "surprised" ? 1.32 : 1.2;
-      const eyeSx = faceId === "surprised" ? 1.02 : 0.92;
-      [-1, 1].forEach((side) => {
-        addPart(faceExprMount, new THREE.SphereGeometry(0.07, 12, 10), eyeMat, side * 0.185, 0.375, 0.42, 0, 0, 0, eyeSx, eyeSy, 0.42);
-        addPart(faceExprMount, new THREE.SphereGeometry(0.022, 8, 6), eyeWhiteMat, side * 0.185 - 0.022, 0.405, 0.452);
-        addPart(faceExprMount, new THREE.SphereGeometry(0.011, 6, 6), eyeWhiteMat, side * 0.185 + 0.024, 0.345, 0.45);
-      });
-
-      if (faceId === "angry") {
+      // ---- 角色招牌臉部配件（若玩家另戴獎勵眼鏡，則暫時替換眼罩／口罩槽位） ----
+      if (hairId === "male_gojo" && !faceEquipId) {
+        const clothMat = new THREE.MeshStandardMaterial({ color: 0x141418, roughness: 0.78, metalness: 0.05 });
+        // 頭部側面與後腦眼罩條帶
+        addPart(faceExprMount, new THREE.CylinderGeometry(0.495, 0.495, 0.135, 20, 1, true, Math.PI * 0.32, Math.PI * 1.48), clothMat, 0, 0.39, -0.01, 0, Math.PI * 0.15, 0, 1.07, 1, 1.02);
+        // 正面左眼完全遮覆 + 右眼留出一道微拉開縫隙露出六眼
+        addPart(faceExprMount, new THREE.BoxGeometry(0.32, 0.15, 0.09), clothMat, -0.14, 0.39, 0.425, 0, -0.18, 0);
+        addPart(faceExprMount, new THREE.BoxGeometry(0.24, 0.055, 0.07), clothMat, 0.18, 0.46, 0.415, 0, 0.24, -0.08);
+        addPart(faceExprMount, new THREE.BoxGeometry(0.24, 0.052, 0.07), clothMat, 0.18, 0.31, 0.415, 0, 0.24, 0.06);
+      } else if (hairId === "male_okarun") {
+        // 眼下兩道鮮紅垂直咒紋（保留於臉頰）
+        const redMarkMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0xb91c1c, emissiveIntensity: 0.25, roughness: 0.4 });
         [-1, 1].forEach((side) => {
-          addPart(faceExprMount, new THREE.BoxGeometry(0.13, 0.026, 0.024), browMat, side * 0.175, 0.495, 0.425, 0, 0, side * -0.35);
+          addPart(faceExprMount, new THREE.BoxGeometry(0.025, 0.085, 0.025), redMarkMat, side * 0.185, 0.295, 0.445);
         });
-        addPart(faceExprMount, new THREE.TorusGeometry(0.036, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.235, 0.435, 0, 0, 0);
-      } else if (faceId === "surprised") {
-        [-1, 1].forEach((side) => {
-          addPart(faceExprMount, new THREE.BoxGeometry(0.11, 0.02, 0.02), browMat, side * 0.185, 0.545, 0.405, 0, 0, side * 0.12);
-        });
-        addPart(faceExprMount, new THREE.SphereGeometry(0.042, 10, 8), mouthOpenMat, 0, 0.24, 0.435, 0, 0, 0, 0.9, 1.15, 0.45);
-      } else if (faceId === "teary") {
-        [-1, 1].forEach((side) => {
-          addPart(faceExprMount, new THREE.BoxGeometry(0.12, 0.022, 0.022), browMat, side * 0.185, 0.505, 0.42, 0, 0, side * 0.32);
-          addPart(faceExprMount, new THREE.SphereGeometry(0.034, 8, 6), tearMat, side * 0.255, 0.315, 0.42, 0, 0, side * -0.25, 0.85, 1.25, 0.65);
-        });
-        addPart(faceExprMount, new THREE.TorusGeometry(0.032, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.235, 0.435, 0, 0, 0);
-      } else {
-        // calm 呆萌平靜臉
-        [-1, 1].forEach((side) => {
-          addPart(faceExprMount, new THREE.BoxGeometry(0.11, 0.02, 0.02), browMat, side * 0.185, 0.51, 0.415, 0, 0, side * -0.05);
-        });
-        addPart(faceExprMount, new THREE.TorusGeometry(0.032, 0.012, 6, 10, Math.PI), mouthMat, 0, 0.255, 0.435, 0, 0, Math.PI);
+        if (!faceEquipId) {
+          // 鼻樑圓框眼鏡
+          const glassMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.3, metalness: 0.45 });
+          [-1, 1].forEach((side) => {
+            addPart(faceExprMount, new THREE.TorusGeometry(0.098, 0.013, 6, 16), glassMat, side * 0.185, 0.375, 0.462);
+          });
+          addPart(faceExprMount, new THREE.BoxGeometry(0.18, 0.015, 0.015), glassMat, 0, 0.395, 0.465);
+          // 黑底白齒鋸齒狀獠牙半面罩
+          const maskBlk = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.65 });
+          const fangMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+          addPart(faceExprMount, new THREE.CylinderGeometry(0.46, 0.41, 0.22, 16, 1, false, -Math.PI * 0.36, Math.PI * 0.72), maskBlk, 0, 0.17, 0.03, 0.1, 0, 0, 1.04, 1, 1.03);
+          for (let t = -2; t <= 2; t++) {
+            const ang = t * 0.15;
+            const tx = Math.sin(ang) * 0.34;
+            const tz = Math.cos(ang) * 0.45;
+            addPart(faceExprMount, new THREE.ConeGeometry(0.03, 0.068, 4), fangMat, tx, 0.195, tz, Math.PI, 0, 0);
+            addPart(faceExprMount, new THREE.ConeGeometry(0.026, 0.058, 4), fangMat, tx + (t < 2 ? 0.03 : -0.03), 0.155, tz, 0, 0, 0);
+          }
+        }
       }
     }
 
-    // ---- 8 款 3D 立體雕塑髮型（移除共用平齊前蓋，僅覆蓋後腦與頂後部，額頭造型完全由各款獨立建構） ----
+    // ---- 8 款招牌動漫角色 3D 立體髮型 ＋ 精靈耳／兔子髮飾／方塊夾／圓環耳飾／頸圈 ----
     function rebuildHair3D(hairId, hc, headId) {
       clearGroup(hairMount);
+      roundEarsGroup.visible = hairId !== "female_frieren";
+
       const mainMat = new THREE.MeshStandardMaterial({ color: hc.c, roughness: 0.4, metalness: 0.04 });
       const shadeMat = new THREE.MeshStandardMaterial({ color: hc.s, roughness: 0.46, metalness: 0.03 });
-      const hlMat = new THREE.MeshStandardMaterial({ color: hc.hl, roughness: 0.35, metalness: 0.08 });
+      const tipMat = new THREE.MeshStandardMaterial({ color: hc.bot || hc.c, roughness: 0.38, metalness: 0.04 });
       const coverHat = headId === "strawberry_beret" || headId === "hacker_hood";
 
-      // 僅包覆後腦與頭頂後方（rx=-0.46 將前緣高舉至髮際線 y≈0.70 之上，絕不遮擋額頭）
+      // 僅包覆後腦與頭頂後方（正面額頭 100% 留空）
       const capScaleY = coverHat ? 0.94 : 1.0;
       addPart(hairMount, new THREE.SphereGeometry(0.47, 16, 12, 0, Math.PI * 2, 0, Math.PI * 0.44), mainMat, 0, 0.43, -0.05, -0.46, 0, 0, 1.08, capScaleY, 1.04);
       if (headId !== "hacker_hood") {
-        // 後腦勺與耳後髮殼（只包覆背面與兩側後方，正面額頭 100% 留空）
         addPart(hairMount, new THREE.SphereGeometry(0.468, 16, 12, Math.PI * 0.72, Math.PI * 1.56, Math.PI * 0.16, Math.PI * 0.68), shadeMat, 0, 0.41, -0.06, 0.08, 0, 0, 1.07, 0.95, 1.02);
       }
 
-      if (hairId === "male_fluffy") {
-        // 男生款 1｜蓬鬆層次短髮：高低錯落鋸齒狀雲朵碎瀏海（中長側短）＋蓬鬆鬢角
-        const jaggedTufts = [
-          [-0.28, 0.68, 0.31, 0.075, 0.16, 0.25],
-          [-0.14, 0.63, 0.39, 0.085, 0.22, 0.1],
-          [0.0, 0.61, 0.42, 0.095, 0.25, 0.0],
-          [0.14, 0.63, 0.39, 0.085, 0.22, -0.1],
-          [0.28, 0.68, 0.31, 0.075, 0.16, -0.25]
-        ];
-        jaggedTufts.forEach(([x, y, z, r, h, rz]) => {
-          addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, 2.75, 0, rz);
-        });
-        if (!coverHat) {
-          addPart(hairMount, new THREE.SphereGeometry(0.17, 10, 8), mainMat, 0, 0.78, 0.14, 0, 0, 0, 1.45, 0.75, 1.05);
-          addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.2, 0.74, 0.16, 0, 0, 0.2, 1.15, 0.78, 0.95);
-          addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, 0.2, 0.74, 0.16, 0, 0, -0.2, 1.15, 0.78, 0.95);
-        }
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.105, 10, 8), mainMat, s * 0.43, 0.36, 0.2, 0, 0, 0, 0.72, 1.45, 0.85));
-      } else if (hairId === "male_spiky") {
-        // 男生款 2｜帥氣刺蝟酷髮：完全露出額頭（無任何向下垂落瀏海），髮束全數向上抓出立體尖刺
+      if (hairId === "male_gojo") {
+        // 1｜白髮眼罩咒術師：向上放射狀多層次銀白刺蝟髮束
         if (!coverHat) {
           const spikes = [
-            [-0.24, 0.86, 0.1, -0.1, 0, 0.45, 0.115, 0.34],
-            [-0.08, 0.93, 0.14, 0.12, 0, 0.16, 0.125, 0.38],
-            [0.08, 0.94, 0.14, 0.12, 0, -0.16, 0.125, 0.38],
-            [0.24, 0.86, 0.1, -0.1, 0, -0.45, 0.115, 0.34],
-            [-0.15, 0.82, -0.18, -0.52, 0, 0.28, 0.12, 0.32],
-            [0.15, 0.82, -0.18, -0.52, 0, -0.28, 0.12, 0.32]
+            [-0.26, 0.86, 0.08, -0.1, 0, 0.48, 0.12, 0.36],
+            [-0.1, 0.94, 0.13, 0.12, 0, 0.18, 0.13, 0.4],
+            [0.1, 0.94, 0.13, 0.12, 0, -0.18, 0.13, 0.4],
+            [0.26, 0.86, 0.08, -0.1, 0, -0.48, 0.12, 0.36],
+            [-0.16, 0.83, -0.18, -0.52, 0, 0.3, 0.125, 0.34],
+            [0.16, 0.83, -0.18, -0.52, 0, -0.3, 0.125, 0.34]
           ];
           spikes.forEach(([x, y, z, rx, ry, rz, r, h]) => addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, rx, ry, rz));
         }
-        // 前額髮際線短刺向上翹起（完全不遮額頭）
         [[-0.18, 0.74, 0.28, 0.42, 0.2], [0.0, 0.76, 0.3, 0.48, 0], [0.18, 0.74, 0.28, 0.42, -0.2]].forEach(([x, y, z, rx, rz]) => {
           addPart(hairMount, new THREE.ConeGeometry(0.08, 0.2, 6), mainMat, x, y, z, rx, 0, rz);
         });
         [-1, 1].forEach((s) => addPart(hairMount, new THREE.ConeGeometry(0.075, 0.24, 6), mainMat, s * 0.43, 0.34, 0.2, 0.15, 0, s * 2.95));
-      } else if (hairId === "male_comma") {
-        // 男生款 3｜韓系逗號瀏海：3:7 側分露出右額，左側向內彎成大「C 字逗號弧形」
-        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.24, 0.66, 0.32, 0, 0, 0.42, 1.32, 0.82, 0.82);
-        addPart(hairMount, new THREE.SphereGeometry(0.115, 10, 8), mainMat, -0.1, 0.56, 0.4, 0, 0, -0.55, 1.3, 0.7, 0.72);
-        addPart(hairMount, new THREE.ConeGeometry(0.075, 0.18, 7), mainMat, -0.02, 0.51, 0.42, 1.6, 0, -1.25);
-        // 右側 3 分區清爽向後收攏，露出右額分線
-        addPart(hairMount, new THREE.SphereGeometry(0.105, 8, 8), mainMat, 0.3, 0.68, 0.24, 0, 0, -0.55, 1.18, 0.72, 0.85);
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.09, 8, 8), mainMat, s * 0.43, 0.36, 0.2, 0, 0, 0, 0.65, 1.38, 0.75));
-      } else if (hairId === "male_wavy") {
-        // 男生款 4｜潮流側分微捲：左側分線露出左額，S 型斜波浪瀏海從左上向右眉角大斜掃
-        addPart(hairMount, new THREE.SphereGeometry(0.14, 10, 8), mainMat, -0.06, 0.71, 0.34, 0, 0, -0.35, 1.45, 0.74, 0.82);
-        addPart(hairMount, new THREE.SphereGeometry(0.15, 10, 8), mainMat, 0.1, 0.64, 0.39, 0, 0, -0.45, 1.55, 0.76, 0.78);
-        addPart(hairMount, new THREE.SphereGeometry(0.125, 10, 8), mainMat, 0.24, 0.55, 0.39, 0, 0, -0.52, 1.38, 0.72, 0.74);
-        // 左側少量收攏髮絲，保持左半額頭清爽露出
-        addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, -0.32, 0.67, 0.22, 0, 0, 0.5, 1.05, 0.72, 0.85);
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.1, 8, 8), mainMat, s * 0.43, 0.34, 0.2, 0, 0, 0, 0.7, 1.45, 0.8));
-      } else if (hairId === "female_bob") {
-        // 女生款 1｜空氣感齊瀏海短髮（唯一保留水平齊瀏海）：帶透氣微縫隙的水平內彎齊瀏海＋包柏頭
-        addPart(hairMount, new THREE.CylinderGeometry(0.49, 0.44, 0.34, 16, 1, false, Math.PI * 0.22, Math.PI * 1.56), shadeMat, 0, 0.25, -0.05, 0, Math.PI, 0, 1.06, 1, 0.98);
-        [-0.21, -0.075, 0.075, 0.21].forEach((x) => addPart(hairMount, new THREE.SphereGeometry(0.082, 8, 8), mainMat, x, 0.61, 0.41, 0, 0, 0, 0.9, 1.1, 0.68));
-        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.42, 0.26, 0.22, 0, 0, s * -0.15, 0.7, 1.85, 0.85));
-      } else if (hairId === "female_ponytail") {
-        // 女生款 2｜活力元氣高馬尾：中分八字瀏海（額頭正中央完全留空露肌）＋高馬尾
+      } else if (hairId === "male_jinwoo") {
+        // 2｜暗影君王碎髮：不規則尖角狼尾碎瀏海（微遮左眼）＋後頸微翹＋肩側懸浮暗影微粒
+        const bangs = [
+          [-0.27, 0.67, 0.32, 0.07, 0.16, 0.22],
+          [-0.13, 0.54, 0.41, 0.075, 0.32, 0.08], // 微遮左眼尖角長瀏海
+          [0.01, 0.62, 0.42, 0.08, 0.22, -0.05],
+          [0.15, 0.61, 0.39, 0.075, 0.24, -0.14],
+          [0.28, 0.67, 0.31, 0.07, 0.17, -0.24]
+        ];
+        bangs.forEach(([x, y, z, r, h, rz]) => addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, 2.75, 0, rz));
         [-1, 1].forEach((s) => {
-          addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.22, 0.66, 0.34, 0, 0, s * -0.58, 1.35, 0.74, 0.75);
-          addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, s * 0.34, 0.53, 0.31, 0, 0, s * -0.35, 0.85, 1.45, 0.75);
-          addPart(hairMount, new THREE.SphereGeometry(0.08, 8, 8), mainMat, s * 0.41, 0.3, 0.22, 0, 0, s * 0.12, 0.68, 1.55, 0.78);
+          addPart(hairMount, new THREE.ConeGeometry(0.085, 0.28, 6), mainMat, s * 0.43, 0.28, 0.22, 2.8, 0, s * -0.16);
+          addPart(hairMount, new THREE.ConeGeometry(0.09, 0.26, 6), shadeMat, s * 0.34, 0.1, -0.28, -0.6, 0, s * -0.85);
         });
+        // 肩側懸浮紫黑色暗影晶粒（純 emissive，禁用 PointLight）
+        const shadowShardMat = new THREE.MeshStandardMaterial({
+          color: 0x1e1b4b,
+          emissive: 0x7e22ce,
+          emissiveIntensity: 0.85,
+          transparent: true,
+          opacity: 0.85,
+          roughness: 0.2
+        });
+        const brightShardMat = new THREE.MeshStandardMaterial({
+          color: 0xa855f7,
+          emissive: 0xa855f7,
+          emissiveIntensity: 0.95,
+          transparent: true,
+          opacity: 0.88,
+          roughness: 0.2
+        });
+        [[-0.56, -0.04, 0.06, 0.065], [0.56, -0.02, 0.04, 0.06], [-0.46, 0.12, -0.18, 0.045]].forEach(([x, y, z, r]) => {
+          addPart(hairMount, new THREE.OctahedronGeometry(r, 0), shadowShardMat, x, y, z, 0.4, 0.3, 0.2);
+        });
+        addPart(hairMount, new THREE.OctahedronGeometry(0.036, 0), brightShardMat, 0.48, 0.14, -0.15);
+      } else if (hairId === "male_isagi") {
+        // 3｜雙呆毛前鋒少年：運動碎短髮＋頭頂高聳 V 字分岔雙呆毛
+        const sportyBangs = [
+          [-0.24, 0.67, 0.33, 0.072, 0.17, 0.22],
+          [-0.1, 0.63, 0.4, 0.08, 0.21, 0.08],
+          [0.04, 0.62, 0.42, 0.082, 0.22, -0.05],
+          [0.18, 0.64, 0.38, 0.078, 0.2, -0.16],
+          [0.28, 0.68, 0.3, 0.068, 0.15, -0.25]
+        ];
+        sportyBangs.forEach(([x, y, z, r, h, rz]) => addPart(hairMount, new THREE.ConeGeometry(r, h, 7), mainMat, x, y, z, 2.75, 0, rz));
+        [-1, 1].forEach((s) => {
+          addPart(hairMount, new THREE.ConeGeometry(0.075, 0.24, 6), mainMat, s * 0.43, 0.34, 0.2, 2.9, 0, s * -0.1);
+          // V 字分岔大呆毛（即使戴帽子仍保持高聳可見）
+          addPart(hairMount, new THREE.ConeGeometry(0.065, 0.36, 7), mainMat, s * 0.14, 0.98, 0.05, 0.08, 0, s * -0.52);
+        });
+      } else if (hairId === "male_okarun") {
+        // 4｜詛咒白髮面具客：大體積向外蓬鬆炸開的閃電波浪白捲髮
+        if (!coverHat) {
+          const puffs = [
+            [-0.36, 0.72, 0.12, 0.18], [0.36, 0.72, 0.12, 0.18],
+            [-0.2, 0.84, 0.16, 0.2], [0.2, 0.84, 0.16, 0.2],
+            [0.0, 0.88, 0.1, 0.21], [-0.26, 0.76, -0.18, 0.19], [0.26, 0.76, -0.18, 0.19]
+          ];
+          puffs.forEach(([x, y, z, r]) => addPart(hairMount, new THREE.SphereGeometry(r, 10, 8), mainMat, x, y, z));
+        }
+        [[-0.25, 0.66, 0.34, 0.28], [-0.08, 0.64, 0.4, 0.1], [0.08, 0.64, 0.4, -0.1], [0.25, 0.66, 0.34, -0.28]].forEach(([x, y, z, rz]) => {
+          addPart(hairMount, new THREE.ConeGeometry(0.088, 0.22, 7), mainMat, x, y, z, 2.7, 0, rz);
+        });
+        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.14, 9, 8), mainMat, s * 0.45, 0.42, 0.18, 0, 0, 0, 0.85, 1.3, 0.9));
+      } else if (hairId === "female_frieren") {
+        // 5｜銀髮精靈魔法使：中分八字瀏海＋低雙馬尾＋尖精靈長耳＋金框紅寶石菱形耳墜
+        const goldMat = new THREE.MeshStandardMaterial({ color: 0xf59e0b, roughness: 0.25, metalness: 0.65 });
+        const rubyMat = new THREE.MeshStandardMaterial({ color: 0xef4444, emissive: 0x991b1b, emissiveIntensity: 0.3, roughness: 0.18 });
+        const tieMat = new THREE.MeshStandardMaterial({ color: 0x475569, roughness: 0.4 });
+        [-1, 1].forEach((s) => {
+          // 中分八字瀏海＋前髮
+          addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.22, 0.67, 0.34, 0, 0, s * -0.58, 1.32, 0.74, 0.75);
+          addPart(hairMount, new THREE.SphereGeometry(0.088, 8, 8), mainMat, s * 0.38, 0.38, 0.24, 0, 0, s * 0.1, 0.72, 1.48, 0.78);
+          // 尖尖精靈長耳朵
+          addPart(hairMount, new THREE.ConeGeometry(0.08, 0.3, 8), skinMat, s * 0.56, 0.41, 0.02, 0, 0, s * -1.35);
+          // 紅寶石菱形吊墜耳環
+          addPart(hairMount, new THREE.TorusGeometry(0.028, 0.008, 6, 12), goldMat, s * 0.49, 0.32, 0.03);
+          addPart(hairMount, new THREE.OctahedronGeometry(0.045, 0), rubyMat, s * 0.49, 0.24, 0.03, 0, 0, 0, 0.85, 1.25, 0.65);
+          // 低雙馬尾
+          addPart(hairMount, new THREE.TorusGeometry(0.065, 0.022, 6, 12), tieMat, s * 0.42, 0.34, -0.14, 0, Math.PI / 2, 0);
+          addPart(hairMount, new THREE.SphereGeometry(0.135, 10, 8), mainMat, s * 0.47, 0.16, -0.18, 0, 0, s * -0.18, 0.88, 1.45, 0.9);
+          addPart(hairMount, new THREE.ConeGeometry(0.11, 0.26, 8), shadeMat, s * 0.49, -0.05, -0.2, 3.0, 0, s * -0.15);
+        });
+      } else if (hairId === "female_ai") {
+        // 6｜星瞳偶像側馬尾：夢幻紫紅漸層＋右側高束大側馬尾＋粉白兔子造型髮飾
+        [-0.22, -0.06, 0.1, 0.24].forEach((x, idx) => {
+          addPart(hairMount, new THREE.SphereGeometry(0.084, 8, 8), mainMat, x, 0.62, 0.4, 0, 0, (idx - 1.5) * -0.12, 0.92, 1.12, 0.68);
+        });
+        [-1, 1].forEach((s) => addPart(hairMount, new THREE.SphereGeometry(0.09, 8, 8), mainMat, s * 0.41, 0.28, 0.22, 0, 0, s * 0.12, 0.7, 1.6, 0.78));
         if (headId !== "hacker_hood") {
-          addPart(hairMount, new THREE.TorusGeometry(0.09, 0.032, 8, 14), hlMat, 0.16, 0.74, -0.36, 0.55, 0.3, 0);
+          addPart(hairMount, new THREE.SphereGeometry(0.36, 10, 8), tipMat, 0, 0.02, -0.34, 0, 0, 0, 1.25, 1.35, 0.55);
           const tail = new THREE.Group();
-          tail.position.set(0.18, 0.75, -0.38);
-          addPart(tail, new THREE.SphereGeometry(0.16, 10, 8), mainMat, 0.04, 0.04, -0.12, 0, 0, 0, 0.95, 1.15, 1.25);
-          addPart(tail, new THREE.SphereGeometry(0.145, 10, 8), mainMat, 0.08, -0.18, -0.22, 0.35, 0, 0, 0.9, 1.35, 1.05);
-          addPart(tail, new THREE.ConeGeometry(0.12, 0.36, 8), shadeMat, 0.1, -0.44, -0.26, 2.85, 0, 0.15);
+          tail.position.set(0.24, 0.76, -0.24);
+          addPart(tail, new THREE.SphereGeometry(0.17, 10, 8), mainMat, 0.06, 0.04, -0.12, 0, 0, 0, 0.95, 1.15, 1.25);
+          addPart(tail, new THREE.SphereGeometry(0.155, 10, 8), tipMat, 0.12, -0.2, -0.2, 0.35, 0, 0, 0.92, 1.4, 1.05);
+          addPart(tail, new THREE.ConeGeometry(0.13, 0.36, 8), tipMat, 0.16, -0.46, -0.24, 2.85, 0, 0.15);
           hairMount.add(tail);
         }
-      } else if (hairId === "female_buns") {
-        // 女生款 3｜甜美雙丸子頭：無瀏海全露額頭（僅髮際線兩撮極短小胎毛）＋臉側細長鬢角＋雙丸子
-        if (!coverHat) {
-          [-1, 1].forEach((s) => {
-            addPart(hairMount, new THREE.SphereGeometry(0.19, 12, 10), mainMat, s * 0.37, 0.8, -0.02);
-            addPart(hairMount, new THREE.TorusGeometry(0.115, 0.03, 8, 14), hlMat, s * 0.32, 0.67, -0.01, Math.PI / 2, s * -0.42, 0);
-          });
-        }
-        // 僅兩撮極短俏皮胎毛點綴於高髮際線，額頭完全清爽露出
+        // 粉白兔子造型髮飾（戴帽仍保留可見）
+        const whiteMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.3 });
+        const pinkBowMat = new THREE.MeshStandardMaterial({ color: 0xf472b6, roughness: 0.32 });
+        const bunnyGrp = new THREE.Group();
+        bunnyGrp.position.set(0.28, coverHat ? 0.68 : 0.78, coverHat ? 0.22 : -0.05);
+        bunnyGrp.rotation.set(0.15, 0.2, -0.35);
+        addPart(bunnyGrp, new THREE.SphereGeometry(0.085, 10, 8), whiteMat, 0, 0, 0, 0, 0, 0, 1.15, 0.9, 0.7);
         [-1, 1].forEach((s) => {
-          addPart(hairMount, new THREE.ConeGeometry(0.042, 0.11, 6), mainMat, s * 0.17, 0.71, 0.34, 2.55, 0, s * -0.25);
-          addPart(hairMount, new THREE.CylinderGeometry(0.046, 0.028, 0.46, 8), mainMat, s * 0.43, 0.25, 0.22, 0, 0, s * -0.06);
+          addPart(bunnyGrp, new THREE.SphereGeometry(0.036, 8, 6), whiteMat, s * 0.045, 0.12, 0, 0, 0, s * -0.2, 0.85, 2.0, 0.65);
+          addPart(bunnyGrp, new THREE.SphereGeometry(0.02, 6, 6), pinkBowMat, s * 0.045, 0.12, 0.018, 0, 0, s * -0.2, 0.7, 1.5, 0.5);
+          addPart(bunnyGrp, new THREE.ConeGeometry(0.045, 0.09, 5), pinkBowMat, s * 0.06, -0.06, 0.02, 0, 0, s * -1.4);
         });
-      } else if (hairId === "female_longwavy") {
-        // 女生款 4｜優雅波浪長捲髮：中分無短瀏海，長髮從頭頂分線直接沿臉側垂落至身後大波浪
-        [-1, 1].forEach((s) => {
-          addPart(hairMount, new THREE.SphereGeometry(0.11, 10, 8), mainMat, s * 0.25, 0.67, 0.31, 0, 0, s * -0.58, 1.25, 0.76, 0.75);
-          addPart(hairMount, new THREE.SphereGeometry(0.095, 8, 8), mainMat, s * 0.4, 0.14, 0.22, 0, 0, s * -0.1, 0.75, 2.35, 0.85);
-        });
+        hairMount.add(bunnyGrp);
+      } else if (hairId === "female_bocchi") {
+        // 7｜粉髮方塊夾吉他手：櫻花粉超長直髮＋右側天藍與亮黃雙立體方塊髮夾
+        [-0.21, -0.07, 0.07, 0.21].forEach((x) => addPart(hairMount, new THREE.SphereGeometry(0.082, 8, 8), mainMat, x, 0.62, 0.4, 0, 0, 0, 0.92, 1.1, 0.68));
+        [-1, 1].forEach((s) => addPart(hairMount, new THREE.CylinderGeometry(0.072, 0.055, 0.58, 8), mainMat, s * 0.42, 0.24, 0.22, 0, 0, s * -0.08));
         if (headId !== "hacker_hood") {
-          const rows = [
-            [0, 0.08, -0.39, 0.34, 0.95],
-            [-0.22, -0.14, -0.37, 0.22, 1.15],
-            [0.22, -0.14, -0.37, 0.22, 1.15],
-            [0, -0.24, -0.38, 0.26, 1.2],
-            [-0.18, -0.42, -0.36, 0.18, 1.0],
-            [0.18, -0.42, -0.36, 0.18, 1.0]
-          ];
-          rows.forEach(([x, y, z, r, sy]) => addPart(hairMount, new THREE.SphereGeometry(r, 10, 8), shadeMat, x, y, z, 0, 0, 0, 1.15, sy, 0.58));
+          addPart(hairMount, new THREE.BoxGeometry(0.86, 0.95, 0.14), shadeMat, 0, -0.06, -0.36);
         }
+        // 天藍 (#38BDF8) + 亮黃 (#FACC15) 雙立體方塊幾何髮夾（戴帽仍保留）
+        const clipBlue = new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.25 });
+        const clipYellow = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.25 });
+        addPart(hairMount, new THREE.BoxGeometry(0.095, 0.095, 0.065), clipBlue, 0.31, 0.56, 0.34, 0, 0.35, 0.18);
+        addPart(hairMount, new THREE.BoxGeometry(0.095, 0.095, 0.065), clipYellow, 0.4, 0.58, 0.28, 0, 0.48, 0.18);
+      } else if (hairId === "female_momo") {
+        // 8｜外翹短髮大耳環少女：焦糖紅棕外翹翻飛短髮＋薄荷綠大圓環耳飾＋黑色頸圈
+        [-0.22, -0.06, 0.1, 0.24].forEach((x, idx) => {
+          addPart(hairMount, new THREE.SphereGeometry(0.082, 8, 8), mainMat, x, 0.62, 0.4, 0, 0, (idx - 1.5) * -0.1, 0.92, 1.08, 0.68);
+        });
+        addPart(hairMount, new THREE.CylinderGeometry(0.49, 0.44, 0.34, 16, 1, false, Math.PI * 0.22, Math.PI * 1.56), shadeMat, 0, 0.25, -0.05, 0, Math.PI, 0, 1.06, 1, 0.98);
+        const mintMat = new THREE.MeshStandardMaterial({ color: 0x34d399, emissive: 0x10b981, emissiveIntensity: 0.25, roughness: 0.28 });
+        const chokerMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.45 });
+        const studMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, metalness: 0.7, roughness: 0.2 });
+        [-1, 1].forEach((s) => {
+          // 髮側＋髮尾明顯向外上方「外翹翻飛」
+          addPart(hairMount, new THREE.SphereGeometry(0.105, 10, 8), mainMat, s * 0.43, 0.28, 0.2, 0, 0, s * -0.12, 0.7, 1.65, 0.82);
+          addPart(hairMount, new THREE.ConeGeometry(0.11, 0.28, 8), mainMat, s * 0.54, 0.16, 0.08, 0, 0, s * -1.15);
+          // 薄荷綠大圓環耳飾
+          addPart(hairMount, new THREE.TorusGeometry(0.09, 0.024, 8, 16), mintMat, s * 0.49, 0.25, 0.03, 0, Math.PI / 2, 0);
+        });
+        // 黑色酷炫頸圈 Choker
+        addPart(hairMount, new THREE.TorusGeometry(0.162, 0.026, 8, 16), chokerMat, 0, -0.02, 0, Math.PI / 2, 0, 0);
+        addPart(hairMount, new THREE.SphereGeometry(0.024, 8, 6), studMat, 0, -0.02, 0.175);
       }
     }
 
@@ -11177,8 +11323,8 @@
       }[botId] || 0x3d5a80;
       pantsMat.color.setHex(botHex);
 
-      // 長波浪髮或斗篷時自動隱藏書包防穿模
-      backpack.visible = hairId !== "female_longwavy" && outerId !== "star_cloak";
+      // 長直髮／側馬尾或斗篷時自動隱藏書包防穿模
+      backpack.visible = hairId !== "female_bocchi" && hairId !== "female_ai" && outerId !== "star_cloak";
 
       // 1. 頭飾（完美貼合頭頂且保留瀏海與鬢角）
       if (headId === "esports_headset") {
@@ -11220,7 +11366,7 @@
         addPart(headMount, new THREE.CylinderGeometry(0.03, 0.04, 0.14, 6), leafMat, -0.08, 1.03, -0.02, 0, 0, 0.22);
       } else if (headId === "star_crown") {
         const goldMat = new THREE.MeshStandardMaterial({ color: 0xffd166, emissive: 0xb8860b, emissiveIntensity: 0.25, roughness: 0.25, metalness: 0.55 });
-        const crownY = hairId === "female_buns" ? 0.92 : 0.88;
+        const crownY = (hairId === "male_gojo" || hairId === "male_isagi" || hairId === "male_okarun") ? 0.93 : 0.88;
         addPart(headMount, new THREE.CylinderGeometry(0.22, 0.19, 0.16, 6), goldMat, 0, crownY, 0.04, 0.1, 0, 0);
         for (let i = 0; i < 5; i++) {
           const a = (i / 5) * Math.PI * 2;
@@ -11310,7 +11456,7 @@
       // 6. 頭頂光環
       if (auraId === "note_halo") {
         const haloMat = new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd166, emissiveIntensity: 0.85, roughness: 0.2 });
-        const haloY = (headId === "star_crown" || hairId === "male_spiky" || hairId === "female_buns") ? 0.14 : 0.0;
+        const haloY = (headId === "star_crown" || hairId === "male_gojo" || hairId === "male_isagi" || hairId === "male_okarun") ? 0.16 : 0.0;
         addPart(auraMount, new THREE.TorusGeometry(0.32, 0.032, 8, 22), haloMat, 0, haloY, 0, Math.PI / 2, 0, 0);
       }
 
@@ -11331,7 +11477,7 @@
 
       // 動態調整頭頂班級座號名牌高度，避免與高髮型／皇冠／滑板重疊
       let spriteY = 2.68;
-      if (hairId === "male_spiky" || hairId === "female_buns" || hairId === "female_ponytail") spriteY += 0.16;
+      if (hairId === "male_gojo" || hairId === "male_isagi" || hairId === "male_okarun" || hairId === "female_ai") spriteY += 0.18;
       if (headId === "star_crown" || headId === "shiba_ears" || headId === "esports_headset") spriteY += 0.18;
       if (auraId === "note_halo") spriteY += 0.16;
       if (onBoard) spriteY += 0.24;
@@ -11343,18 +11489,24 @@
       const st = av && typeof av.getState === "function" ? av.getState() : null;
       const look = av && typeof av.normalizeLook === "function"
         ? av.normalizeLook(st && st.look)
-        : Object.assign({ hair: "male_fluffy", hairColor: "black", face: "calm" }, (st && st.look) || {});
+        : Object.assign({ hair: "male_gojo", hairColor: "silver", face: "calm" }, (st && st.look) || {});
       const colors = (av && av.HAIR_COLORS) || [
-        { id: "black", c: "#2b2e4d", s: "#17182b", hl: "#ff4d8d" },
-        { id: "brown", c: "#9c5c26", s: "#633611", hl: "#ffd166" },
-        { id: "pink", c: "#f492bc", s: "#c95f8d", hl: "#7dd3fc" },
-        { id: "blue", c: "#3498f0", s: "#1756b0", hl: "#ff79c6" }
+        { id: "silver", c: "#F1F5F9", s: "#B8C7D9", hl: "#38BDF8" },
+        { id: "indigo", c: "#1E1B4B", s: "#0F0D2E", hl: "#A855F7" },
+        { id: "navy", c: "#172554", s: "#0B1333", hl: "#10B981" },
+        { id: "violetpink", c: "#C026D3", bot: "#EC4899", s: "#6B21A8", hl: "#FDE047" },
+        { id: "pink", c: "#F472B6", s: "#BE185D", hl: "#38BDF8" },
+        { id: "caramel", c: "#A14D3A", s: "#692B1E", hl: "#34D399" },
+        { id: "black", c: "#2B2E4D", s: "#17182B", hl: "#FF4D8D" },
+        { id: "blue", c: "#3498F0", s: "#1756B0", hl: "#FF79C6" }
       ];
-      const hc = colors.find((x) => x.id === look.hairColor) || colors[0];
+      const hc = (av && typeof av.getHairPalette === "function")
+        ? av.getHairPalette(look.hair, look.hairColor)
+        : (colors.find((x) => x.id === look.hairColor) || colors[0]);
       const eq = (st && st.equipped) || {};
       const headId = eq.head || "";
 
-      rebuildFace3D(look.face, hc.s);
+      rebuildFace3D(look.face, hc.s, look.hair, eq.face || "");
       rebuildHair3D(look.hair, hc, headId);
       rebuildGear3D(eq, look.hair);
     }
