@@ -398,11 +398,14 @@
           ls.set(TEACHERS_LIST_KEY, cachedTeachersList);
         }
         if (tid === getTeacherId()) {
-          if (json.currentTeacher && typeof json.currentTeacher === "object") {
+          const serverTeacher = (json.currentTeacher && typeof json.currentTeacher === "object")
+            ? json.currentTeacher
+            : ((json.teacherInfo && typeof json.teacherInfo === "object") ? json.teacherInfo : null);
+          if (serverTeacher) {
             cachedCurrentTeacher = {
-              teacherId: String(json.currentTeacher.teacherId || tid).trim(),
-              schoolName: String(json.currentTeacher.schoolName || "").trim(),
-              teacherName: String(json.currentTeacher.teacherName || "").trim()
+              teacherId: String(serverTeacher.teacherId || tid).trim(),
+              schoolName: String(serverTeacher.schoolName || "").trim(),
+              teacherName: String(serverTeacher.teacherName || "").trim()
             };
             ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
           } else if (tid) {
@@ -696,7 +699,7 @@
             ok: false,
             status: "need_pin_setup",
             maskedName: loginRes.maskedName || "",
-            hasRosterMatch: !!loginRes.hasRosterMatch
+            hasRosterMatch: !!(loginRes.hasRosterMatch || loginRes.resolvedName)
           };
         }
         if (loginRes.status === "invalid_pin") {

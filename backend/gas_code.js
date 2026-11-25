@@ -475,24 +475,31 @@ function teacherLogin_(req) {
 }
 
 /* ---------- 名冊與學生列查詢 ---------- */
-function findRosterStudentName_(ss, className, seat) {
-  var targetCls = String(className || "").trim();
-  var targetSeat = Number(seat);
-  var names = [SHEET_TEACHER_ROSTER, SHEET_ROSTER];
-  for (var s = 0; s < names.length; s++) {
-    var sh = ss.getSheetByName(names[s]);
-    if (!sh || sh.getLastRow() <= 1) continue;
-    var rows = sh.getDataRange().getValues();
-    for (var i = 1; i < rows.length; i++) {
-      var rCls = String(rows[i][0] || "").trim();
-      var rSeat = Number(rows[i][1]);
-      var rName = String(rows[i][2] || "").trim();
-      if (rCls === targetCls && rSeat === targetSeat && rName) {
-        return rName;
-      }
+function normalizeNameCmp_(name) {
+  return String(name || "").replace(/[\s\u3000]+/g, "").trim();
+}
+
+function findSheetStudentName_(ss, sheetName, className, seat) {
+  var targetCls = normalizeRosterClass_("", className);
+  var targetSeat = Number(String(seat || "").replace(/號/g, "").trim());
+  if (!targetCls || !(targetSeat >= 1 && targetSeat <= 60)) return "";
+  var sh = ss.getSheetByName(sheetName);
+  if (!sh || sh.getLastRow() <= 1) return "";
+  var rows = sh.getDataRange().getValues();
+  for (var i = 1; i < rows.length; i++) {
+    var rCls = normalizeRosterClass_("", rows[i][0]);
+    var rSeat = Number(String(rows[i][1] || "").replace(/號/g, "").trim());
+    var rName = String(rows[i][2] || "").trim();
+    if (rCls === targetCls && rSeat === targetSeat && rName) {
+      return rName;
     }
   }
   return "";
+}
+
+function findRosterStudentName_(ss, className, seat) {
+  return findSheetStudentName_(ss, SHEET_TEACHER_ROSTER, className, seat)
+    || findSheetStudentName_(ss, SHEET_ROSTER, className, seat);
 }
 
 function findLeaderboardRowByKey_(sh, studentKey) {
@@ -535,7 +542,15 @@ function studentLogin_(req) {
 
   var grade = parseGrade_(req.grade, className);
   var studentKey = grade + "_" + className + "_" + seat;
-  var rosterName = findRosterStudentName_(ss, className, seatNum);
+  var officialRosterName = findSheetStudentName_(ss, SHEET_TEACHER_ROSTER, className, seatNum);
+  var rosterName = officialRosterName || findSheetStudentName_(ss, SHEET_ROSTER, className, seatNum);
+  if (officialRosterName && normalizeNameCmp_(name) !== normalizeNameCmp_(officialRosterName)) {
+    return {
+      status: "error",
+      message: "姓名與教師上傳的班級名冊不符，請確認班級、座號與真實姓名（該座號登記為：" + maskName_(officialRosterName) + "）"
+    };
+  }
+  var canonicalName = officialRosterName || name;
   var lbSh = leaderboardSheetOn_(ss);
   var hit = findLeaderboardRowByKey_(lbSh, studentKey);
   var ts = now_();
@@ -557,7 +572,7 @@ function studentLogin_(req) {
     if (!Array.isArray(progressArr)) progressArr = [];
 
     if (hit) {
-      var rowName = String(hit.row[4] || "").trim() || name;
+      var rowName = officialRosterName || String(hit.row[4] || "").trim() || canonicalName;
       lbSh.getRange(hit.rowNum, 5).setValue(rowName);
       lbSh.getRange(hit.rowNum, 8).setValue(ts);
       lbSh.getRange(hit.rowNum, 9).setNumberFormat("@").setValue(String(pinCode).trim());
@@ -565,11 +580,11 @@ function studentLogin_(req) {
       var nextLbRow = lbSh.getLastRow() + 1;
       lbSh.getRange(nextLbRow, 9).setNumberFormat("@");
       lbSh.getRange(nextLbRow, 1, 1, LEADERBOARD_HEADER.length).setValues([[
-        studentKey, grade, className, seat, name, 0, 0, ts, String(pinCode).trim(), "", "[]"
+        studentKey, grade, className, seat, canonicalName, 0, 0, ts, String(pinCode).trim(), "", "[]"
       ]]);
     }
 
-    login_({ cls: className, seat: seatNum, name: name }, ss);
+    login_({ cls: className, seat: seatNum, name: canonicalName }, ss);
 
     return {
       status: "ok",
@@ -579,7 +594,7 @@ function studentLogin_(req) {
         grade: grade,
         className: className,
         seat: seat,
-        name: hit ? (String(hit.row[4] || "").trim() || name) : name,
+        name: hit ? (officialRosterName || String(hit.row[4] || "").trim() || canonicalName) : canonicalName,
         totalScore: hit ? (Number(hit.row[5]) || 0) : 0,
         crownCount: hit ? (Number(hit.row[6]) || 0) : 0,
         avatar: avatarObj,
@@ -597,7 +612,7 @@ function studentLogin_(req) {
   }
 
   // 驗證成功 -> 回傳雲端外觀與過關進度
-  var savedName = String(hit.row[4] || "").trim() || name;
+  var savedName = officialRosterName || String(hit.row[4] || "").trim() || canonicalName;
   var savedAvatar = safeJsonParse_(String(hit.row[9] || ""), null);
   var savedProgress = safeJsonParse_(String(hit.row[10] || "[]"), []);
   if (!Array.isArray(savedProgress)) savedProgress = [];
