@@ -1088,8 +1088,44 @@
    * ------------------------------------------------------------------ */
   const profile = () => (window.Store && window.Store.profile) || null;
   const stateKey = (p) => `ii:avatar:${p.cls}-${p.seat}-${p.name}`;
-  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], presetLocked: false });
-  let guestState = blankState();
+  const labKey = (p) => (p ? `ii:microlab:${p.cls}-${p.seat}-${p.name}` : "ii:microlab:guest");
+  const LAB_COIN_REWARD = 20;
+  const LAB_ID_ALIAS = {
+    sys: "sys", hardware: "sys", hw: "sys",
+    citizen: "citizen", security: "citizen", sec: "citizen",
+    create: "create", creation: "create", creative: "create",
+    code: "code", programming: "code", prog: "code",
+    algo: "algo", algorithm: "algo", alg: "algo",
+    data: "data",
+    ai: "ai"
+  };
+  const LAB_ISLAND_IDS = new Set(["sys", "citizen", "create", "code", "algo", "data", "ai"]);
+  function resolveLabIslandId(id) {
+    const key = String(id || "").trim().toLowerCase();
+    const mapped = LAB_ID_ALIAS[key] || "";
+    return LAB_ISLAND_IDS.has(mapped) ? mapped : "";
+  }
+  function sanitizeLabList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    raw.forEach((id) => {
+      const c = resolveLabIslandId(id);
+      if (c && !out.includes(c)) out.push(c);
+    });
+    return out;
+  }
+  function readGuestLabCompleted() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(labKey(null)) || "[]");
+      return sanitizeLabList(raw);
+    } catch { return []; }
+  }
+  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], labCompleted: [], presetLocked: false });
+  let guestState = (() => {
+    const st = blankState();
+    st.labCompleted = readGuestLabCompleted();
+    return st;
+  })();
   let cloudSyncTimer = null;
 
   function sanitizeState(raw) {
@@ -1099,6 +1135,7 @@
       st.presetLocked = Boolean(raw.presetLocked);
       st.unlocked = Array.isArray(raw.unlocked) ? Array.from(new Set(raw.unlocked.filter((id) => ITEM_MAP[id]))) : [];
       st.npcSolved = Array.isArray(raw.npcSolved) ? Array.from(new Set(raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)))) : [];
+      st.labCompleted = sanitizeLabList(raw.labCompleted);
       const eq = raw.equipped && typeof raw.equipped === "object" ? raw.equipped : {};
       Object.keys(eq).forEach((slot) => {
         const item = ITEM_MAP[eq[slot]];
@@ -1113,12 +1150,24 @@
     if (!p) return guestState;
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { raw = null; }
-    return sanitizeState(raw);
+    const st = sanitizeState(raw);
+    try {
+      const extraLabs = sanitizeLabList(JSON.parse(localStorage.getItem(labKey(p)) || "[]"));
+      if (extraLabs.length) st.labCompleted = Array.from(new Set([...st.labCompleted, ...extraLabs]));
+    } catch {}
+    return st;
   }
   function saveState(st, opt = {}) {
     const p = profile();
-    if (!p) { guestState = st; return; }
-    try { localStorage.setItem(stateKey(p), JSON.stringify(st)); } catch (e) { console.warn(e); }
+    if (!p) {
+      guestState = st;
+      try { localStorage.setItem(labKey(null), JSON.stringify(st.labCompleted || [])); } catch (e) { console.warn(e); }
+      return;
+    }
+    try {
+      localStorage.setItem(stateKey(p), JSON.stringify(st));
+      localStorage.setItem(labKey(p), JSON.stringify(st.labCompleted || []));
+    } catch (e) { console.warn(e); }
     if (opt.syncCloud !== false && window.Store && typeof window.Store.saveAvatarToCloud === "function") {
       if (opt.immediate) {
         clearTimeout(cloudSyncTimer);
@@ -1140,6 +1189,7 @@
     const cloudSt = sanitizeState(cloudAv);
     const mergedUnlocked = Array.from(new Set([...localSt.unlocked, ...cloudSt.unlocked]));
     const mergedNpcSolved = Array.from(new Set([...localSt.npcSolved, ...cloudSt.npcSolved]));
+    const mergedLabs = Array.from(new Set([...localSt.labCompleted, ...cloudSt.labCompleted]));
     const hasCloudLocked = cloudAv.presetLocked !== undefined;
     const presetLocked = hasCloudLocked ? Boolean(cloudAv.presetLocked) : localSt.presetLocked;
     const useCloudLook = Boolean(cloudAv.look && (cloudSt.presetLocked || !localRaw || !localRaw.look));
@@ -1153,13 +1203,48 @@
       presetLocked,
       unlocked: mergedUnlocked,
       npcSolved: mergedNpcSolved,
+      labCompleted: mergedLabs,
       equipped: eqSource
     });
-    try { localStorage.setItem(stateKey(p), JSON.stringify(merged)); } catch (e) { console.warn(e); }
+    try {
+      localStorage.setItem(stateKey(p), JSON.stringify(merged));
+      localStorage.setItem(labKey(p), JSON.stringify(merged.labCompleted || []));
+    } catch (e) { console.warn(e); }
     emit();
     return merged;
   }
   const emit = () => document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
+
+  function getCompletedMicroLabs() {
+    return (getState().labCompleted || []).slice();
+  }
+  function isMicroLabCompleted(islandId) {
+    const cid = resolveLabIslandId(islandId);
+    return cid ? getCompletedMicroLabs().includes(cid) : false;
+  }
+  function completeMicroLab(islandId) {
+    const cid = resolveLabIslandId(islandId);
+    if (!cid) return { ok: false, gained: 0, coins: wallet().coins };
+    const st = getState();
+    const isGuest = !profile();
+    const already = st.labCompleted.includes(cid);
+    let gained = 0;
+    if (!already) {
+      st.labCompleted = [...st.labCompleted, cid];
+      gained = LAB_COIN_REWARD;
+      saveState(st, { immediate: true });
+      emit();
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { islandId: cid, completed: true, gained } }));
+    }
+    return {
+      ok: true,
+      islandId: cid,
+      gained,
+      already,
+      guest: isGuest,
+      coins: wallet(st).coins
+    };
+  }
 
   /** 讀取既有測驗紀錄，追溯各難度通過單元數（任一次 ≥ 60 分即算通過） */
   function quizStats() {
@@ -1198,8 +1283,10 @@
     });
     const avail = {};
     Object.keys(earned).forEach((k) => { avail[k] = Math.max(0, earned[k] - used[k]); });
-    const coinsEarned = st.npcSolved.length * COIN_PER_QUESTION;
-    return { earned, used, avail, coinsEarned, spent, coins: Math.max(0, coinsEarned - spent) };
+    const labCount = Array.isArray(st.labCompleted) ? st.labCompleted.length : 0;
+    const labCoinsEarned = labCount * LAB_COIN_REWARD;
+    const coinsEarned = st.npcSolved.length * COIN_PER_QUESTION + labCoinsEarned;
+    return { earned, used, avail, coinsEarned, labCoinsEarned, spent, coins: Math.max(0, coinsEarned - spent) };
   }
 
   const TITLES = [
@@ -1556,9 +1643,10 @@
   }
 
   window.AvatarSystem = {
-    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, DEFAULT_LOOK, EYE_PRESETS,
+    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
     renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar,
     getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc,
+    resolveLabIslandId, isMicroLabCompleted, getCompletedMicroLabs, completeMicroLab,
     toast, mountNpcQuiz, downloadCard, esc
   };
 })();

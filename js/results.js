@@ -183,7 +183,7 @@
     const T = AV.TIERS;
     $("#avWallet").innerHTML = ["easy", "medium", "hard"].map((k) =>
       `<span class="av-cap cap-${k}" title="通過「${T[k].diffName}」測驗累計 ${w.earned[k]} 張，已使用 ${w.used[k]} 張">🎟️ ${T[k].short}<b>${w.avail[k]}</b></span>`).join("")
-      + `<span class="av-cap cap-star" title="NPC 島答對累計 ${w.coinsEarned} 枚，已花費 ${w.spent} 枚">⭐ 探索星幣<b>${w.coins}</b></span>`;
+      + `<span class="av-cap cap-star" title="NPC 島與微實作實驗室累計 ${w.coinsEarned} 枚，已花費 ${w.spent} 枚">⭐ 探索星幣<b>${w.coins}</b></span>`;
   }
 
   /* ---------------- 右側：RPG 戰績條 ---------------- */
@@ -208,7 +208,7 @@
       easy: `🎟️ 每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
       medium: `🎟️ 每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
       hard: `🎟️ 每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
-      star: `⭐ 到地圖上的 7 座 NPC 島參加「領航員隨堂快問快答」，每答對 1 題新題目 +${AV.COIN_PER_QUESTION} 星幣（目前 <b>${w.coins} ⭐</b>）`
+      star: `⭐ 到地圖上的 7 座 NPC 島參加「領航員隨堂快問快答」（每題 +${AV.COIN_PER_QUESTION} ⭐），或完成七大島「延伸探索」微實作實驗室（每島 +${AV.LAB_COIN_REWARD || 20} ⭐）（目前 <b>${w.coins} ⭐</b>）`
     };
     $("#avHint").innerHTML = hint[tab];
     wrap.querySelectorAll(".av-tab").forEach((b) => {
@@ -378,10 +378,18 @@
         <span class="meta">${r.done ? `${r.attempts} 次 · ${new Date(r.latest.ts).toLocaleDateString("zh-TW")}` : ""}</span></div>`).join("");
 
     const bd = Store.badges(), BG = (window.Quiz && Quiz.BADGES) || {};
-    $("#resBadges").innerHTML = bd.length ? bd.sort((a, b) => b.ts - a.ts).map((b) => `<div class="res-badge b-${b.type}">
+    const labIds = typeof AV.getCompletedMicroLabs === "function" ? AV.getCompletedMicroLabs() : [];
+    const labBadgesHtml = labIds.map((id) => {
+      const isl = ISLANDS.find((x) => x.id === id);
+      const label = isl ? `${isl.emoji} ${isl.name}` : id;
+      return `<div class="res-badge b-microlab"><span class="rb-ico">🔬</span><div><b>微實作大師徽章</b><small>${esc(label)} · 已領取 +${AV.LAB_COIN_REWARD || 20} ⭐</small></div></div>`;
+    }).join("");
+    const quizBadgesHtml = bd.sort((a, b) => b.ts - a.ts).map((b) => `<div class="res-badge b-${b.type}">
         <span class="rb-ico">${(BG[b.type] || {}).icon || "🏅"}</span>
-        <div><b>${(BG[b.type] || {}).name || b.type}</b><small>${b.unitName || b.unit} · ${new Date(b.ts).toLocaleDateString("zh-TW")}</small></div></div>`).join("")
-      : `<p class="res-note">還沒有徽章。在支援分級測驗的單元通過「中」可得銀色羅盤徽章、通過「難」可得金色大師徽章！</p>`;
+        <div><b>${(BG[b.type] || {}).name || b.type}</b><small>${b.unitName || b.unit} · ${new Date(b.ts).toLocaleDateString("zh-TW")}</small></div></div>`).join("");
+    $("#resBadges").innerHTML = (labBadgesHtml || quizBadgesHtml)
+      ? (labBadgesHtml + quizBadgesHtml)
+      : `<p class="res-note">還沒有徽章。在支援分級測驗的單元通過「中」可得銀色羅盤徽章、通過「難」可得金色大師徽章，或完成各島「延伸探索」微實作實驗室拿微實作大師徽章！</p>`;
 
     if (typeof Chart === "undefined") {
       $(".radar-box").innerHTML = `<p class="err">圖表函式庫載入失敗，請檢查網路連線後重新整理。</p>`; return;

@@ -108,12 +108,15 @@
   $("#routeToggle").onchange = (e) => { $("#routePath").style.display = e.target.checked ? "" : "none"; };
 
   /* ---------- list & term views ---------- */
+  const isMicroLabDone = (id) => !!(window.IslandMicroLabs && typeof window.IslandMicroLabs.isLabCompleted === "function" && window.IslandMicroLabs.isLabCompleted(id));
+
   function buildCards() {
     const box = $("#cards"); box.innerHTML = "";
     ISLANDS.forEach(i => {
       const b = document.createElement("button");
+      const labDone = isMicroLabDone(i.id);
       b.className = "card" + (matches(i) ? "" : " dim"); b.style.setProperty("--c", i.color);
-      b.innerHTML = `<h3>${i.emoji} ${i.name}</h3><p>${i.tagline}</p>
+      b.innerHTML = `<div class="card-head-row"><h3>${i.emoji} ${i.name}</h3>${labDone ? `<span class="mlab-card-badge">✔ 微實作已通關</span>` : ""}</div><p>${i.tagline}</p>
         <p class="meta">${i.tag} · ${grades(i).map(g => gradeName[g]).join("、")} · 建議 ${hours(i)} 節 · ${i.sequence.length} 個單元</p>`;
       b.onclick = () => openIsland(i.id);
       box.appendChild(b);
@@ -147,8 +150,40 @@
 
   /* ---------- drawer ---------- */
   const TABS = ["標準", "架構", "順序", "目標", "評量", "延伸"];
-  const TAB_LABEL = { 標準: "課綱對應", 架構: "課程架構", 順序: "課程內容", 目標: "課程目標", 評量: "評量方式", 延伸: "延伸內容" };
+  const TAB_LABEL = { 標準: "課綱對應", 架構: "課程架構", 順序: "課程內容", 目標: "課程目標", 評量: "評量方式", 延伸: "延伸探索" };
   const drawer = $("#drawer"), backdrop = $("#backdrop");
+  if (drawer) {
+    drawer.setAttribute("data-scrollable", "true");
+    const stopDrawerScrollLeak = (e) => { e.stopPropagation(); };
+    drawer.addEventListener("wheel", stopDrawerScrollLeak, { passive: true });
+    drawer.addEventListener("touchmove", stopDrawerScrollLeak, { passive: true });
+  }
+  const tabBodyEl = $("#tabBody");
+  if (tabBodyEl) tabBodyEl.setAttribute("data-scrollable", "true");
+
+  function syncDrawerBadges(i) {
+    if (!i) return;
+    const done = isMicroLabDone(i.id);
+    const extTab = document.querySelector('.tab[data-t="延伸"]');
+    if (extTab) {
+      extTab.innerHTML = done
+        ? `${TAB_LABEL["延伸"]} <span class="mlab-tab-badge" title="微實作實驗室已通關 (+20 ⭐)">✔</span>`
+        : TAB_LABEL["延伸"];
+    }
+    const badgeRow = $("#drawerHead .d-badges");
+    if (badgeRow) {
+      let mb = badgeRow.querySelector(".mlab-head-badge");
+      if (done && !mb) {
+        mb = document.createElement("span");
+        mb.className = "badge mlab-head-badge";
+        mb.textContent = "🔬 微實作大師";
+        badgeRow.appendChild(mb);
+      } else if (!done && mb) {
+        mb.remove();
+      }
+    }
+  }
+
   function openIsland(id, tab = "標準", unitKey = null) {
     const i = byId[id]; if (!i) return;
     state.island = i; state.tab = tab; state.unit = null; state.usub = "learn";
@@ -159,13 +194,14 @@
     $("#drawerHead").innerHTML = `<div class="d-head" style="--c:${i.color}">
       <div class="big">${i.emoji}</div><h2>${i.name}</h2>
       <p>${i.tagline}</p>
-      <p style="margin-top:8px"><span class="badge">${i.tag}</span><span class="badge">${grades(i).map(g => gradeName[g]).join("、")}</span><span class="badge">建議 ${hours(i)} 節</span>${i.extra ? '<span class="badge">延伸</span>' : ""}</p></div>`;
+      <p class="d-badges" style="margin-top:8px"><span class="badge">${i.tag}</span><span class="badge">${grades(i).map(g => gradeName[g]).join("、")}</span><span class="badge">建議 ${hours(i)} 節</span>${i.extra ? '<span class="badge">延伸</span>' : ""}</p></div>`;
     const tabs = $("#tabs"); tabs.innerHTML = "";
     TABS.forEach(t => {
       const b = document.createElement("button"); b.className = "tab"; b.dataset.t = t; b.textContent = TAB_LABEL[t];
       b.setAttribute("role", "tab");
       b.onclick = () => { state.tab = t; state.unit = null; renderTab(); }; tabs.appendChild(b);
     });
+    syncDrawerBadges(i);
     renderTab();
     drawer.classList.add("open"); backdrop.classList.add("show"); drawer.setAttribute("aria-hidden", "false");
     history.replaceState(null, "", "#" + id);
@@ -178,7 +214,10 @@
   }
   window.openIsland = openIsland;
   function closeDrawer() {
-    drawer.classList.remove("open"); backdrop.classList.remove("show"); drawer.setAttribute("aria-hidden", "true");
+    if (window.IslandMicroLabs && typeof window.IslandMicroLabs.unmount === "function") {
+      window.IslandMicroLabs.unmount();
+    }
+    drawer.classList.remove("open", "is-lab-wide"); backdrop.classList.remove("show"); drawer.setAttribute("aria-hidden", "true");
     state.island = null; history.replaceState(null, "", location.pathname + location.search);
   }
   $("#closeBtn").onclick = closeDrawer; backdrop.onclick = closeDrawer;
@@ -227,7 +266,11 @@
       const rub = i.rubric ? `<h3>表現任務評分規準(參考)</h3><table class="rubric"><tr><th>向度</th><th>表現優良</th><th>基本達成</th><th>待加強</th></tr>${i.rubric.map(r => `<tr><td>${r.c}</td><td>${r.a}</td><td>${r.b}</td><td>${r.t}</td></tr>`).join("")}</table>` : "";
       return head + rub;
     },
-    延伸(i) { return i.extension.map(x => `<div class="ext"><span class="ty">${x.type}</span><div><b>${x.title}</b><p>${x.desc}</p></div></div>`).join(""); }
+    延伸(i) {
+      return `<div id="islandMicroLabMount" class="mlab-mount" data-scrollable="true"></div>` +
+        `<h3 class="mlab-ext-heading">📚 延伸學習資源</h3>` +
+        i.extension.map(x => `<div class="ext"><span class="ty">${x.type}</span><div><b>${x.title}</b><p>${x.desc}</p></div></div>`).join("");
+    }
   };
   /* ---------- 單元詳細頁（三頁籤：學習內容 / 教案與學習單 / 單元挑戰） ---------- */
   const USUBS = [["learn", "📖 學習內容"], ["plan", "📝 教案與學習單"], ["quiz", "🎯 單元挑戰"]];
@@ -271,9 +314,31 @@
 
   function renderTab() {
     const i = state.island; if (!i) return;
+    if (window.IslandMicroLabs && typeof window.IslandMicroLabs.unmount === "function") {
+      window.IslandMicroLabs.unmount();
+    }
+    drawer.classList.toggle("is-lab-wide", state.tab === "延伸" && !state.unit);
     document.querySelectorAll(".tab").forEach(b => { const on = b.dataset.t === state.tab; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
     $("#tabBody").innerHTML = state.unit && state.tab === "順序" ? renderUnit(i) : R[state.tab](i); $("#tabBody").scrollTop = 0;
+    if (state.tab === "延伸" && !state.unit && window.IslandMicroLabs && typeof window.IslandMicroLabs.mount === "function") {
+      window.IslandMicroLabs.mount($("#islandMicroLabMount"), i.id);
+    }
   }
+
+  const syncLabUiBadges = () => {
+    buildCards();
+    if (state.island) syncDrawerBadges(state.island);
+  };
+  document.addEventListener("ii:microlab-updated", syncLabUiBadges);
+  document.addEventListener("ii:avatar-changed", syncLabUiBadges);
+  document.addEventListener("ii:login", () => {
+    syncLabUiBadges();
+    if (state.island && state.tab === "延伸" && !state.unit) renderTab();
+  });
+  document.addEventListener("ii:logout", () => {
+    syncLabUiBadges();
+    if (state.island && state.tab === "延伸" && !state.unit) renderTab();
+  });
 
   /* ---------- 教案綱要 / 學習單彈窗 ---------- */
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
