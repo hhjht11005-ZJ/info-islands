@@ -3,7 +3,9 @@ import QRCode from "qrcode";
 
 (() => {
   const SESSION_KEY = "ii:teacher_cockpit_pwd";
-  const TEACHER_SESSION_KEY = "ii:teacher_cockpit_session_v2";
+  const LEGACY_TEACHER_SESSION_KEY = "ii:teacher_cockpit_session_v2";
+  const TEACHER_SESSION_KEY = "island_teacher_session";
+  const TEACHER_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
   const DIFF_LABELS = { easy: "易", medium: "中", hard: "難", single: "標準" };
   const LETTERS = "ABCDE";
 
@@ -292,6 +294,8 @@ import QRCode from "qrcode";
   /* ---- 狀態 ---- */
   let state = {
     data: { roster: [], students: [], wrongLogs: [], config: null },
+    hasLoadedDashboard: false,
+    teacherSession: null, // { teacherId, schoolName, teacherName, account, password, expiresAt }
     teacher: null, // { teacherId, schoolName, teacherName, account }
     teacherPassword: "",
     authTab: "login", // "login" | "register"
@@ -328,76 +332,134 @@ import QRCode from "qrcode";
     }
   }
 
-  function setTeacherSession(teacherObj, pwd) {
-    state.teacherPassword = String(pwd || "");
-    state.teacher = (teacherObj && typeof teacherObj === "object")
-      ? {
-          teacherId: String(teacherObj.teacherId || "").trim(),
-          schoolName: String(teacherObj.schoolName || "").trim(),
-          teacherName: String(teacherObj.teacherName || "").trim(),
-          account: String(teacherObj.account || "").trim()
-        }
-      : state.teacher;
+  function isTeacherSessionValid(sess) {
+    if (!sess || typeof sess !== "object") return false;
+    if (!sess.password) return false;
+    const exp = Number(sess.expiresAt);
+    if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) return false;
+    return true;
+  }
+
+  function clearTeacherSession() {
+    state.teacherSession = null;
+    state.teacherPassword = "";
+    state.teacher = null;
+    state.hasLoadedDashboard = false;
     try {
-      if (state.teacherPassword) {
-        sessionStorage.setItem(SESSION_KEY, state.teacherPassword);
-        sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify({
-          teacher: state.teacher,
-          password: state.teacherPassword
-        }));
-      } else {
-        sessionStorage.removeItem(SESSION_KEY);
-        sessionStorage.removeItem(TEACHER_SESSION_KEY);
-      }
+      sessionStorage.removeItem(TEACHER_SESSION_KEY);
+      sessionStorage.removeItem(SESSION_KEY);
+      sessionStorage.removeItem(LEGACY_TEACHER_SESSION_KEY);
     } catch {}
   }
 
+  function clearTeacherPassword() {
+    clearTeacherSession();
+  }
+
+  function setTeacherSession(teacherObj, pwd, fallbackAccount = "") {
+    const passwordStr = String(pwd || "");
+    if (!passwordStr) {
+      clearTeacherSession();
+      return null;
+    }
+    const prev = (state.teacherSession && typeof state.teacherSession === "object") ? state.teacherSession : {};
+    const t = (teacherObj && typeof teacherObj === "object") ? teacherObj : {};
+    const sessionObj = {
+      teacherId: String(t.teacherId ?? prev.teacherId ?? "").trim(),
+      schoolName: String(t.schoolName ?? prev.schoolName ?? "").trim(),
+      teacherName: String(t.teacherName ?? prev.teacherName ?? "").trim(),
+      account: String(t.account ?? fallbackAccount ?? prev.account ?? "").trim(),
+      password: passwordStr,
+      expiresAt: Date.now() + TEACHER_SESSION_TTL_MS
+    };
+    state.teacherSession = sessionObj;
+    state.teacherPassword = sessionObj.password;
+    state.teacher = {
+      teacherId: sessionObj.teacherId,
+      schoolName: sessionObj.schoolName,
+      teacherName: sessionObj.teacherName,
+      account: sessionObj.account
+    };
+    try {
+      sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(sessionObj));
+      sessionStorage.setItem(SESSION_KEY, sessionObj.password);
+      sessionStorage.setItem(LEGACY_TEACHER_SESSION_KEY, JSON.stringify({
+        teacher: state.teacher,
+        password: sessionObj.password,
+        expiresAt: sessionObj.expiresAt
+      }));
+    } catch {}
+    return sessionObj;
+  }
+
   function getTeacherSession() {
-    if (state.teacherPassword) {
-      return { teacher: state.teacher, password: state.teacherPassword };
+    if (state.teacherSession && state.teacherSession.password) {
+      if (isTeacherSessionValid(state.teacherSession)) {
+        return state.teacherSession;
+      }
+      clearTeacherSession();
+      return null;
     }
     try {
       const raw = sessionStorage.getItem(TEACHER_SESSION_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (parsed && parsed.password) {
-          state.teacherPassword = String(parsed.password);
-          state.teacher = parsed.teacher || null;
-          return { teacher: state.teacher, password: state.teacherPassword };
+          if (!isTeacherSessionValid(parsed)) {
+            clearTeacherSession();
+            return null;
+          }
+          const t = (parsed.teacher && typeof parsed.teacher === "object") ? parsed.teacher : {};
+          const restored = {
+            teacherId: String(parsed.teacherId ?? t.teacherId ?? "").trim(),
+            schoolName: String(parsed.schoolName ?? t.schoolName ?? "").trim(),
+            teacherName: String(parsed.teacherName ?? t.teacherName ?? "").trim(),
+            account: String(parsed.account ?? t.account ?? "").trim(),
+            password: String(parsed.password),
+            expiresAt: Number(parsed.expiresAt) > 0 ? Number(parsed.expiresAt) : (Date.now() + TEACHER_SESSION_TTL_MS)
+          };
+          state.teacherSession = restored;
+          state.teacherPassword = restored.password;
+          state.teacher = {
+            teacherId: restored.teacherId,
+            schoolName: restored.schoolName,
+            teacherName: restored.teacherName,
+            account: restored.account
+          };
+          return restored;
         }
       }
-      const legacyPwd = sessionStorage.getItem(SESSION_KEY) || "";
-      if (legacyPwd) {
-        state.teacherPassword = legacyPwd;
-        return { teacher: null, password: legacyPwd };
+      const legacyRaw = sessionStorage.getItem(LEGACY_TEACHER_SESSION_KEY);
+      if (legacyRaw) {
+        const parsed = JSON.parse(legacyRaw);
+        if (parsed && parsed.password && isTeacherSessionValid(parsed)) {
+          const t = (parsed.teacher && typeof parsed.teacher === "object") ? parsed.teacher : {};
+          if (t.teacherId || t.account) {
+            return setTeacherSession(t, parsed.password, t.account || "");
+          }
+        }
       }
     } catch {}
-    return { teacher: null, password: "" };
+    return null;
   }
 
   function getTeacherPassword() {
-    return getTeacherSession().password;
-  }
-
-  function clearTeacherPassword() {
-    state.teacherPassword = "";
-    state.teacher = null;
-    try {
-      sessionStorage.removeItem(SESSION_KEY);
-      sessionStorage.removeItem(TEACHER_SESSION_KEY);
-    } catch {}
+    const sess = getTeacherSession();
+    return sess ? sess.password : "";
   }
 
   function getTeacherAuthFields() {
     const sess = getTeacherSession();
+    if (!sess) return { password: "" };
     const out = { password: sess.password };
-    if (sess.teacher && sess.teacher.teacherId) out.teacherId = sess.teacher.teacherId;
-    if (sess.teacher && sess.teacher.account) out.account = sess.teacher.account;
+    if (sess.teacherId) out.teacherId = sess.teacherId;
+    if (sess.account) out.account = sess.account;
     return out;
   }
 
   function getStudentPortalUrl() {
-    const tid = state.teacher && state.teacher.teacherId ? state.teacher.teacherId : "";
+    const sess = getTeacherSession();
+    const tid = (sess && sess.teacherId) || (state.teacher && state.teacher.teacherId) || "";
     if (!tid) return "";
     return `${window.location.origin}${window.location.pathname}?t=${encodeURIComponent(tid)}`;
   }
@@ -487,7 +549,7 @@ import QRCode from "qrcode";
         </label>
         <label class="tc-auth-field">
           <span>🧑🏫 教師姓名</span>
-          <input id="tcRegName" type="text" maxlength="20" placeholder="例如：廖重嘉" required />
+          <input id="tcRegName" type="text" maxlength="20" placeholder="例如：賈伯斯" required />
         </label>
         <label class="tc-auth-field">
           <span>📧 登入帳號（建議使用學校 Email）</span>
@@ -664,12 +726,14 @@ import QRCode from "qrcode";
     return await parseJsonResponse(res);
   }
 
-  async function fetchTeacherDashboard(password, explicitTeacher = null) {
-    const sess = getTeacherSession();
-    const t = explicitTeacher || sess.teacher;
-    const payload = { action: "teacher_dashboard", password: String(password || sess.password || "") };
-    if (t && t.teacherId) payload.teacherId = t.teacherId;
-    if (t && t.account) payload.account = t.account;
+  async function fetchTeacherDashboard(password, explicitSession = null) {
+    const sess = explicitSession || getTeacherSession();
+    const pwd = String(password || (sess && sess.password) || "");
+    const payload = { action: "teacher_dashboard", password: pwd };
+    const tid = (explicitSession && explicitSession.teacherId) || (sess && sess.teacherId) || "";
+    const acc = (explicitSession && explicitSession.account) || (sess && sess.account) || "";
+    if (tid) payload.teacherId = tid;
+    if (acc) payload.account = acc;
     return await postGasAction(payload);
   }
 
@@ -693,13 +757,32 @@ import QRCode from "qrcode";
 
   function applyDashboardData(json, { preserveDispatchDraft = false } = {}) {
     if (json && json.teacher && typeof json.teacher === "object") {
-      state.teacher = {
+      const nextTeacher = {
         teacherId: String(json.teacher.teacherId || "").trim(),
         schoolName: String(json.teacher.schoolName || "").trim(),
         teacherName: String(json.teacher.teacherName || "").trim(),
         account: String(json.teacher.account || "").trim()
       };
+      state.teacher = nextTeacher;
+      if (state.teacherSession && state.teacherSession.password) {
+        state.teacherSession = {
+          ...state.teacherSession,
+          teacherId: nextTeacher.teacherId || state.teacherSession.teacherId,
+          schoolName: nextTeacher.schoolName || state.teacherSession.schoolName,
+          teacherName: nextTeacher.teacherName || state.teacherSession.teacherName,
+          account: nextTeacher.account || state.teacherSession.account
+        };
+        try {
+          sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(state.teacherSession));
+          sessionStorage.setItem(LEGACY_TEACHER_SESSION_KEY, JSON.stringify({
+            teacher: state.teacher,
+            password: state.teacherSession.password,
+            expiresAt: state.teacherSession.expiresAt
+          }));
+        } catch {}
+      }
     }
+    state.hasLoadedDashboard = true;
     state.data = {
       roster: Array.isArray(json.roster) ? json.roster : [],
       students: Array.isArray(json.students) ? json.students : [],
@@ -724,13 +807,20 @@ import QRCode from "qrcode";
     state.luckyResult = null;
   }
 
-  async function saveCloudConfig(password, config) {
-    return await postGasAction({
+  async function saveCloudConfig(config, explicitSession = null) {
+    const sess = explicitSession || getTeacherSession();
+    const pwd = (sess && sess.password) || getTeacherPassword();
+    if (!pwd) {
+      return { status: "unauthorized", message: "教師驗證已逾時，請重新登入" };
+    }
+    const payload = {
       action: "save_config",
-      ...getTeacherAuthFields(),
-      password: password || getTeacherPassword(),
+      password: pwd,
       config
-    });
+    };
+    if (sess && sess.teacherId) payload.teacherId = sess.teacherId;
+    if (sess && sess.account) payload.account = sess.account;
+    return await postGasAction(payload);
   }
 
   function getAllClasses() {
@@ -1374,9 +1464,9 @@ import QRCode from "qrcode";
   async function handleDispatchPublish() {
     if (state.dispatchSaving) return;
     const { saveBtn, announcementEl, targetIslandEl, linkTitleEl, linkUrlEl } = getDispatchElements();
-    const pwd = getTeacherPassword();
-    if (!pwd) {
-      setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err", true);
+    const sess = getTeacherSession();
+    if (!sess || !sess.password) {
+      setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入", "err", true);
       return;
     }
 
@@ -1395,7 +1485,7 @@ import QRCode from "qrcode";
     setDispatchStatus("", "");
 
     try {
-      const res = await saveCloudConfig(pwd, nextConfig);
+      const res = await saveCloudConfig(nextConfig, sess);
       if (res && res.status === "ok") {
         const saved = createDraftFromConfig(res.config || nextConfig);
         state.data.config = saved;
@@ -1418,8 +1508,8 @@ import QRCode from "qrcode";
 
         setDispatchStatus("✅ 已成功發布至全校海島！", "ok");
       } else if (res && res.status === "unauthorized") {
-        clearTeacherPassword();
-        setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err", true);
+        clearTeacherSession();
+        setDispatchStatus("⚠️ 教師驗證已逾時，請重新登入", "err", true);
       } else {
         const reason = (res && (res.message || res.error)) || "伺服器未回傳成功狀態，請稍後再試";
         setDispatchStatus(`❌ 發布失敗：${reason}`, "err");
@@ -1871,15 +1961,24 @@ import QRCode from "qrcode";
 
   async function postTeacherAction(actionName, payload) {
     const url = getGasUrl();
-    const pwd = getTeacherPassword();
     if (!url) throw new Error("尚未設定 GAS_LEADERBOARD_URL");
-    if (!pwd) throw new Error("教師驗證已逾時，請重新登入");
-    return await postGasAction({
+    const sess = getTeacherSession();
+    if (!sess || !sess.password) throw new Error("教師驗證已逾時，請重新登入");
+    const authPayload = {
       action: actionName,
-      ...getTeacherAuthFields(),
-      password: pwd,
+      password: sess.password
+    };
+    if (sess.teacherId) authPayload.teacherId = sess.teacherId;
+    if (sess.account) authPayload.account = sess.account;
+    const res = await postGasAction({
+      ...authPayload,
       ...payload
     });
+    if (res && res.status === "unauthorized") {
+      clearTeacherSession();
+      throw new Error("教師驗證已逾時，請重新登入");
+    }
+    return res;
   }
 
   /* ---- 課堂登入高清 QR Code 視窗 ---- */
@@ -2276,7 +2375,7 @@ import QRCode from "qrcode";
       }));
       const res = await postTeacherAction("save_roster", { mode, entries: payloadEntries });
       if (res && res.status === "unauthorized") {
-        clearTeacherPassword();
+        clearTeacherSession();
         throw new Error("教師驗證已逾時，請重新登入");
       }
       if (!res || res.status !== "ok") {
@@ -2435,8 +2534,8 @@ import QRCode from "qrcode";
     const pwdInput = authWrap.querySelector("#tcPasswordInput");
     const accInput = authWrap.querySelector("#tcLoginAccount");
     const sess = getTeacherSession();
-    if (accInput && sess.teacher && sess.teacher.account && !accInput.value) {
-      accInput.value = sess.teacher.account;
+    if (accInput && sess && sess.account && !accInput.value) {
+      accInput.value = sess.account;
     }
     if (errEl) errEl.textContent = prefillErr;
     if (pwdInput) pwdInput.value = "";
@@ -2458,22 +2557,26 @@ import QRCode from "qrcode";
 
   async function openTeacherCockpit() {
     const sess = getTeacherSession();
-    if (sess.password) {
+    if (sess && sess.password) {
       try {
-        const res = await fetchTeacherDashboard(sess.password, sess.teacher);
+        const res = await fetchTeacherDashboard(sess.password, sess);
         if (res && res.status === "ok") {
-          setTeacherSession(res.teacher || sess.teacher, sess.password);
+          setTeacherSession(res.teacher || sess, sess.password, sess.account);
           applyDashboardData(res);
           showCockpitWorkspace();
           return;
         }
         if (res && res.status === "unauthorized") {
-          clearTeacherPassword();
-          openAuthModal("驗證已逾時或密碼已變更，請重新登入");
+          clearTeacherSession();
+          openAuthModal("教師驗證已逾時，請重新登入");
           return;
         }
       } catch {
-        // 若網路暫時失敗，改顯示登入視窗讓老師重試
+        if (state.hasLoadedDashboard) {
+          showCockpitWorkspace();
+          setGlobalStatus("⚠️ 暫時無法連線同步最新資料，目前顯示已載入畫面", "err");
+          return;
+        }
       }
     }
     openAuthModal();
@@ -2482,8 +2585,8 @@ import QRCode from "qrcode";
   async function handleRefreshClick() {
     const btn = cockpitWrap.querySelector("#tcRefreshBtn");
     const sess = getTeacherSession();
-    if (!sess.password) {
-      setGlobalStatus("⚠️ 教師驗證已逾時，請重新登入戰情室", "err");
+    if (!sess || !sess.password) {
+      setGlobalStatus("⚠️ 教師驗證已逾時，請重新登入", "err");
       openAuthModal("教師驗證已逾時，請重新登入");
       return;
     }
@@ -2493,17 +2596,17 @@ import QRCode from "qrcode";
       btn.textContent = "⏳ 同步中…";
     }
     try {
-      const res = await fetchTeacherDashboard(sess.password, sess.teacher);
+      const res = await fetchTeacherDashboard(sess.password, sess);
       if (res && res.status === "ok") {
-        setTeacherSession(res.teacher || sess.teacher, sess.password);
+        setTeacherSession(res.teacher || sess, sess.password, sess.account);
         applyDashboardData(res);
         renderMainBody();
         setGlobalStatus("✅ 已同步雲端最新班級與設定資料", "ok");
         setTimeout(() => setGlobalStatus(""), 3200);
       } else if (res && res.status === "unauthorized") {
-        clearTeacherPassword();
+        clearTeacherSession();
         closeCockpit();
-        openAuthModal("帳號或密碼驗證失效，請重新登入");
+        openAuthModal("教師驗證已逾時，請重新登入");
       } else {
         setGlobalStatus(`❌ 同步失敗：${(res && res.message) || "請稍後再試"}`, "err");
       }
@@ -2518,7 +2621,7 @@ import QRCode from "qrcode";
   }
 
   function handleTeacherLogout() {
-    clearTeacherPassword();
+    clearTeacherSession();
     state.data = { roster: [], students: [], wrongLogs: [], config: null };
     state.selectedClass = "";
     state.rosterDraftText = "";
@@ -2608,7 +2711,8 @@ import QRCode from "qrcode";
     try {
       const res = await teacherLoginApi(account, pwd);
       if (res && res.status === "ok") {
-        setTeacherSession(res.teacher || { account }, pwd);
+        // 第一時間寫入統一憑證物件（含 4 小時有效期與相容舊版密碼變數）
+        setTeacherSession(res.teacher || { account }, pwd, account);
         const preserveDraft = state.pendingReauthOnly;
         state.pendingReauthOnly = false;
         closeAuthModal();
@@ -2682,7 +2786,8 @@ import QRCode from "qrcode";
     try {
       const res = await registerTeacherApi({ schoolName, teacherName, account, password });
       if (res && res.status === "ok" && res.teacher) {
-        setTeacherSession(res.teacher, password);
+        // 第一時間寫入統一憑證物件（含 4 小時有效期與相容舊版密碼變數）
+        setTeacherSession({ schoolName, teacherName, account, ...res.teacher }, password, account);
         closeAuthModal();
         applyDashboardData(res);
         showCockpitWorkspace();
@@ -2783,7 +2888,7 @@ import QRCode from "qrcode";
         onConfirm: async () => {
           const res = await postTeacherAction("reset_student_pin", { studentKey: skey, grade, className: cls, seat });
           if (res && res.status === "unauthorized") {
-            clearTeacherPassword();
+            clearTeacherSession();
             throw new Error("教師驗證已逾時，請重新登入");
           }
           if (!res || res.status !== "ok") {
@@ -2811,7 +2916,7 @@ import QRCode from "qrcode";
         onConfirm: async () => {
           const res = await postTeacherAction("unlock_student_avatar", { studentKey: skey, grade, className: cls, seat });
           if (res && res.status === "unauthorized") {
-            clearTeacherPassword();
+            clearTeacherSession();
             throw new Error("教師驗證已逾時，請重新登入");
           }
           if (!res || res.status !== "ok") {
