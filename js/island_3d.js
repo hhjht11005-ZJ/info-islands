@@ -14783,7 +14783,7 @@
 
   const isInsideModalOrScrollable = (target) => {
     if (!target || typeof target.closest !== "function") return false;
-    return !!target.closest("#tcCockpit, #tcAuthModal, #tcDetailModal, #tcConfirmModal, #tcProjectorModal, #teacher-question-projector, #teacher-dashboard-modal, [data-scrollable='true']");
+    return !!target.closest("#tcCockpit, #tcAuthModal, #tcDetailModal, #tcConfirmModal, #tcProjectorModal, #teacher-question-projector, #teacher-island-details-modal, #teacher-dashboard-modal, [data-scrollable='true']");
   };
   const guardCanvasScroll = (e) => {
     if (isInsideModalOrScrollable(e.target) || (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen())) {

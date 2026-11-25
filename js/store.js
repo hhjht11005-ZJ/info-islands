@@ -232,21 +232,182 @@
     return `${canonPrefix}-${Number(m[2]) || m[2]}`;
   }
 
-  function collectCompletedProgress(profile) {
-    if (!profile || !profile.cls || !profile.name) return [];
-    const evs = ls.get(evKey({ cls: String(profile.cls).trim(), seat: Number(profile.seat) || profile.seat, name: String(profile.name).trim() }), []);
+  function normalizeDifficultyToken(rawDiff, { allowSingle = false } = {}) {
+    const raw = String(rawDiff || "").trim();
+    if (!raw) return allowSingle ? "single" : "";
+    const low = raw.toLowerCase();
+    if (low === "easy" || low === "e" || /易|初階|入門|簡單|基礎/.test(raw)) return "easy";
+    if (low === "medium" || low === "med" || low === "m" || /中|進階|普通/.test(raw)) return "medium";
+    if (low === "hard" || low === "h" || /難|大師|困難|挑戰/.test(raw)) return "hard";
+    if (low === "single" || low === "standard" || raw === "標準") return allowSingle ? "single" : "";
+    return "";
+  }
+
+  function parseProgressToken(rawToken) {
+    const s = String(rawToken || "").trim();
+    if (!s) return null;
+    let rawUnit = "";
+    let rawDiff = "";
+    const colonIdx = s.lastIndexOf(":");
+    if (colonIdx > 0) {
+      rawUnit = s.slice(0, colonIdx).trim();
+      rawDiff = s.slice(colonIdx + 1).trim();
+    } else {
+      const sepMatch = s.match(/^(.+?)[_\-:]+(easy|medium|hard|single|med|e|m|h|易|初階|入門探險家|入門|簡單|基礎|進階挑戰者|中|進階|中等|普通|大師領航員|難|大師|困難|挑戰)$/i);
+      if (!sepMatch) return null;
+      rawUnit = sepMatch[1].trim();
+      rawDiff = sepMatch[2].trim();
+    }
+    const unit = canonicalizeUnitId(rawUnit);
+    const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
+    if (!unit || !diff) return null;
+    return { unit, diff, key: `${unit}:${diff}` };
+  }
+
+  function extractPassedFromAny(val, addPair) {
+    if (val === null || val === undefined) return;
+    if (typeof val === "string") {
+      const trimmed = val.trim();
+      if (!trimmed) return;
+      if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+        try {
+          extractPassedFromAny(JSON.parse(trimmed), addPair);
+          return;
+        } catch {}
+      }
+      trimmed.split(/[,;\n\r]+/).forEach((part) => {
+        const parsed = parseProgressToken(part);
+        if (parsed) addPair(parsed.unit, parsed.diff);
+      });
+      return;
+    }
+    if (Array.isArray(val)) {
+      val.forEach((item) => {
+        if (typeof item === "string") {
+          const parsed = parseProgressToken(item);
+          if (parsed) addPair(parsed.unit, parsed.diff);
+        } else if (item && typeof item === "object") {
+          if (item.type === "quiz" || item.score !== undefined || item.passed !== undefined || item.isPassed !== undefined) {
+            if (item.type && item.type !== "quiz") return;
+            const passed = item.passed === true || item.isPassed === true || (Number(item.score) >= 60);
+            if (!passed) return;
+            const u = String(item.unit || item.unitId || item.key || item.id || "").trim();
+            const d = item.difficulty || item.quizDifficulty || (item.detail && item.detail.difficulty) || "single";
+            addPair(u, d);
+          } else if (item.unit && (item.type === "gold" || item.type === "silver")) {
+            addPair(item.unit, item.type === "gold" ? "hard" : "medium");
+          } else {
+            extractPassedFromAny(item, addPair);
+          }
+        }
+      });
+      return;
+    }
+    if (typeof val === "object") {
+      if (val.completedProgress !== undefined) extractPassedFromAny(val.completedProgress, addPair);
+      if (val.progress !== undefined) extractPassedFromAny(val.progress, addPair);
+      if (val.passed !== undefined && typeof val.passed !== "boolean") extractPassedFromAny(val.passed, addPair);
+      Object.entries(val).forEach(([k, v]) => {
+        if (k === "completedProgress" || k === "progress" || k === "passed") return;
+        const tok = parseProgressToken(k);
+        if (tok) {
+          const ok = v === true || v === 1 || v === "true" || (typeof v === "number" && v >= 60)
+            || (v && typeof v === "object" && (v.passed === true || v.isPassed === true || Number(v.score) >= 60));
+          if (ok) addPair(tok.unit, tok.diff);
+          return;
+        }
+        const unit = canonicalizeUnitId(k);
+        if (!unit || !/^[a-z]+-\d+$/.test(unit)) return;
+        if (Array.isArray(v)) {
+          v.forEach((sub) => {
+            if (typeof sub === "string") addPair(unit, sub);
+            else if (sub && typeof sub === "object") {
+              const ok = sub.passed === true || sub.isPassed === true || Number(sub.score) >= 60;
+              if (ok) addPair(unit, sub.difficulty || sub.diff || "single");
+            }
+          });
+        } else if (v && typeof v === "object") {
+          Object.entries(v).forEach(([diffKey, diffVal]) => {
+            const ok = diffVal === true || diffVal === 1 || diffVal === "true"
+              || (typeof diffVal === "number" && diffVal >= 60)
+              || (diffVal && typeof diffVal === "object" && (diffVal.passed === true || diffVal.isPassed === true || Number(diffVal.score) >= 60));
+            if (ok) addPair(unit, diffKey);
+          });
+        } else if (v === true || v === 1 || (typeof v === "number" && v >= 60)) {
+          addPair(unit, "single");
+        }
+      });
+    }
+  }
+
+  function collectAllPassedProgress(explicitProfile) {
+    const p = explicitProfile || Store.profile;
     const passedSet = new Set();
-    (Array.isArray(evs) ? evs : []).forEach((e) => {
-      if (!e || e.type !== "quiz") return;
-      const rawUnit = String(e.unit || e.unitId || "").trim();
+    const addPair = (rawUnit, rawDiff) => {
       const unit = canonicalizeUnitId(rawUnit);
-      if (!unit) return;
-      if ((Number(e.score) || 0) < 60) return;
-      const rawDiff = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim().toLowerCase();
-      const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
+      const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
+      if (!unit || !diff) return;
       passedSet.add(`${unit}:${diff}`);
-    });
+    };
+
+    if (p && p.cls && p.name) {
+      const clsStr = String(p.cls).trim();
+      const seatNum = Number(p.seat) || 0;
+      const seatVariants = Array.from(new Set([
+        String(seatNum || p.seat || "").trim(),
+        seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
+      ].filter(Boolean)));
+      const nameStr = String(p.name).trim();
+
+      seatVariants.forEach((sv) => {
+        const evs = ls.get(`ii:ev:${clsStr}-${sv}-${nameStr}`, null);
+        if (evs) extractPassedFromAny(evs, addPair);
+        const badges = ls.get(`ii:badges:${clsStr}-${sv}-${nameStr}`, null);
+        if (badges) extractPassedFromAny(badges, addPair);
+      });
+
+      const gradeStr = String(parseGradeFromCls(p));
+      const studentSuffixes = new Set();
+      seatVariants.forEach((sv) => {
+        studentSuffixes.add(`${clsStr}-${sv}-${nameStr}`);
+        studentSuffixes.add(`${clsStr}_${sv}_${nameStr}`);
+        studentSuffixes.add(`${gradeStr}_${clsStr}_${sv}`);
+      });
+
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k) continue;
+          if (k.startsWith("ii:leaderboard:") || k.startsWith("ii:teacher") || k.startsWith("island_teacher")) continue;
+          const isOtherStudentScoped = (k.startsWith("ii:ev:") || k.startsWith("ii:badges:") || k.startsWith("ii:avatar:") || k.startsWith("ii:activeIslandId:"));
+          if (isOtherStudentScoped) {
+            const matchedOwn = Array.from(studentSuffixes).some((suf) => k.endsWith(suf));
+            if (!matchedOwn) continue;
+          } else if (!/progress|passed|completed/i.test(k)) {
+            continue;
+          }
+          const raw = localStorage.getItem(k);
+          if (raw) extractPassedFromAny(raw, addPair);
+        }
+      } catch {}
+    } else {
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (!k || k.startsWith("ii:leaderboard:") || k.startsWith("ii:teacher") || k.startsWith("island_teacher")) continue;
+          if (k.startsWith("ii:ev:") || k.startsWith("ii:badges:") || /progress|passed|completed/i.test(k)) {
+            const raw = localStorage.getItem(k);
+            if (raw) extractPassedFromAny(raw, addPair);
+          }
+        }
+      } catch {}
+    }
+
     return Array.from(passedSet).sort();
+  }
+
+  function collectCompletedProgress(profile) {
+    return collectAllPassedProgress(profile);
   }
 
   function buildLeaderboardPayload(profile) {
@@ -261,7 +422,7 @@
     const pObj = { cls: className, seat: Number(seat) || seat, name };
     const evs = ls.get(evKey(pObj), []);
     const stats = summarizeQuizEvents(evs);
-    const completedProgress = collectCompletedProgress(pObj);
+    const completedProgress = collectAllPassedProgress(pObj);
     const avatarState = ls.get(`ii:avatar:${className}-${Number(seat) || seat}-${name}`, null);
     const payload = {
       grade,
@@ -432,12 +593,13 @@
     return run;
   }
 
-  async function uploadLeaderboardScore(profile, quizMeta) {
+  async function uploadLeaderboardScore(profile, quizMeta, opts = {}) {
     const built = buildLeaderboardPayload(profile || Store.profile);
     if (!built) return { ok: false, skipped: true };
     const url = getLeaderboardUrl();
     if (!url) return { ok: false, offline: true };
 
+    const forceUpload = !!(opts && opts.force);
     const tid = getTeacherId();
     const wrongQuestions = quizMeta && Array.isArray(quizMeta.wrongQuestions) ? quizMeta.wrongQuestions : [];
     const hasWrongQuestions = wrongQuestions.length > 0;
@@ -449,10 +611,11 @@
       payloadToSend.wrongQuestions = wrongQuestions;
     }
 
-    // 智慧去重上傳：無錯題、總積分/皇冠未超越且已完成單元清單未變動時才略過
+    // 智慧去重上傳：非強制補送、無錯題、總積分/皇冠未超越且已完成單元清單未變動時才略過
     const lastSynced = getSyncedLeaderboardRecord(built.studentKey, tid);
     const curProgSig = Array.isArray(built.payload.completedProgress) ? built.payload.completedProgress.join(",") : "";
     if (
+      !forceUpload &&
       !hasWrongQuestions &&
       lastSynced &&
       built.payload.totalScore <= (Number(lastSynced.totalScore) || 0) &&
@@ -490,13 +653,14 @@
       const wrongQuestions = Array.isArray(it.wrongQuestions) ? it.wrongQuestions : [];
       const hasWrongQuestions = wrongQuestions.length > 0;
       const completedProgress = Array.isArray(it.completedProgress)
-        ? Array.from(new Set(it.completedProgress.map((tok) => {
-            const [ru, rd] = String(tok || "").trim().split(":");
-            const cu = canonicalizeUnitId(ru);
-            const cd = /^(easy|medium|hard)$/.test(String(rd || "").trim().toLowerCase()) ? String(rd).trim().toLowerCase() : "single";
-            return cu ? `${cu}:${cd}` : "";
-          }).filter(Boolean))).sort()
-        : collectCompletedProgress({ cls: it.className, seat: it.seat, name: it.name });
+        ? Array.from(new Set([
+            ...it.completedProgress.map((tok) => {
+              const parsed = parseProgressToken(tok);
+              return parsed ? parsed.key : "";
+            }).filter(Boolean),
+            ...collectAllPassedProgress({ cls: it.className, seat: it.seat, name: it.name })
+          ])).sort()
+        : collectAllPassedProgress({ cls: it.className, seat: it.seat, name: it.name });
       const payload = {
         grade: String(it.grade || parseGradeFromCls(it.className)),
         className: String(it.className),
@@ -538,7 +702,7 @@
   }
 
   function restoreCloudStudentData(profile, student) {
-    if (!profile || !student || typeof student !== "object") return;
+    if (!profile || !student || typeof student !== "object") return { cloudProgress: [], needsBackgroundSync: false };
     const key = evKey(profile);
     const localEvs = ls.get(key, []);
     const hadLocalEvents = Array.isArray(localEvs) && localEvs.length > 0;
@@ -546,27 +710,34 @@
     (Array.isArray(localEvs) ? localEvs : []).forEach((e) => {
       if (!e || e.type !== "quiz" || (Number(e.score) || 0) < 60) return;
       const u = canonicalizeUnitId(String(e.unit || e.unitId || "").trim());
-      const rd = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim().toLowerCase();
-      const d = /^(easy|medium|hard)$/.test(rd) ? rd : "single";
+      const rd = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim();
+      const d = normalizeDifficultyToken(rd, { allowSingle: true }) || "single";
       if (u) existingPassSet.add(`${u}:${d}`);
     });
 
-    const cloudProgress = Array.isArray(student.progress) ? student.progress : [];
+    const rawCloudSource = student.progress !== undefined ? student.progress : student.completedProgress;
+    const cloudTokenSet = new Set();
+    extractPassedFromAny(rawCloudSource, (rawUnit, rawDiff) => {
+      const unit = canonicalizeUnitId(rawUnit);
+      const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
+      if (unit && diff) cloudTokenSet.add(`${unit}:${diff}`);
+    });
+    const cloudProgress = Array.from(cloudTokenSet).sort();
+
     const addedEvents = [];
     let crownsLeft = !hadLocalEvents ? Math.max(0, Number(student.crownCount) || 0) : 0;
 
     cloudProgress.forEach((token, idx) => {
-      const parts = String(token || "").trim().split(":");
-      const rawUnit = parts[0] || "";
-      const unit = canonicalizeUnitId(rawUnit);
-      const rawDiff = String(parts[1] || "single").trim().toLowerCase();
-      const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
+      const parsed = parseProgressToken(token);
+      if (!parsed) return;
+      const unit = parsed.unit;
+      const diff = parsed.diff;
       if (!unit || existingPassSet.has(`${unit}:${diff}`)) return;
       existingPassSet.add(`${unit}:${diff}`);
       const [island, numStr] = unit.split("-");
       const islObj = Array.isArray(window.ISLANDS) ? window.ISLANDS.find((i) => i && i.id === island) : null;
       const seqItem = islObj && Array.isArray(islObj.sequence) ? islObj.sequence[(Number(numStr) || 0) - 1] : null;
-      const unitMeta = window.CONTENT && (window.CONTENT[unit] || window.CONTENT[rawUnit]);
+      const unitMeta = window.CONTENT && window.CONTENT[unit];
       const useCrown = crownsLeft > 0;
       if (useCrown) crownsLeft--;
       addedEvents.push({
@@ -610,11 +781,23 @@
 
     const gradeNum = parseGradeFromCls(profile);
     const sKey = buildStudentKey(gradeNum, profile.cls, profile.seat);
+    // 僅以雲端實際已知的 progress 紀錄同步指紋，避免掩蓋本機尚未上傳的過關明細
     markLeaderboardSynced(sKey, {
       totalScore: Number(student.totalScore) || 0,
       crownCount: Number(student.crownCount) || 0,
-      completedProgress: collectCompletedProgress(profile)
+      completedProgress: cloudProgress
     });
+
+    const localProgress = collectAllPassedProgress(profile);
+    const localStats = summarizeQuizEvents(ls.get(key, []));
+    const hasMissingInCloud = localProgress.some((tok) => !cloudTokenSet.has(tok));
+    const hasHigherScore = localStats.totalScore > (Number(student.totalScore) || 0)
+      || localStats.crowns > (Number(student.crownCount) || 0);
+    return {
+      cloudProgress,
+      localProgress,
+      needsBackgroundSync: hasMissingInCloud || hasHigherScore
+    };
   }
 
   async function saveAvatarToCloud(avatarState, explicitProfile) {
@@ -725,8 +908,9 @@
       }
 
       Store.profile = p; ls.set(PROFILE, p);
+      let syncInfo = { needsBackgroundSync: false };
       if (loginRes && loginRes.student) {
-        restoreCloudStudentData(p, loginRes.student);
+        syncInfo = restoreCloudStudentData(p, loginRes.student) || { needsBackgroundSync: false };
       }
       try {
         const savedForStudent = readActiveIslandRaw(activeIslandKey(p));
@@ -737,6 +921,9 @@
       document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
       Store.flush();
       flushLeaderboardPending();
+      if (lbUrl && (syncInfo.needsBackgroundSync || (loginRes && !loginRes.student && collectAllPassedProgress(p).length > 0))) {
+        void uploadLeaderboardScore(p, null, { force: true });
+      }
       return { ok: true, isNewPin: !!(loginRes && loginRes.isNewPin), student: loginRes && loginRes.student };
     },
     logout() {
@@ -826,6 +1013,7 @@
     /* ---- 年級成績池與遠端對接擴充 ---- */
     parseGradeFromCls,
     summarizeQuizEvents,
+    collectAllPassedProgress,
     collectCompletedProgress,
     syncLeaderboardPool,
     buildStudentKey,
@@ -876,12 +1064,13 @@
   };
   syncLeaderboardPool();
   window.Store = Store;
+  window.collectAllPassedProgress = collectAllPassedProgress;
 
   /** 全域焦點與教師戰情室狀態守衛：供各模組的 keydown / pointerdown 監聽統一放行輸入元件 */
   window.isFormInputTarget = (el) => {
     const tag = el && el.tagName ? el.tagName.toUpperCase() : "";
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(el && el.isContentEditable);
   };
-  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcQrModal.show, #tcDetailModal.show, #tcConfirmModal.show, #tcProjectorModal.show, #teacher-question-projector");
+  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcQrModal.show, #tcDetailModal.show, #tcConfirmModal.show, #tcProjectorModal.show, #teacher-question-projector, #teacher-island-details-modal");
   window.shouldSkipGlobalEvent = (e) => window.isFormInputTarget(e && e.target) || window.isTeacherCockpitOpen();
 })();

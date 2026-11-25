@@ -523,7 +523,7 @@ import QRCode from "qrcode";
     };
   }
 
-  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcQrModal.show, #tcDetailModal.show, #tcConfirmModal.show, #tcProjectorModal.show, #teacher-question-projector");
+  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcQrModal.show, #tcDetailModal.show, #tcConfirmModal.show, #tcProjectorModal.show, #teacher-question-projector, #teacher-island-details-modal");
 
   function notifyCockpitToggle() {
     document.dispatchEvent(new CustomEvent("ii:cockpit-toggle", {
@@ -1658,9 +1658,152 @@ import QRCode from "qrcode";
     return "7";
   }
 
+  const DIFF_FULL_LABELS = { easy: "易（初階）", medium: "中（進階）", hard: "難（大師）", single: "標準" };
+
+  function normalizeProgressDifficulty(rawDiff, { allowSingle = true } = {}) {
+    const raw = String(rawDiff || "").trim();
+    if (!raw) return allowSingle ? "single" : "";
+    const low = raw.toLowerCase();
+    if (low === "easy" || low === "e" || /易|初階|入門|簡單|基礎/.test(raw)) return "easy";
+    if (low === "medium" || low === "med" || low === "m" || /中|進階|普通/.test(raw)) return "medium";
+    if (low === "hard" || low === "h" || /難|大師|困難|挑戰/.test(raw)) return "hard";
+    if (low === "single" || low === "standard" || raw === "標準") return allowSingle ? "single" : "";
+    return "";
+  }
+
+  function parseProgressTokenString(rawToken) {
+    const s = String(rawToken || "").trim();
+    if (!s) return null;
+    let rawUnit = "";
+    let rawDiff = "";
+    const colonIdx = s.lastIndexOf(":");
+    if (colonIdx > 0) {
+      rawUnit = s.slice(0, colonIdx).trim();
+      rawDiff = s.slice(colonIdx + 1).trim();
+    } else {
+      const sepMatch = s.match(/^(.+?)[_\-:]+(easy|medium|hard|single|med|e|m|h|易|初階|入門探險家|入門|簡單|基礎|進階挑戰者|中|進階|中等|普通|大師領航員|難|大師|困難|挑戰)$/i);
+      if (!sepMatch) return null;
+      rawUnit = sepMatch[1].trim();
+      rawDiff = sepMatch[2].trim();
+    }
+    const unitKey = canonicalizeUnitKey(rawUnit);
+    const diff = normalizeProgressDifficulty(rawDiff, { allowSingle: true });
+    if (!unitKey || !diff) return null;
+    return { rawUnit, unitKey, diff };
+  }
+
+  function parseStudentProgressSet(rawProgress) {
+    const set = new Set();
+    const addUnitDiff = (rawUnit, rawDiff) => {
+      const u = String(rawUnit || "").trim();
+      const diff = normalizeProgressDifficulty(rawDiff, { allowSingle: true });
+      if (!u || !diff) return;
+      const canon = canonicalizeUnitKey(u);
+      if (canon) {
+        set.add(`${canon}:${diff}`);
+        getUnitAliasCandidates(canon).forEach((alias) => {
+          set.add(`${alias}:${diff}`);
+          set.add(`${String(alias).toLowerCase()}:${diff}`);
+        });
+      }
+      set.add(`${u}:${diff}`);
+      set.add(`${u.toLowerCase()}:${diff}`);
+    };
+
+    const walk = (val) => {
+      if (val === null || val === undefined) return;
+      if (typeof val === "string") {
+        const trimmed = val.trim();
+        if (!trimmed) return;
+        if ((trimmed.startsWith("[") && trimmed.endsWith("]")) || (trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+          try {
+            walk(JSON.parse(trimmed));
+            return;
+          } catch {}
+        }
+        trimmed.split(/[,;\n\r]+/).forEach((part) => {
+          const parsed = parseProgressTokenString(part);
+          if (parsed) addUnitDiff(parsed.rawUnit, parsed.diff);
+        });
+        return;
+      }
+      if (Array.isArray(val)) {
+        val.forEach((item) => {
+          if (typeof item === "string") {
+            const parsed = parseProgressTokenString(item);
+            if (parsed) addUnitDiff(parsed.rawUnit, parsed.diff);
+          } else if (item && typeof item === "object") {
+            if (item.unit || item.unitId || item.key || item.id) {
+              if (item.type && item.type !== "quiz") return;
+              if (item.score !== undefined && Number(item.score) < 60 && item.passed !== true) return;
+              if (item.passed === false) return;
+              const u = String(item.unit || item.unitId || item.key || item.id || "").trim();
+              const d = item.difficulty || item.quizDifficulty || item.diff || (item.detail && item.detail.difficulty) || "single";
+              addUnitDiff(u, d);
+            } else {
+              walk(item);
+            }
+          }
+        });
+        return;
+      }
+      if (typeof val === "object") {
+        if (val.completedProgress !== undefined) walk(val.completedProgress);
+        if (val.progress !== undefined) walk(val.progress);
+        Object.entries(val).forEach(([k, v]) => {
+          if (k === "completedProgress" || k === "progress") return;
+          const tok = parseProgressTokenString(k);
+          if (tok) {
+            const ok = v === true || v === 1 || v === "true" || (typeof v === "number" && v >= 60)
+              || (v && typeof v === "object" && (v.passed === true || v.isPassed === true || Number(v.score) >= 60));
+            if (ok) addUnitDiff(tok.rawUnit, tok.diff);
+            return;
+          }
+          const canon = canonicalizeUnitKey(k);
+          if (!canon) return;
+          if (Array.isArray(v)) {
+            v.forEach((sub) => {
+              if (typeof sub === "string") addUnitDiff(k, sub);
+              else if (sub && typeof sub === "object") {
+                const ok = sub.passed === true || sub.isPassed === true || (sub.score !== undefined ? Number(sub.score) >= 60 : true);
+                if (ok) addUnitDiff(k, sub.difficulty || sub.diff || "single");
+              }
+            });
+          } else if (v && typeof v === "object") {
+            Object.entries(v).forEach(([diffKey, diffVal]) => {
+              const ok = diffVal === true || diffVal === 1 || diffVal === "true"
+                || (typeof diffVal === "number" && diffVal >= 60)
+                || (diffVal && typeof diffVal === "object" && (diffVal.passed === true || diffVal.isPassed === true || Number(diffVal.score) >= 60));
+              if (ok) addUnitDiff(k, diffKey);
+            });
+          } else if (v === true || v === 1 || (typeof v === "number" && v >= 60)) {
+            addUnitDiff(k, "single");
+          }
+        });
+      }
+    };
+
+    walk(rawProgress);
+    return set;
+  }
+
+  function isUnitDiffPassed(progressSet, unit, diff) {
+    if (!progressSet || typeof progressSet.has !== "function" || !unit || !diff) return false;
+    if (progressSet.has(`${unit.unitKey}:${diff}`)) return true;
+    if (Array.isArray(unit.aliases)) {
+      return unit.aliases.some((alias) => {
+        const a = String(alias || "").trim();
+        if (!a) return false;
+        return progressSet.has(`${a}:${diff}`) || progressSet.has(`${a.toLowerCase()}:${diff}`);
+      });
+    }
+    return false;
+  }
+
   function buildCurriculumCatalog() {
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
     const content = getMergedContentMap();
+    const termTag = (g, t) => ({ 7: "七", 8: "八", 9: "九" }[g] || String(g)) + (t === 1 ? "上" : "下");
     let totalLevels = 0;
     const gradeTotal = { "7": 0, "8": 0, "9": 0 };
     const unitGradeMap = {};
@@ -1684,9 +1827,13 @@ import QRCode from "qrcode";
         const q = contentUnit && contentUnit.quiz;
         const diffs = (q && q.levels)
           ? ["easy", "medium", "hard"].filter((d) => q.levels[d])
-          : ["single"];
+          : ((q && (q.easy || q.medium || q.hard))
+            ? ["easy", "medium", "hard"].filter((d) => Array.isArray(q[d]) && q[d].length > 0)
+            : ["single"]);
         const effectiveDiffs = diffs.length > 0 ? diffs : ["single"];
-        const gStr = String((seq && seq.grade) || 7);
+        const gNum = Number(seq && seq.grade) || 7;
+        const tNum = Number(seq && seq.term) || 1;
+        const gStr = String(gNum);
         const unitName = (seq && seq.unit) || (contentUnit && contentUnit.unit) || unitKey;
         totalLevels += effectiveDiffs.length;
         if (gradeTotal[gStr] !== undefined) gradeTotal[gStr] += effectiveDiffs.length;
@@ -1697,6 +1844,8 @@ import QRCode from "qrcode";
           title: unitName,
           unitName,
           grade: gStr,
+          term: tNum,
+          termLabel: termTag(gNum, tNum),
           diffs: effectiveDiffs,
           aliases: Array.from(aliasSet)
         };
@@ -1705,6 +1854,7 @@ import QRCode from "qrcode";
         id: isl.id,
         name: isl.name,
         emoji: isl.emoji || "🏝️",
+        color: isl.color || "#38bdf8",
         units,
         totalLevels: units.reduce((sum, u) => sum + u.diffs.length, 0)
       };
@@ -1735,7 +1885,7 @@ import QRCode from "qrcode";
           updatedAt: "",
           pinCode: "",
           avatar: null,
-          completedProgress: []
+          rawProgressList: []
         });
       }
       return map.get(sKey);
@@ -1761,34 +1911,39 @@ import QRCode from "qrcode";
       entry.updatedAt = String(s.updatedAt || entry.updatedAt || "");
       entry.pinCode = String(s.pinCode || "").trim();
       entry.avatar = (s.avatar && typeof s.avatar === "object") ? s.avatar : entry.avatar;
-      entry.completedProgress = Array.isArray(s.completedProgress) ? s.completedProgress : [];
+      if (s.progress !== undefined && s.progress !== null && s.progress !== "") {
+        entry.rawProgressList.push(s.progress);
+      }
+      if (s.completedProgress !== undefined && s.completedProgress !== null && s.completedProgress !== "") {
+        entry.rawProgressList.push(s.completedProgress);
+      }
     });
 
     const AV = window.AvatarSystem;
     const hairStyles = (AV && AV.HAIR_STYLES) || [];
 
     return Array.from(map.values()).map((st) => {
-      const passedSet = new Set();
-      const rawPassedSet = new Set();
-      let easyCount = 0, mediumCount = 0, hardCount = 0, gradePassed = 0;
-      (st.completedProgress || []).forEach((tok) => {
-        const parts = String(tok || "").trim().split(":");
-        const rawUnitKey = String(parts[0] || "").trim();
-        const rawDiff = String(parts[1] || "single").trim().toLowerCase();
-        const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
-        if (!rawUnitKey) return;
-        rawPassedSet.add(`${rawUnitKey.toLowerCase()}:${diff}`);
-        const unitKey = canonicalizeUnitKey(rawUnitKey);
-        const cleanTok = `${unitKey}:${diff}`;
-        if (passedSet.has(cleanTok)) return;
-        passedSet.add(cleanTok);
-        if (diff === "medium") mediumCount++;
-        else if (diff === "hard") hardCount++;
-        else easyCount++;
-        if (catalog.unitGradeMap[unitKey] === st.grade) gradePassed++;
+      const progressSet = parseStudentProgressSet(st.rawProgressList);
+      let easyCount = 0;
+      let mediumCount = 0;
+      let hardCount = 0;
+      let passedTotal = 0;
+      let gradePassed = 0;
+
+      // 與「島嶼明細彈窗」共用完全相同的 progressSet 與全站課綱計算，確保列表與彈窗數字 100% 一致
+      catalog.islandCatalog.forEach((isl) => {
+        isl.units.forEach((u) => {
+          u.diffs.forEach((d) => {
+            if (!isUnitDiffPassed(progressSet, u, d)) return;
+            passedTotal++;
+            if (d === "medium") mediumCount++;
+            else if (d === "hard") hardCount++;
+            else easyCount++;
+            if (u.grade === st.grade) gradePassed++;
+          });
+        });
       });
 
-      const passedTotal = passedSet.size;
       const pctNum = catalog.totalLevels > 0 ? (passedTotal / catalog.totalLevels) * 100 : 0;
       const gradeTotal = catalog.gradeTotal[st.grade] || 1;
       const gradePctNum = (gradePassed / gradeTotal) * 100;
@@ -1800,8 +1955,9 @@ import QRCode from "qrcode";
 
       return {
         ...st,
-        passedSet,
-        rawPassedSet,
+        progress: Array.from(progressSet),
+        progressSet,
+        passedSet: progressSet,
         passedTotal,
         pctNum,
         pctText: pctNum.toFixed(1),
@@ -1843,6 +1999,9 @@ import QRCode from "qrcode";
       return a.seatNum - b.seatNum;
     });
 
+    window.__teacherMergedStudents = filtered;
+    window.__teacherCurriculumCatalog = catalog;
+
     if (filtered.length === 0) {
       return `<div class="tc-empty">🔍 找不到符合條件的學生資料。</div>`;
     }
@@ -1850,7 +2009,7 @@ import QRCode from "qrcode";
     return `
       <div class="tc-comp-summary-bar">
         <span>顯示 <b>${filtered.length}</b> / ${allRows.length} 位學生</span>
-        <span>全島總關卡數：<b>${catalog.totalLevels}</b> 關（含 7 大島嶼 × 易／中／難）</span>
+        <span>全島總關卡數：<b>${catalog.totalLevels}</b> 關（含 ${catalog.islandCatalog.length} 大島嶼 × 易／中／難）</span>
       </div>
       <div class="tc-comp-table-scroll" id="tcCompTableScroll" data-scrollable="true" style="display: block; width: 100%; height: 50vh; max-height: 50vh; overflow-y: scroll !important; overflow-x: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; position: relative; pointer-events: auto !important; scrollbar-width: auto;">
         <table class="tc-comp-table">
@@ -1865,7 +2024,7 @@ import QRCode from "qrcode";
             </tr>
           </thead>
           <tbody>
-            ${filtered.map((row) => {
+            ${filtered.map((row, idx) => {
               const revealed = state.revealedPins.has(row.studentKey);
               const pinCell = row.pinCode
                 ? `<div class="tc-pin-cell">
@@ -1914,7 +2073,7 @@ import QRCode from "qrcode";
                 <td>
                   <div class="tc-stat-act-cell">
                     <div class="tc-stat-nums"><span>👑 ${row.crownCount}</span><span>⭐ ${row.totalScore.toLocaleString()}</span></div>
-                    <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-skey="${esc(row.studentKey)}">🔍 島嶼明細</button>
+                    <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-action="open-island-details" data-student-idx="${idx}" data-skey="${esc(row.studentKey)}" style="pointer-events: auto; cursor: pointer;">🔍 島嶼明細</button>
                   </div>
                 </td>
               </tr>`;
@@ -1985,9 +2144,14 @@ import QRCode from "qrcode";
   }
 
   function closeDetailModal() {
+    const activeModal = document.getElementById("teacher-island-details-modal");
+    if (activeModal && activeModal.parentNode) {
+      activeModal.parentNode.removeChild(activeModal);
+    }
     detailWrap.classList.remove("show");
     detailWrap.classList.add("hidden", "pointer-events-none");
     detailWrap.hidden = true;
+    notifyCockpitToggle();
   }
 
   function closeConfirmModal() {
@@ -1996,67 +2160,150 @@ import QRCode from "qrcode";
     confirmWrap.hidden = true;
   }
 
-  function isUnitDiffPassed(st, unit, diff) {
-    if (!st || !unit || !diff) return false;
-    if (st.passedSet && st.passedSet.has(`${unit.unitKey}:${diff}`)) return true;
-    if (Array.isArray(unit.aliases)) {
-      return unit.aliases.some((alias) => {
-        const a = String(alias || "").trim();
-        if (!a) return false;
-        return (st.passedSet && st.passedSet.has(`${a}:${diff}`))
-          || (st.rawPassedSet && st.rawPassedSet.has(`${a.toLowerCase()}:${diff}`));
-      });
+  function openStudentDetailModal(studentOrKey, explicitCatalog = null) {
+    const catalog = explicitCatalog || window.__teacherCurriculumCatalog || buildCurriculumCatalog();
+    let st = (studentOrKey && typeof studentOrKey === "object") ? studentOrKey : null;
+    if (!st) {
+      const cachedList = Array.isArray(window.__teacherMergedStudents) ? window.__teacherMergedStudents : [];
+      st = cachedList.find((r) => r && r.studentKey === studentOrKey) || null;
+      if (!st) {
+        const allRows = buildMergedStudents(catalog);
+        st = allRows.find((r) => r && r.studentKey === studentOrKey) || null;
+      }
     }
-    return false;
-  }
-
-  function openStudentDetailModal(studentKey) {
-    const catalog = buildCurriculumCatalog();
-    const allRows = buildMergedStudents(catalog);
-    const st = allRows.find((r) => r.studentKey === studentKey);
     if (!st) return;
 
-    const card = detailWrap.querySelector("#tcDetailCard");
-    card.innerHTML = `
-      <div class="tc-proj-head">
-        <div class="tc-proj-badges">
-          <span class="tc-proj-badge">${esc(st.className)} 班 ${String(st.seatNum).padStart(2, "0")} 號 · ${esc(displayName(st.name, st.seatNum))}</span>
-          <span class="tc-proj-badge diff">總完成：${st.passedTotal} / ${catalog.totalLevels} 關 (${st.pctText}%)</span>
-          <span class="tc-proj-badge">👑 ${st.crownCount} · ⭐ ${st.totalScore.toLocaleString()}</span>
+    const progressSet = st.progressSet instanceof Set
+      ? st.progressSet
+      : parseStudentProgressSet(st.progress !== undefined ? st.progress : (st.completedProgress || st.rawProgressList || []));
+
+    const oldModal = document.getElementById("teacher-island-details-modal");
+    if (oldModal && oldModal.parentNode) {
+      oldModal.parentNode.removeChild(oldModal);
+    }
+    detailWrap.classList.remove("show");
+    detailWrap.classList.add("hidden", "pointer-events-none");
+    detailWrap.hidden = true;
+
+    const modal = document.createElement("div");
+    modal.id = "teacher-island-details-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", "學生七大島嶼完成明細");
+    modal.setAttribute("data-scrollable", "true");
+    modal.style.cssText = [
+      "position: fixed",
+      "inset: 0",
+      "z-index: 2147483647",
+      "display: flex",
+      "align-items: center",
+      "justify-content: center",
+      "padding: 16px",
+      "background: rgba(15, 23, 42, 0.85)",
+      "pointer-events: auto",
+      "box-sizing: border-box",
+      'font-family: "Noto Sans TC", sans-serif'
+    ].join("; ") + ";";
+
+    const card = document.createElement("div");
+    card.id = "tcIslandDetailsCard";
+    card.setAttribute("data-scrollable", "true");
+    card.style.cssText = [
+      "width: min(1080px, 95vw)",
+      "max-height: 85vh",
+      "overflow-y: auto",
+      "overscroll-behavior: contain",
+      "-webkit-overflow-scrolling: touch",
+      "background: linear-gradient(165deg, #0f172a, #0b223d)",
+      "border: 1.5px solid rgba(124, 199, 255, 0.42)",
+      "border-radius: 22px",
+      "padding: 22px 24px",
+      "color: #f8fafc",
+      "box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65)",
+      "box-sizing: border-box",
+      "pointer-events: auto",
+      'font-family: "Noto Sans TC", sans-serif'
+    ].join("; ") + ";";
+
+    const totalUnits = catalog.islandCatalog.reduce((sum, isl) => sum + isl.units.length, 0);
+
+    const islandCardsHtml = catalog.islandCatalog.map((isl) => {
+      let islPassed = 0;
+      const unitRowsHtml = isl.units.map((u) => {
+        const diffBadgesHtml = u.diffs.map((d) => {
+          const ok = isUnitDiffPassed(progressSet, u, d);
+          if (ok) islPassed++;
+          const fullLabel = DIFF_FULL_LABELS[d] || DIFF_LABELS[d] || d;
+          const badgeStyle = ok
+            ? (d === "hard"
+              ? "background: rgba(245, 158, 11, 0.24); border: 1px solid rgba(251, 191, 36, 0.72); color: #fde68a;"
+              : "background: rgba(16, 185, 129, 0.24); border: 1px solid rgba(52, 211, 153, 0.68); color: #6ee7b7;")
+            : "background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.22); color: #94a3b8;";
+          return `<span style="display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 800; white-space: nowrap; ${badgeStyle}">${ok ? "✔" : "○"} ${esc(fullLabel)}</span>`;
+        }).join("");
+
+        return `<div style="display: flex; flex-direction: column; gap: 6px; padding: 9px 10px; border-radius: 10px; background: rgba(15, 23, 42, 0.56); border: 1px solid rgba(148, 163, 184, 0.16);">
+          <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 6px;">
+            <span style="font-size: 0.82rem; font-weight: 800; color: #f1f5f9; line-height: 1.35;">
+              <span style="display: inline-block; padding: 1px 6px; margin-right: 6px; border-radius: 6px; background: rgba(56, 189, 248, 0.16); color: #7dd3fc; font-size: 0.7rem; font-weight: 700;">${esc(u.termLabel)}</span>${esc(u.unitName)}
+            </span>
+            <code style="font-size: 0.68rem; color: #64748b; flex-shrink: 0;">${esc(u.unitKey)}</code>
+          </div>
+          <div style="display: flex; flex-wrap: wrap; gap: 5px;">${diffBadgesHtml}</div>
+        </div>`;
+      }).join("");
+
+      const islPct = isl.totalLevels > 0 ? Math.round((islPassed / isl.totalLevels) * 100) : 0;
+      return `<section style="padding: 14px; border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(255, 255, 255, 0.04); display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
+          <h4 style="margin: 0; font-size: 0.98rem; font-weight: 900; color: #ffffff;">${esc(isl.emoji)} ${esc(isl.name)}</h4>
+          <span style="font-size: 0.8rem; font-weight: 800; color: #7dd3fc; white-space: nowrap;">${islPassed} / ${isl.totalLevels} (${islPct}%)</span>
         </div>
-        <button type="button" id="tcDetailClose" class="tc-proj-close">✕ 關閉</button>
+        <div style="height: 6px; border-radius: 999px; background: rgba(15, 23, 42, 0.8); overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.22);">
+          <i style="display: block; height: 100%; width: ${islPct}%; border-radius: 999px; background: linear-gradient(90deg, #38bdf8, #34d399);"></i>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 7px;">${unitRowsHtml}</div>
+      </section>`;
+    }).join("");
+
+    card.innerHTML = `
+      <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
+          <span style="padding: 6px 13px; border-radius: 999px; background: rgba(79, 179, 255, 0.2); border: 1px solid rgba(124, 199, 255, 0.45); font-size: 0.92rem; font-weight: 800; color: #f8fafc;">${esc(st.className)} 班 ${String(st.seatNum).padStart(2, "0")} 號 · ${esc(displayName(st.name, st.seatNum))}</span>
+          <span style="padding: 6px 13px; border-radius: 999px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(52, 211, 153, 0.5); color: #6ee7b7; font-size: 0.9rem; font-weight: 800;">總完成：${st.passedTotal} / ${catalog.totalLevels} 關 (${st.pctText}%)</span>
+          <span style="padding: 6px 13px; border-radius: 999px; background: rgba(255, 209, 102, 0.18); border: 1px solid rgba(255, 209, 102, 0.45); color: #fde68a; font-size: 0.88rem; font-weight: 800;">👑 ${st.crownCount} · ⭐ ${st.totalScore.toLocaleString()}</span>
+          <span style="padding: 5px 11px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #cbd5e1; font-size: 0.8rem; font-weight: 700;">易 ${st.easyCount} · 中 ${st.mediumCount} · 難 ${st.hardCount}（共 ${catalog.islandCatalog.length} 島 / ${totalUnits} 單元）</span>
+        </div>
+        <button type="button" id="tcIslandDetailsCloseBtn" aria-label="關閉島嶼明細視窗" style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.12); color: #ffffff; font-weight: 800; font-size: 0.92rem; cursor: pointer; pointer-events: auto; font-family: 'Noto Sans TC', sans-serif;">✕ 關閉</button>
       </div>
-      <div class="tc-detail-grid">
-        ${catalog.islandCatalog.map((isl) => {
-          let islPassed = 0;
-          const unitRows = isl.units.map((u) => {
-            const diffBadges = u.diffs.map((d) => {
-              const ok = isUnitDiffPassed(st, u, d);
-              if (ok) islPassed++;
-              const lbl = DIFF_LABELS[d] || d;
-              return `<span class="tc-unit-diff ${ok ? "ok" : "no"}">${ok ? "✅" : "○"} ${esc(lbl)}</span>`;
-            }).join("");
-            return `<div class="tc-detail-unit" data-unit="${esc(u.unitKey)}">
-              <span class="tc-du-name"><small>${esc(u.grade)}年級</small> ${esc(u.unitName)}</span>
-              <span class="tc-du-diffs">${diffBadges}</span>
-            </div>`;
-          }).join("");
-          const islPct = isl.totalLevels > 0 ? Math.round((islPassed / isl.totalLevels) * 100) : 0;
-          return `<section class="tc-detail-island">
-            <div class="tc-di-head">
-              <h4>${esc(isl.emoji)} ${esc(isl.name)}</h4>
-              <span class="tc-di-prog">${islPassed} / ${isl.totalLevels} (${islPct}%)</span>
-            </div>
-            <div class="tc-prog-track sm"><i style="width:${islPct}%"></i></div>
-            <div class="tc-di-units">${unitRows}</div>
-          </section>`;
-        }).join("")}
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 16px;">
+        ${islandCardsHtml}
       </div>
     `;
-    card.querySelector("#tcDetailClose").onclick = closeDetailModal;
-    detailWrap.hidden = false;
-    detailWrap.classList.remove("hidden", "pointer-events-none");
-    detailWrap.classList.add("show");
+
+    modal.appendChild(card);
+    document.body.appendChild(modal);
+
+    const stopScrollBubble = (e) => e.stopPropagation();
+    card.addEventListener("wheel", stopScrollBubble, { passive: true });
+    card.addEventListener("touchmove", stopScrollBubble, { passive: true });
+    modal.addEventListener("wheel", stopScrollBubble, { passive: true });
+    modal.addEventListener("touchmove", stopScrollBubble, { passive: true });
+    modal.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (e.target === modal) closeDetailModal();
+    });
+
+    const closeBtn = card.querySelector("#tcIslandDetailsCloseBtn");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeDetailModal();
+      });
+      setTimeout(() => closeBtn.focus(), 20);
+    }
+
+    notifyCockpitToggle();
   }
 
   async function postTeacherAction(actionName, payload) {
@@ -2825,9 +3072,9 @@ import QRCode from "qrcode";
   /* ---- 事件綁定（外層容器事件委派） ---- */
   function handleTopmostEscape() {
     if (document.getElementById("teacher-question-projector") || projWrap.classList.contains("show")) closeProjectorModal();
+    else if (document.getElementById("teacher-island-details-modal") || detailWrap.classList.contains("show")) closeDetailModal();
     else if (confirmWrap.classList.contains("show")) closeConfirmModal();
     else if (qrWrap.classList.contains("show")) closeQrModal();
-    else if (detailWrap.classList.contains("show")) closeDetailModal();
     else if (authWrap.classList.contains("show")) closeAuthModal();
     else if (cockpitWrap.classList.contains("show")) closeCockpit();
   }
@@ -2837,19 +3084,34 @@ import QRCode from "qrcode";
     document.addEventListener("click", (e) => {
       const target = e.target;
       if (!target || typeof target.closest !== "function") return;
+
       const projBtn = target.closest('[data-action="project-wrong-question"]');
-      if (!projBtn) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const idx = Number(projBtn.getAttribute("data-wrong-idx"));
-      const cached = Array.isArray(window.__teacherTopWrongList) ? window.__teacherTopWrongList : [];
-      const item = (Number.isInteger(idx) && cached[idx]) ? cached[idx] : {
-        unitId: projBtn.getAttribute("data-unit") || "",
-        difficulty: projBtn.getAttribute("data-diff") || "",
-        questionKey: projBtn.getAttribute("data-qkey") || "",
-        count: Number(projBtn.getAttribute("data-count")) || 0
-      };
-      openProjectorModal(item);
+      if (projBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = Number(projBtn.getAttribute("data-wrong-idx"));
+        const cached = Array.isArray(window.__teacherTopWrongList) ? window.__teacherTopWrongList : [];
+        const item = (Number.isInteger(idx) && cached[idx]) ? cached[idx] : {
+          unitId: projBtn.getAttribute("data-unit") || "",
+          difficulty: projBtn.getAttribute("data-diff") || "",
+          questionKey: projBtn.getAttribute("data-qkey") || "",
+          count: Number(projBtn.getAttribute("data-count")) || 0
+        };
+        openProjectorModal(item);
+        return;
+      }
+
+      const islandDetailBtn = target.closest('[data-action="open-island-details"]');
+      if (islandDetailBtn) {
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = Number(islandDetailBtn.getAttribute("data-student-idx"));
+        const cachedStudents = Array.isArray(window.__teacherMergedStudents) ? window.__teacherMergedStudents : [];
+        const studentObj = (Number.isInteger(idx) && idx >= 0 && cachedStudents[idx])
+          ? cachedStudents[idx]
+          : (islandDetailBtn.getAttribute("data-skey") || "");
+        openStudentDetailModal(studentObj, window.__teacherCurriculumCatalog || null);
+      }
     }, true);
   }
 
@@ -2861,7 +3123,7 @@ import QRCode from "qrcode";
     container.addEventListener("wheel", stopBubble, { passive: true });
     container.addEventListener("touchmove", stopBubble, { passive: true });
     container.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show") || !!document.getElementById("teacher-question-projector"))) {
+      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show") || !!document.getElementById("teacher-question-projector") || !!document.getElementById("teacher-island-details-modal"))) {
         handleTopmostEscape();
       }
       e.stopPropagation();
@@ -3128,12 +3390,6 @@ import QRCode from "qrcode";
       return;
     }
 
-    const detailBtn = target.closest(".tc-island-detail-btn");
-    if (detailBtn) {
-      openStudentDetailModal(detailBtn.dataset.skey);
-      return;
-    }
-
     if (target.closest("#tcDispatchClear")) {
       e.preventDefault();
       handleDispatchClear();
@@ -3268,7 +3524,7 @@ import QRCode from "qrcode";
   confirmWrap.addEventListener("click", (e) => { if (e.target === confirmWrap) closeConfirmModal(); });
 
   document.addEventListener("keydown", (e) => {
-    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show") && !document.getElementById("teacher-question-projector")) return;
+    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show") && !document.getElementById("teacher-question-projector") && !document.getElementById("teacher-island-details-modal")) return;
     if (e.key === "Escape") {
       handleTopmostEscape();
     }
@@ -3298,5 +3554,6 @@ import QRCode from "qrcode";
     }
   } catch {}
 
-  window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit, findQuestionForProjection };
+  window.parseStudentProgressSet = parseStudentProgressSet;
+  window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit, findQuestionForProjection, parseStudentProgressSet };
 })();
