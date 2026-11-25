@@ -214,16 +214,35 @@
   let remoteLeaderboardFetcher = null;
   let lbUploadSeq = 0;
 
+  const CANONICAL_ISLAND_ALIAS = {
+    hw: "sys",
+    prog: "code",
+    alg: "algo",
+    sec: "citizen"
+  };
+
+  function canonicalizeUnitId(unitId) {
+    const raw = String(unitId || "").trim();
+    if (!raw) return "";
+    const normalized = raw.replace(/^([a-z]+)(\d+)$/i, "$1-$2");
+    const m = normalized.match(/^([a-z]+)-(\d+)$/i);
+    if (!m) return normalized.toLowerCase();
+    const prefix = m[1].toLowerCase();
+    const canonPrefix = CANONICAL_ISLAND_ALIAS[prefix] || prefix;
+    return `${canonPrefix}-${Number(m[2]) || m[2]}`;
+  }
+
   function collectCompletedProgress(profile) {
     if (!profile || !profile.cls || !profile.name) return [];
     const evs = ls.get(evKey({ cls: String(profile.cls).trim(), seat: Number(profile.seat) || profile.seat, name: String(profile.name).trim() }), []);
     const passedSet = new Set();
     (Array.isArray(evs) ? evs : []).forEach((e) => {
       if (!e || e.type !== "quiz") return;
-      const unit = String(e.unit || e.unitId || "").trim();
+      const rawUnit = String(e.unit || e.unitId || "").trim();
+      const unit = canonicalizeUnitId(rawUnit);
       if (!unit) return;
       if ((Number(e.score) || 0) < 60) return;
-      const rawDiff = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
+      const rawDiff = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim().toLowerCase();
       const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
       passedSet.add(`${unit}:${diff}`);
     });
@@ -283,19 +302,26 @@
     }
   }
 
-  function getSyncedLeaderboardRecord(sKey) {
-    const map = ls.get(LB_SYNCED, {});
-    return map && map[sKey] ? map[sKey] : null;
+  function buildSyncedCacheKey(sKey, teacherId) {
+    const tid = String(teacherId !== undefined ? teacherId : getTeacherId() || "").trim() || "DEFAULT";
+    return `${tid}::${sKey}`;
   }
 
-  function markLeaderboardSynced(sKey, payload) {
+  function getSyncedLeaderboardRecord(sKey, teacherId) {
+    const map = ls.get(LB_SYNCED, {});
+    const scopedKey = buildSyncedCacheKey(sKey, teacherId);
+    return map && map[scopedKey] ? map[scopedKey] : null;
+  }
+
+  function markLeaderboardSynced(sKey, payload, teacherId) {
     if (!sKey || !payload) return;
     const map = ls.get(LB_SYNCED, {});
-    const prev = map[sKey];
+    const scopedKey = buildSyncedCacheKey(sKey, teacherId);
+    const prev = map[scopedKey];
     const nextScore = Math.max(0, Math.round(Number(payload.totalScore) || 0));
     const nextCrowns = Math.max(0, Math.round(Number(payload.crownCount) || 0));
     const nextProgSig = Array.isArray(payload.completedProgress) ? payload.completedProgress.join(",") : (prev && prev.progressSig) || "";
-    map[sKey] = {
+    map[scopedKey] = {
       totalScore: prev ? Math.max(prev.totalScore || 0, nextScore) : nextScore,
       crownCount: prev ? Math.max(prev.crownCount || 0, nextCrowns) : nextCrowns,
       progressSig: nextProgSig,
@@ -421,7 +447,7 @@
     }
 
     // 智慧去重上傳：無錯題、總積分/皇冠未超越且已完成單元清單未變動時才略過
-    const lastSynced = getSyncedLeaderboardRecord(built.studentKey);
+    const lastSynced = getSyncedLeaderboardRecord(built.studentKey, tid);
     const curProgSig = Array.isArray(built.payload.completedProgress) ? built.payload.completedProgress.join(",") : "";
     if (
       !hasWrongQuestions &&
@@ -440,7 +466,7 @@
     try {
       const data = await postLeaderboardPayload(url, payloadToSend);
       clearPendingLeaderboard(pendingKey, seq);
-      markLeaderboardSynced(built.studentKey, built.payload);
+      markLeaderboardSynced(built.studentKey, built.payload, tid);
       return { ok: true, data };
     } catch (e) {
       console.warn("風雲榜背景上傳失敗（已保留 localStorage 本地備份）:", e);
@@ -461,7 +487,12 @@
       const wrongQuestions = Array.isArray(it.wrongQuestions) ? it.wrongQuestions : [];
       const hasWrongQuestions = wrongQuestions.length > 0;
       const completedProgress = Array.isArray(it.completedProgress)
-        ? it.completedProgress
+        ? Array.from(new Set(it.completedProgress.map((tok) => {
+            const [ru, rd] = String(tok || "").trim().split(":");
+            const cu = canonicalizeUnitId(ru);
+            const cd = /^(easy|medium|hard)$/.test(String(rd || "").trim().toLowerCase()) ? String(rd).trim().toLowerCase() : "single";
+            return cu ? `${cu}:${cd}` : "";
+          }).filter(Boolean))).sort()
         : collectCompletedProgress({ cls: it.className, seat: it.seat, name: it.name });
       const payload = {
         grade: String(it.grade || parseGradeFromCls(it.className)),
@@ -479,7 +510,7 @@
       if (it.difficulty) payload.difficulty = String(it.difficulty);
       if (hasWrongQuestions) payload.wrongQuestions = wrongQuestions;
 
-      const lastSynced = getSyncedLeaderboardRecord(baseStudentKey);
+      const lastSynced = getSyncedLeaderboardRecord(baseStudentKey, effTid);
       const curProgSig = completedProgress.join(",");
       if (
         !hasWrongQuestions &&
@@ -494,7 +525,7 @@
       try {
         await postLeaderboardPayload(url, payload);
         clearPendingLeaderboard(pendingKey, it.seq);
-        markLeaderboardSynced(baseStudentKey, payload);
+        markLeaderboardSynced(baseStudentKey, payload, effTid);
         flushed++;
       } catch {
         // 網路仍異常時保留 localStorage 待下次重試
@@ -511,8 +542,8 @@
     const existingPassSet = new Set();
     (Array.isArray(localEvs) ? localEvs : []).forEach((e) => {
       if (!e || e.type !== "quiz" || (Number(e.score) || 0) < 60) return;
-      const u = String(e.unit || e.unitId || "").trim();
-      const rd = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
+      const u = canonicalizeUnitId(String(e.unit || e.unitId || "").trim());
+      const rd = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim().toLowerCase();
       const d = /^(easy|medium|hard)$/.test(rd) ? rd : "single";
       if (u) existingPassSet.add(`${u}:${d}`);
     });
@@ -523,11 +554,16 @@
 
     cloudProgress.forEach((token, idx) => {
       const parts = String(token || "").trim().split(":");
-      const unit = parts[0] || "";
-      const diff = /^(easy|medium|hard)$/.test(parts[1] || "") ? parts[1] : "single";
+      const rawUnit = parts[0] || "";
+      const unit = canonicalizeUnitId(rawUnit);
+      const rawDiff = String(parts[1] || "single").trim().toLowerCase();
+      const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
       if (!unit || existingPassSet.has(`${unit}:${diff}`)) return;
-      const island = unit.split("-")[0] || "";
-      const unitMeta = window.CONTENT && window.CONTENT[unit];
+      existingPassSet.add(`${unit}:${diff}`);
+      const [island, numStr] = unit.split("-");
+      const islObj = Array.isArray(window.ISLANDS) ? window.ISLANDS.find((i) => i && i.id === island) : null;
+      const seqItem = islObj && Array.isArray(islObj.sequence) ? islObj.sequence[(Number(numStr) || 0) - 1] : null;
+      const unitMeta = window.CONTENT && (window.CONTENT[unit] || window.CONTENT[rawUnit]);
       const useCrown = crownsLeft > 0;
       if (useCrown) crownsLeft--;
       addedEvents.push({
@@ -537,7 +573,7 @@
         island,
         unit,
         unitId: unit,
-        unitName: (unitMeta && unitMeta.unit) || unit,
+        unitName: (seqItem && seqItem.unit) || (unitMeta && unitMeta.unit) || unit,
         grade: parseGradeFromCls(profile),
         term: 1,
         difficulty: diff === "single" ? null : diff,

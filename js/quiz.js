@@ -138,9 +138,18 @@
         ${q.type === "fill" ? `<input class="fillin" type="text" name="${q.id}" autocomplete="off" placeholder="請輸入答案">` : ""}
       </fieldset>`).join("")}
       <p class="err" id="qErr"></p>
-      <button class="btn-primary" type="submit">交卷</button>
+      <button class="btn-primary" id="qSubmitBtn" type="submit">交卷</button>
       ${C.diff ? ` <button class="btn-ghost" type="button" id="qBack">← 重選難度</button>` : ""}</form>`;
     const form = body.querySelector("#qForm");
+    const errEl = form.querySelector("#qErr");
+    const submitBtn = form.querySelector("#qSubmitBtn");
+    let submitArmed = false;
+    const resetSubmitConfirm = () => {
+      if (!submitArmed) return;
+      submitArmed = false;
+      if (errEl) errEl.textContent = "";
+      if (submitBtn) submitBtn.textContent = "交卷";
+    };
     const back = body.querySelector("#qBack"); if (back) back.onclick = () => intro(key, info);
     const updateProgress = (idx) => {
       if (typeof idx === "number" && idx >= 0 && idx < questions.length) {
@@ -158,7 +167,8 @@
       form.querySelectorAll(".qq").forEach((fs, i) => fs.classList.toggle("active-q", i === currentIndex));
     };
     form.querySelectorAll(".qq").forEach((fs, idx) => {
-      fs.addEventListener("change", () => updateProgress(idx));
+      fs.addEventListener("change", () => { resetSubmitConfirm(); updateProgress(idx); });
+      fs.addEventListener("input", () => resetSubmitConfirm());
       fs.addEventListener("focusin", () => updateProgress(idx));
       fs.addEventListener("click", () => updateProgress(idx));
     });
@@ -172,7 +182,13 @@
         return els[0].value;
       });
       const blank = questions.filter((q, i) => answers[i] === null || answers[i] === "" || (Array.isArray(answers[i]) && !answers[i].length)).length;
-      if (blank && !confirm(`還有 ${blank} 題沒作答,確定要交卷嗎?`)) return;
+      if (blank && !submitArmed) {
+        submitArmed = true;
+        if (errEl) errEl.textContent = `⚠️ 還有 ${blank} 題還沒作答，若確定要交卷請再按一次「確定交卷」。`;
+        if (submitBtn) submitBtn.textContent = `確定交卷（尚有 ${blank} 題未答）`;
+        return;
+      }
+      resetSubmitConfirm();
       finish(key, info, C, answers, Math.round((Date.now() - t0) / 1000));
     };
   }
@@ -182,7 +198,7 @@
     const correctCount = marks.filter(Boolean).length;
     const total = questions.length;
     const score = Math.round((correctCount / questions.length) * 100);
-    const pass = score >= 60;
+    const pass = score >= (Number(C.passScore) || 60);
     const quizDiff = C.diff || "single";
     const wrongQuestions = [];
     questions.forEach((q, idx) => {

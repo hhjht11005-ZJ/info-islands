@@ -65,6 +65,17 @@ import QRCode from "qrcode";
     return merged;
   }
 
+  function canonicalizeUnitKey(unitId) {
+    const raw = String(unitId || "").trim();
+    if (!raw) return "";
+    const normalized = raw.replace(/^([a-z]+)(\d+)$/i, "$1-$2");
+    const m = normalized.match(/^([a-z]+)-(\d+)$/i);
+    if (!m) return normalized.toLowerCase();
+    const rawPrefix = m[1].toLowerCase();
+    const canonPrefix = CANONICAL_ISLAND_MAP[rawPrefix] || rawPrefix;
+    return `${canonPrefix}-${Number(m[2]) || m[2]}`;
+  }
+
   function getUnitAliasCandidates(unitId) {
     const raw = String(unitId || "").trim();
     if (!raw) return [];
@@ -78,10 +89,18 @@ import QRCode from "qrcode";
     const m = normalized.match(/^([a-z]+)-(\d+)$/i);
     if (m) {
       const prefix = m[1].toLowerCase();
-      const num = m[2];
+      const num = String(Number(m[2]) || m[2]);
+      const canonPrefix = CANONICAL_ISLAND_MAP[prefix] || prefix;
+      pushUnique(`${canonPrefix}-${num}`);
+      pushUnique(`${canonPrefix}${num}`);
+      pushUnique(`${prefix}-${num}`);
+      pushUnique(`${prefix}${num}`);
       UNIT_ALIAS_GROUPS.forEach((grp) => {
-        if (grp.includes(prefix)) {
-          grp.forEach((alt) => pushUnique(`${alt}-${num}`));
+        if (grp.includes(prefix) || grp.includes(canonPrefix)) {
+          grp.forEach((alt) => {
+            pushUnique(`${alt}-${num}`);
+            pushUnique(`${alt}${num}`);
+          });
         }
       });
     }
@@ -124,18 +143,19 @@ import QRCode from "qrcode";
   function resolveUnitMeta(unitId) {
     const content = getMergedContentMap();
     const idStr = String(unitId || "").trim();
-    const parts = idStr.split("-");
+    const canonId = canonicalizeUnitKey(idStr);
+    const parts = canonId.split("-");
     const rawIslandId = parts[0] || "";
     const islandId = CANONICAL_ISLAND_MAP[rawIslandId] || rawIslandId;
     const unitNum = Number(parts[1]) || 0;
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
     const isl = islands.find((i) => i.id === islandId);
     const seqItem = isl && Array.isArray(isl.sequence) ? isl.sequence[unitNum - 1] : null;
-    const contentUnit = content[idStr] || content[`${islandId}-${unitNum}`] || null;
+    const contentUnit = content[canonId] || content[idStr] || content[`${islandId}-${unitNum}`] || null;
     return {
       islandEmoji: isl ? isl.emoji : "🏝️",
       islandName: isl ? isl.name : rawIslandId || "未知島嶼",
-      unitName: (contentUnit && contentUnit.unit) || (seqItem && seqItem.unit) || idStr || "未知單元"
+      unitName: (seqItem && seqItem.unit) || (contentUnit && contentUnit.unit) || canonId || idStr || "未知單元"
     };
   }
 
@@ -1597,27 +1617,45 @@ import QRCode from "qrcode";
 
   function buildCurriculumCatalog() {
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
-    const content = window.CONTENT || {};
+    const content = getMergedContentMap();
     let totalLevels = 0;
     const gradeTotal = { "7": 0, "8": 0, "9": 0 };
     const unitGradeMap = {};
     const islandCatalog = islands.map((isl) => {
-      const units = (Array.isArray(isl.sequence) ? isl.sequence : []).map((seq, idx) => {
-        const unitKey = `${isl.id}-${idx + 1}`;
-        const q = content[unitKey] && content[unitKey].quiz;
+      const seqEntries = (Array.isArray(isl.sequence) ? isl.sequence : [])
+        .map((seq, idx) => ({ seq, unitKey: `${isl.id}-${idx + 1}` }))
+        .sort((a, b) => ((Number(a.seq && a.seq.grade) || 0) * 10 + (Number(a.seq && a.seq.term) || 0))
+          - ((Number(b.seq && b.seq.grade) || 0) * 10 + (Number(b.seq && b.seq.term) || 0)));
+      const units = seqEntries.map(({ seq, unitKey }) => {
+        const aliasSet = new Set(getUnitAliasCandidates(unitKey));
+        let contentUnit = content[unitKey] || null;
+        if (!contentUnit) {
+          for (const ak of aliasSet) {
+            if (content[ak]) {
+              contentUnit = content[ak];
+              break;
+            }
+          }
+        }
+        if (contentUnit && contentUnit.id) aliasSet.add(String(contentUnit.id).trim());
+        const q = contentUnit && contentUnit.quiz;
         const diffs = (q && q.levels)
           ? ["easy", "medium", "hard"].filter((d) => q.levels[d])
           : ["single"];
         const effectiveDiffs = diffs.length > 0 ? diffs : ["single"];
-        const gStr = String(seq.grade || 7);
+        const gStr = String((seq && seq.grade) || 7);
+        const unitName = (seq && seq.unit) || (contentUnit && contentUnit.unit) || unitKey;
         totalLevels += effectiveDiffs.length;
         if (gradeTotal[gStr] !== undefined) gradeTotal[gStr] += effectiveDiffs.length;
         unitGradeMap[unitKey] = gStr;
         return {
+          id: unitKey,
           unitKey,
-          unitName: (content[unitKey] && content[unitKey].unit) || seq.unit || unitKey,
+          title: unitName,
+          unitName,
           grade: gStr,
-          diffs: effectiveDiffs
+          diffs: effectiveDiffs,
+          aliases: Array.from(aliasSet)
         };
       });
       return {
@@ -1687,13 +1725,16 @@ import QRCode from "qrcode";
 
     return Array.from(map.values()).map((st) => {
       const passedSet = new Set();
+      const rawPassedSet = new Set();
       let easyCount = 0, mediumCount = 0, hardCount = 0, gradePassed = 0;
       (st.completedProgress || []).forEach((tok) => {
         const parts = String(tok || "").trim().split(":");
-        const unitKey = parts[0] || "";
-        const rawDiff = parts[1] || "single";
+        const rawUnitKey = String(parts[0] || "").trim();
+        const rawDiff = String(parts[1] || "single").trim().toLowerCase();
         const diff = /^(easy|medium|hard)$/.test(rawDiff) ? rawDiff : "single";
-        if (!unitKey) return;
+        if (!rawUnitKey) return;
+        rawPassedSet.add(`${rawUnitKey.toLowerCase()}:${diff}`);
+        const unitKey = canonicalizeUnitKey(rawUnitKey);
         const cleanTok = `${unitKey}:${diff}`;
         if (passedSet.has(cleanTok)) return;
         passedSet.add(cleanTok);
@@ -1716,6 +1757,7 @@ import QRCode from "qrcode";
       return {
         ...st,
         passedSet,
+        rawPassedSet,
         passedTotal,
         pctNum,
         pctText: pctNum.toFixed(1),
@@ -1910,6 +1952,20 @@ import QRCode from "qrcode";
     confirmWrap.hidden = true;
   }
 
+  function isUnitDiffPassed(st, unit, diff) {
+    if (!st || !unit || !diff) return false;
+    if (st.passedSet && st.passedSet.has(`${unit.unitKey}:${diff}`)) return true;
+    if (Array.isArray(unit.aliases)) {
+      return unit.aliases.some((alias) => {
+        const a = String(alias || "").trim();
+        if (!a) return false;
+        return (st.passedSet && st.passedSet.has(`${a}:${diff}`))
+          || (st.rawPassedSet && st.rawPassedSet.has(`${a.toLowerCase()}:${diff}`));
+      });
+    }
+    return false;
+  }
+
   function openStudentDetailModal(studentKey) {
     const catalog = buildCurriculumCatalog();
     const allRows = buildMergedStudents(catalog);
@@ -1931,12 +1987,12 @@ import QRCode from "qrcode";
           let islPassed = 0;
           const unitRows = isl.units.map((u) => {
             const diffBadges = u.diffs.map((d) => {
-              const ok = st.passedSet.has(`${u.unitKey}:${d}`);
+              const ok = isUnitDiffPassed(st, u, d);
               if (ok) islPassed++;
               const lbl = DIFF_LABELS[d] || d;
               return `<span class="tc-unit-diff ${ok ? "ok" : "no"}">${ok ? "✅" : "○"} ${esc(lbl)}</span>`;
             }).join("");
-            return `<div class="tc-detail-unit">
+            return `<div class="tc-detail-unit" data-unit="${esc(u.unitKey)}">
               <span class="tc-du-name"><small>${esc(u.grade)}年級</small> ${esc(u.unitName)}</span>
               <span class="tc-du-diffs">${diffBadges}</span>
             </div>`;
