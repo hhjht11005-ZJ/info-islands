@@ -4000,30 +4000,32 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   touch-action: pan-y;
   position: relative;
   pointer-events: auto !important;
-  scrollbar-width: auto;
-  scrollbar-color: #60a5fa rgba(15, 23, 42, 0.85);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.38) transparent;
   border-radius: 14px;
   border: 1px solid rgba(148, 163, 184, 0.28);
 }
 .tc-comp-table-scroll::-webkit-scrollbar,
 [data-scrollable="true"]::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 6px;
+  height: 6px;
 }
 .tc-comp-table-scroll::-webkit-scrollbar-track,
 [data-scrollable="true"]::-webkit-scrollbar-track {
-  background: rgba(15, 23, 42, 0.9);
-  border-radius: 10px;
+  background: transparent;
 }
 .tc-comp-table-scroll::-webkit-scrollbar-thumb,
 [data-scrollable="true"]::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, #60a5fa, #38bdf8);
-  border-radius: 10px;
-  border: 2px solid rgba(15, 23, 42, 0.9);
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 9999px;
 }
 .tc-comp-table-scroll::-webkit-scrollbar-thumb:hover,
 [data-scrollable="true"]::-webkit-scrollbar-thumb:hover {
-  background: #93c5fd;
+  background: rgba(255, 255, 255, 0.42);
+}
+.tc-comp-table-scroll::-webkit-scrollbar-corner,
+[data-scrollable="true"]::-webkit-scrollbar-corner {
+  background: transparent;
 }
 .tc-comp-table {
   width: 100%;
@@ -4705,4 +4707,84 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   font-size: 0.94rem;
   color: #7dd3fc;
 }
+
+/* ================================================================
+   登入視窗極簡纖細半透明霧面捲軸（學生護照／教師登入與註冊）
+   ================================================================ */
+#loginModal,
+#loginModal .modal.login.passport-ticket,
+#loginForm[data-scrollable="true"],
+#tcAuthModal,
+#tcAuthModal .tc-auth-modal,
+.lb-list-wrap[data-scrollable="true"] {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.38) transparent;
+}
+
+#loginModal::-webkit-scrollbar,
+#loginModal .modal.login.passport-ticket::-webkit-scrollbar,
+#loginForm[data-scrollable="true"]::-webkit-scrollbar,
+#tcAuthModal::-webkit-scrollbar,
+#tcAuthModal .tc-auth-modal::-webkit-scrollbar,
+.lb-list-wrap[data-scrollable="true"]::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+#loginModal::-webkit-scrollbar-track,
+#loginModal .modal.login.passport-ticket::-webkit-scrollbar-track,
+#loginForm[data-scrollable="true"]::-webkit-scrollbar-track,
+#tcAuthModal::-webkit-scrollbar-track,
+#tcAuthModal .tc-auth-modal::-webkit-scrollbar-track,
+.lb-list-wrap[data-scrollable="true"]::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#loginModal::-webkit-scrollbar-corner,
+#loginModal .modal.login.passport-ticket::-webkit-scrollbar-corner,
+#loginForm[data-scrollable="true"]::-webkit-scrollbar-corner,
+#tcAuthModal::-webkit-scrollbar-corner,
+#tcAuthModal .tc-auth-modal::-webkit-scrollbar-corner,
+.lb-list-wrap[data-scrollable="true"]::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* 深色毛玻璃視窗（教師登入／註冊彈窗與登入背景遮罩） */
+#loginModal::-webkit-scrollbar-thumb,
+#tcAuthModal::-webkit-scrollbar-thumb,
+#tcAuthModal .tc-auth-modal::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.24);
+  border-radius: 9999px;
+}
+#loginModal::-webkit-scrollbar-thumb:hover,
+#tcAuthModal::-webkit-scrollbar-thumb:hover,
+#tcAuthModal .tc-auth-modal::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.42);
+}
+
+/* 亮色卡片（學生登島護照卡片 & 亮底榜單） */
+#loginModal .modal.login.passport-ticket::-webkit-scrollbar-thumb,
+#loginForm[data-scrollable="true"]::-webkit-scrollbar-thumb,
+.lb-list-wrap[data-scrollable="true"]::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.28);
+  border-radius: 9999px;
+}
+#loginModal .modal.login.passport-ticket::-webkit-scrollbar-thumb:hover,
+#loginForm[data-scrollable="true"]::-webkit-scrollbar-thumb:hover,
+.lb-list-wrap[data-scrollable="true"]::-webkit-scrollbar-thumb:hover {
+  background: rgba(71, 85, 105, 0.5);
+}
+
+/* 登入表單控制項色系協調（移除瀏覽器預設亮藍） */
+#loginModal input,
+#loginModal select,
+#loginModal textarea {
+  accent-color: #16a085;
+}
+#tcAuthModal input,
+#tcAuthModal select,
+#tcAuthModal textarea {
+  accent-color: #ffd166;
+}
+
 
