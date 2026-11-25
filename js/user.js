@@ -3,12 +3,14 @@
   const $ = (s, r = document) => r.querySelector(s);
   const opt = (from, to, fmt = v => v) => Array.from({ length: to - from + 1 }, (_, k) => `<option value="${from + k}">${fmt(from + k)}</option>`).join("");
 
+  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
   let modal = $("#loginModal");
   if (!modal) {
     modal = document.createElement("div");
     modal.id = "loginModal"; modal.className = "modal-wrap"; modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true");
     modal.innerHTML = `
-      <form class="modal login passport-ticket" id="loginForm" novalidate>
+      <form class="modal login passport-ticket" id="loginForm" data-scrollable="true" novalidate>
         <div class="passport-stub">
           <div class="stub-ribbon">✈️ ISLAND AIRWAYS · BOARDING PASS</div>
           <div class="stub-emblem"><span class="emoji-big">🏝️</span><span class="stub-compass">🧭</span></div>
@@ -28,6 +30,18 @@
           <div class="passport-body-head">
             <span class="pass-tag">🛂 ADVENTURER PASSPORT · 探險家登島登記</span>
             <span class="pass-gate">GATE 01</span>
+          </div>
+          <div class="login-teacher-bar" id="loginTeacherBar">
+            <div class="login-teacher-status" id="loginTeacherStatus" hidden>
+              <span class="login-teacher-badge" id="loginTeacherBadge"></span>
+              <button type="button" class="login-teacher-switch-btn" id="loginSwitchTeacherBtn" title="切換學校或老師">切換</button>
+            </div>
+            <label class="login-teacher-picker" id="loginTeacherPickerWrap" hidden>
+              <span class="lbl-ico">🏫 選擇所屬學校與老師</span>
+              <select id="loginTeacherSelect" name="teacherIdSelect">
+                <option value="">⏳ 正在載入學校與教師名單…</option>
+              </select>
+            </label>
           </div>
           <div class="row3">
             <label><span class="lbl-ico">🏫 年級</span><select name="grade" required><option value="">選擇</option>${opt(7, 9, v => ["", "", "", "", "", "", "", "七年級", "八年級", "九年級"][v])}</select></label>
@@ -78,14 +92,23 @@
   }
 
   const form = $("#loginForm");
+  if (form) form.setAttribute("data-scrollable", "true");
   const err = $("#loginErr");
   const btn = $("#loginBtn");
   const pinInput = $("#loginPinInput", form);
   const pinConfirmInput = $("#loginPinConfirmInput", form);
   const setupBox = $("#loginPinSetupBox", form);
   const setupTip = $("#loginPinSetupTip", form);
+  const teacherStatusEl = $("#loginTeacherStatus", form);
+  const teacherBadgeEl = $("#loginTeacherBadge", form);
+  const switchTeacherBtn = $("#loginSwitchTeacherBtn", form);
+  const teacherPickerWrap = $("#loginTeacherPickerWrap", form);
+  const teacherSelect = $("#loginTeacherSelect", form);
+  const schoolSubEl = $("#loginSchoolSub", form);
 
   let pendingSetup = false;
+  let isSwitchingTeacher = false;
+  let directoryLoaded = false;
 
   const hasLbSync = typeof Store.hasLeaderboardSync === "function" && Store.hasLeaderboardSync();
   $("#loginMode").textContent = Store.online()
@@ -93,6 +116,117 @@
     : (hasLbSync
       ? "已連線雲端驗證與年級風雲榜資料庫（更換電腦也能還原造型與進度）。"
       : "目前為離線體驗模式：成績只會儲存在這台電腦。");
+
+  function renderTeacherConnectionUI() {
+    if (!teacherSelect || !teacherStatusEl || !teacherPickerWrap || !teacherBadgeEl) return;
+    const tid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
+    const list = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
+    const cur = (typeof Store.getCurrentTeacher === "function" ? Store.getCurrentTeacher() : null)
+      || list.find((t) => t && t.teacherId === tid)
+      || null;
+
+    // 渲染學校與教師下拉選單
+    if (!directoryLoaded && list.length === 0) {
+      teacherSelect.innerHTML = `<option value="">⏳ 正在載入學校與教師名單…</option>`;
+    } else if (list.length === 0) {
+      teacherSelect.innerHTML = `<option value="">（尚無已開通教師，請點右下角教師入口註冊）</option>`;
+    } else {
+      teacherSelect.innerHTML = [
+        `<option value="">-- 請選擇所屬學校與老師 --</option>`,
+        ...list.map((t) => {
+          const label = `${t.schoolName || "未命名學校"} — ${t.teacherName || ""}老師`;
+          return `<option value="${esc(t.teacherId)}"${t.teacherId === tid ? " selected" : ""}>${esc(label)}</option>`;
+        })
+      ].join("");
+    }
+
+    if (tid && !isSwitchingTeacher) {
+      const invalidBound = directoryLoaded && list.length > 0 && !cur;
+      teacherStatusEl.hidden = false;
+      teacherStatusEl.classList.toggle("is-warn", !!invalidBound);
+      if (invalidBound) {
+        teacherBadgeEl.textContent = `⚠️ 找不到教師代碼（${tid}），請重新選擇所屬學校與老師`;
+        teacherPickerWrap.hidden = false;
+      } else if (cur && cur.schoolName) {
+        teacherBadgeEl.textContent = `🏫 已連線至：${cur.schoolName} — ${cur.teacherName}老師`;
+        teacherPickerWrap.hidden = true;
+        if (schoolSubEl) {
+          schoolSubEl.textContent = `${cur.schoolName}（${cur.teacherName}老師）· 請先辦理探險護照，測驗成績才會記到你的名下`;
+        }
+      } else {
+        teacherBadgeEl.textContent = `⏳ 正在連線至教師課程島（${tid}）…`;
+        teacherPickerWrap.hidden = true;
+      }
+      if (switchTeacherBtn) switchTeacherBtn.textContent = "切換";
+    } else {
+      if (tid && isSwitchingTeacher) {
+        teacherStatusEl.hidden = false;
+        teacherBadgeEl.textContent = cur && cur.schoolName
+          ? `🏫 目前：${cur.schoolName} — ${cur.teacherName}老師`
+          : `🏫 目前代碼：${tid}`;
+        if (switchTeacherBtn) switchTeacherBtn.textContent = "取消";
+      } else {
+        teacherStatusEl.hidden = true;
+      }
+      teacherPickerWrap.hidden = false;
+      if (schoolSubEl && (!cur || !cur.schoolName)) {
+        const cfgSchool = window.APP_CONFIG && window.APP_CONFIG.SCHOOL;
+        schoolSubEl.textContent = cfgSchool
+          ? `${cfgSchool} · 請先辦理探險護照，測驗成績才會記到你的名下`
+          : "請先選擇學校／老師並辦理探險護照，測驗成績才會記到你的名下";
+      }
+    }
+  }
+
+  if (switchTeacherBtn) {
+    switchTeacherBtn.addEventListener("click", () => {
+      isSwitchingTeacher = !isSwitchingTeacher;
+      err.textContent = "";
+      renderTeacherConnectionUI();
+      if (isSwitchingTeacher && teacherSelect) {
+        setTimeout(() => teacherSelect.focus(), 40);
+      }
+    });
+  }
+
+  if (teacherSelect) {
+    teacherSelect.addEventListener("change", () => {
+      const picked = String(teacherSelect.value || "").trim();
+      err.textContent = "";
+      if (!picked) return;
+      isSwitchingTeacher = false;
+      const list = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
+      const found = list.find((t) => t && t.teacherId === picked) || null;
+      if (typeof Store.setTeacherId === "function") {
+        Store.setTeacherId(picked, found);
+      }
+      if (typeof Store.fetchGasSnapshot === "function") {
+        void Store.fetchGasSnapshot(picked, { force: true });
+      }
+      renderTeacherConnectionUI();
+    });
+  }
+
+  document.addEventListener("ii:gas-snapshot", () => {
+    directoryLoaded = true;
+    renderTeacherConnectionUI();
+  });
+  document.addEventListener("ii:teacher-changed", () => {
+    renderTeacherConnectionUI();
+  });
+
+  if (typeof Store.fetchGasSnapshot === "function" && hasLbSync) {
+    void Store.fetchGasSnapshot().then(() => {
+      directoryLoaded = true;
+      renderTeacherConnectionUI();
+    }).catch(() => {
+      directoryLoaded = true;
+      renderTeacherConnectionUI();
+    });
+  } else {
+    directoryLoaded = true;
+  }
+  renderTeacherConnectionUI();
 
   function bindEyeToggle(eyeSelector, inputEl) {
     const eyeBtn = $(eyeSelector, form);
@@ -130,11 +264,17 @@
 
   function show() {
     resetPinSetupState();
+    isSwitchingTeacher = false;
+    renderTeacherConnectionUI();
     err.textContent = "";
     modal.hidden = false;
     modal.classList.remove("hidden", "pointer-events-none");
     modal.classList.add("show");
-    setTimeout(() => form.grade.focus(), 50);
+    setTimeout(() => {
+      const tid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
+      if (!tid && teacherSelect && !teacherPickerWrap.hidden) teacherSelect.focus();
+      else form.grade.focus();
+    }, 50);
   }
   function hide() {
     modal.classList.remove("show");
@@ -149,6 +289,15 @@
     v.name = (v.name || "").trim();
     v.pinCode = (v.pinCode || "").trim();
     v.pinConfirm = (v.pinConfirm || "").trim();
+
+    const boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
+    const knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
+    if (hasLbSync && knownTeachers.length > 0 && !boundTid) {
+      err.textContent = "請先選擇所屬學校與老師";
+      if (teacherPickerWrap) teacherPickerWrap.hidden = false;
+      if (teacherSelect) teacherSelect.focus();
+      return;
+    }
 
     if (!v.grade || !v.room || !v.seat) {
       err.textContent = "請選擇年級、班級與座號";

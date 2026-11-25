@@ -2,11 +2,86 @@
 (() => {
   const CFG = window.APP_CONFIG;
   const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending", LB_SYNCED = "ii:leaderboard:synced_v1", ACTIVE_ISLAND = "ii:activeIslandId";
-  const GAS_TIMEOUT_MS = 8000;
+  const TEACHER_ID_KEY = "island_teacher_id", TEACHER_META_KEY = "ii:teacher_meta_v1", TEACHERS_LIST_KEY = "ii:teachers_list_v1";
+  const GAS_TIMEOUT_MS = 10000;
   const ls = {
     get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } }
   };
+
+  function getTeacherId() {
+    try { return String(localStorage.getItem(TEACHER_ID_KEY) || "").trim(); } catch { return ""; }
+  }
+  function getStoredTeacherMeta() {
+    const m = ls.get(TEACHER_META_KEY, null);
+    return (m && typeof m === "object") ? m : null;
+  }
+  function getStoredTeachersList() {
+    const list = ls.get(TEACHERS_LIST_KEY, []);
+    return Array.isArray(list) ? list : [];
+  }
+
+  let cachedTeachersList = getStoredTeachersList();
+  let cachedCurrentTeacher = getStoredTeacherMeta();
+  let lastGasSnapshot = null;
+  let inflightSnapshot = null;
+  let inflightTeacherKey = null;
+
+  function setTeacherId(teacherId, metaObj = null) {
+    const cleanId = String(teacherId || "").trim();
+    const prevId = getTeacherId();
+    try {
+      if (cleanId) localStorage.setItem(TEACHER_ID_KEY, cleanId);
+      else localStorage.removeItem(TEACHER_ID_KEY);
+    } catch (e) { console.warn(e); }
+
+    if (metaObj && typeof metaObj === "object" && metaObj.teacherId === cleanId) {
+      cachedCurrentTeacher = {
+        teacherId: cleanId,
+        schoolName: String(metaObj.schoolName || "").trim(),
+        teacherName: String(metaObj.teacherName || "").trim()
+      };
+      ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+    } else if (cleanId) {
+      const matched = cachedTeachersList.find((t) => t && t.teacherId === cleanId);
+      if (matched) {
+        cachedCurrentTeacher = {
+          teacherId: cleanId,
+          schoolName: String(matched.schoolName || "").trim(),
+          teacherName: String(matched.teacherName || "").trim()
+        };
+        ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+      } else if (prevId !== cleanId) {
+        cachedCurrentTeacher = null;
+        try { localStorage.removeItem(TEACHER_META_KEY); } catch {}
+      }
+    } else {
+      cachedCurrentTeacher = null;
+      try { localStorage.removeItem(TEACHER_META_KEY); } catch {}
+    }
+
+    if (prevId !== cleanId) {
+      lastGasSnapshot = null;
+    }
+    document.dispatchEvent(new CustomEvent("ii:teacher-changed", {
+      detail: { teacherId: cleanId, teacher: cachedCurrentTeacher }
+    }));
+    return cleanId;
+  }
+
+  // 啟動時自動讀取網址參數 ?t=教師ID 並綁定記憶至 localStorage.island_teacher_id
+  try {
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlTeacherId = (urlParams.get("t") || "").trim();
+    if (urlTeacherId) {
+      const prevId = getTeacherId();
+      localStorage.setItem(TEACHER_ID_KEY, urlTeacherId);
+      if (prevId !== urlTeacherId) {
+        cachedCurrentTeacher = null;
+        localStorage.removeItem(TEACHER_META_KEY);
+      }
+    }
+  } catch (e) { console.warn(e); }
   const evKey = p => `ii:ev:${p.cls}-${p.seat}-${p.name}`;
   const activeIslandKey = p => (p && p.cls && p.name)
     ? `ii:activeIslandId:${p.cls}-${p.seat}-${p.name}`
@@ -267,15 +342,78 @@
     return await r.json();
   }
 
+  async function fetchGasSnapshot(explicitTeacherId, { force = false } = {}) {
+    const lbUrl = getLeaderboardUrl();
+    if (!lbUrl) return null;
+    const tid = explicitTeacherId !== undefined ? String(explicitTeacherId || "").trim() : getTeacherId();
+    if (!force && lastGasSnapshot && inflightTeacherKey === tid) {
+      return lastGasSnapshot;
+    }
+    if (!force && inflightSnapshot && inflightTeacherKey === tid) {
+      return inflightSnapshot;
+    }
+
+    const qs = new URLSearchParams();
+    if (tid) qs.set("teacherId", tid);
+    qs.set("cb", String(Date.now()));
+    const reqUrl = `${lbUrl}?${qs.toString()}`;
+
+    inflightTeacherKey = tid;
+    const run = (async () => {
+      try {
+        const res = await fetchWithTimeout(reqUrl, { cache: "no-store" }, GAS_TIMEOUT_MS);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json || json.status !== "ok") {
+          throw new Error((json && json.message) || "GAS 回應格式錯誤");
+        }
+        if (Array.isArray(json.teachersList)) {
+          cachedTeachersList = json.teachersList;
+          ls.set(TEACHERS_LIST_KEY, cachedTeachersList);
+        }
+        if (tid === getTeacherId()) {
+          if (json.currentTeacher && typeof json.currentTeacher === "object") {
+            cachedCurrentTeacher = {
+              teacherId: String(json.currentTeacher.teacherId || tid).trim(),
+              schoolName: String(json.currentTeacher.schoolName || "").trim(),
+              teacherName: String(json.currentTeacher.teacherName || "").trim()
+            };
+            ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+          } else if (tid) {
+            const matched = cachedTeachersList.find((t) => t && t.teacherId === tid);
+            if (matched) {
+              cachedCurrentTeacher = {
+                teacherId: tid,
+                schoolName: String(matched.schoolName || "").trim(),
+                teacherName: String(matched.teacherName || "").trim()
+              };
+              ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+            }
+          }
+          lastGasSnapshot = json;
+        }
+        document.dispatchEvent(new CustomEvent("ii:gas-snapshot", { detail: { teacherId: tid, snapshot: json } }));
+        return json;
+      } finally {
+        if (inflightSnapshot === run) inflightSnapshot = null;
+      }
+    })();
+
+    inflightSnapshot = run;
+    return run;
+  }
+
   async function uploadLeaderboardScore(profile, quizMeta) {
     const built = buildLeaderboardPayload(profile || Store.profile);
     if (!built) return { ok: false, skipped: true };
     const url = getLeaderboardUrl();
     if (!url) return { ok: false, offline: true };
 
+    const tid = getTeacherId();
     const wrongQuestions = quizMeta && Array.isArray(quizMeta.wrongQuestions) ? quizMeta.wrongQuestions : [];
     const hasWrongQuestions = wrongQuestions.length > 0;
     const payloadToSend = { ...built.payload };
+    if (tid) payloadToSend.teacherId = tid;
     if (quizMeta) {
       if (quizMeta.unitId) payloadToSend.unitId = String(quizMeta.unitId);
       if (quizMeta.difficulty) payloadToSend.difficulty = String(quizMeta.difficulty);
@@ -316,6 +454,7 @@
     const pending = ls.get(LB_PENDING, {});
     const entries = Object.entries(pending || {});
     let flushed = 0;
+    const currentTid = getTeacherId();
     for (const [pendingKey, it] of entries) {
       if (!it || !it.className || !it.seat || !it.name) continue;
       const baseStudentKey = buildStudentKey(it.grade || parseGradeFromCls(it.className), it.className, it.seat);
@@ -333,6 +472,8 @@
         crownCount: Math.max(0, Math.round(Number(it.crownCount) || 0)),
         completedProgress
       };
+      const effTid = String(it.teacherId || currentTid || "").trim();
+      if (effTid) payload.teacherId = effTid;
       if (it.avatar && typeof it.avatar === "object") payload.avatar = it.avatar;
       if (it.unitId) payload.unitId = String(it.unitId);
       if (it.difficulty) payload.difficulty = String(it.difficulty);
@@ -443,14 +584,17 @@
     if (!p || !url || !avatarState || typeof avatarState !== "object") return { ok: false, skipped: true };
     try {
       const grade = String(parseGradeFromCls(p));
-      const res = await postGasJson(url, {
+      const payload = {
         action: "save_avatar",
         grade,
         className: String(p.cls),
         seat: String(p.seat),
         name: String(p.name),
         avatar: avatarState
-      });
+      };
+      const tid = getTeacherId();
+      if (tid) payload.teacherId = tid;
+      const res = await postGasJson(url, payload);
       return { ok: !!(res && res.status === "ok"), data: res };
     } catch (e) {
       return { ok: false, error: e.message };
@@ -468,6 +612,16 @@
     online: () => !!CFG.API_URL,
     hasLeaderboardSync: () => !!getLeaderboardUrl(),
     getLeaderboardUrl,
+    getTeacherId,
+    setTeacherId,
+    getCurrentTeacher: () => {
+      const tid = getTeacherId();
+      if (!tid) return null;
+      if (cachedCurrentTeacher && cachedCurrentTeacher.teacherId === tid) return cachedCurrentTeacher;
+      return cachedTeachersList.find((t) => t && t.teacherId === tid) || null;
+    },
+    getTeachersList: () => cachedTeachersList.slice(),
+    fetchGasSnapshot,
     profile: ls.get(PROFILE, null),
 
     /** 登入（含 GAS 個人驗證碼首次設定與核對＋雲端外觀／進度還原） */
@@ -476,13 +630,14 @@
       const seatNum = Number(seat);
       const cleanName = String(name || "").trim();
       const cleanPin = String(pinCode || "").trim();
+      const tid = getTeacherId();
       let p = { cls, seat: seatNum, name: cleanName };
       let loginRes = null;
 
       const lbUrl = getLeaderboardUrl();
       if (lbUrl) {
         try {
-          loginRes = await postGasJson(lbUrl, {
+          const loginPayload = {
             action: "student_login",
             grade: String(grade),
             className: cls,
@@ -490,7 +645,9 @@
             name: cleanName,
             pinCode: cleanPin,
             isConfirmSetup: !!isConfirmSetup
-          });
+          };
+          if (tid) loginPayload.teacherId = tid;
+          loginRes = await postGasJson(lbUrl, loginPayload);
         } catch (e) {
           return { ok: false, status: "network_error", msg: "無法連線至雲端驗證伺服器：" + e.message };
         }
@@ -523,7 +680,7 @@
 
       if (Store.online()) {
         try {
-          const r = await post({ action: "login", ...p });
+          const r = await post({ action: "login", ...p, ...(tid ? { teacherId: tid } : {}) });
           if (!r.ok) return { ok: false, msg: r.error || "登入失敗" };
         } catch (e) { return { ok: false, msg: "無法連線到成績伺服器:" + e.message }; }
       }
@@ -603,12 +760,13 @@
         ? uploadLeaderboardScore(p, quizMeta)
         : null;
       if (!Store.online()) return { local: true, synced: false, leaderboardSyncPromise };
+      const tid = getTeacherId();
       try {
-        const r = await post({ action: "submit", ...p, event: ev });
+        const r = await post({ action: "submit", ...p, ...(tid ? { teacherId: tid } : {}), event: ev });
         if (!r.ok) throw new Error(r.error || "寫入失敗");
         return { local: true, synced: true, leaderboardSyncPromise };
       } catch (e) {
-        ls.set(QUEUE, [...ls.get(QUEUE, []), { p, ev }]);
+        ls.set(QUEUE, [...ls.get(QUEUE, []), { p, ev, teacherId: tid }]);
         return { local: true, synced: false, error: e.message, leaderboardSyncPromise };
       }
     },
@@ -617,8 +775,10 @@
     async flush() {
       if (!Store.online()) return;
       const rest = [];
+      const curTid = getTeacherId();
       for (const it of ls.get(QUEUE, [])) {
-        try { const r = await post({ action: "submit", ...it.p, event: it.ev }); if (!r.ok) rest.push(it); }
+        const tid = it.teacherId || curTid;
+        try { const r = await post({ action: "submit", ...it.p, ...(tid ? { teacherId: tid } : {}), event: it.ev }); if (!r.ok) rest.push(it); }
         catch { rest.push(it); }
       }
       ls.set(QUEUE, rest);
@@ -656,9 +816,7 @@
       const lbUrl = getLeaderboardUrl();
       if (lbUrl) {
         try {
-          const r = await fetchWithTimeout(`${lbUrl}?t=${Date.now()}`, { cache: "no-store" }, GAS_TIMEOUT_MS);
-          if (!r.ok) return [];
-          const json = await r.json();
+          const json = await fetchGasSnapshot(getTeacherId(), { force: true });
           if (json && json.status === "ok" && json.data) {
             const g = String(Number(grade) || 7);
             return Array.isArray(json.data[g]) ? json.data[g] : [];
@@ -685,6 +843,6 @@
     const tag = el && el.tagName ? el.tagName.toUpperCase() : "";
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || !!(el && el.isContentEditable);
   };
-  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcProjectorModal.show");
+  window.isTeacherCockpitOpen = () => !!document.querySelector("#tcCockpit.show, #tcAuthModal.show, #tcQrModal.show, #tcDetailModal.show, #tcConfirmModal.show, #tcProjectorModal.show, #teacher-question-projector");
   window.shouldSkipGlobalEvent = (e) => window.isFormInputTarget(e && e.target) || window.isTeacherCockpitOpen();
 })();

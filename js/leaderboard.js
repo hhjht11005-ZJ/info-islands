@@ -97,37 +97,68 @@
   };
 
   const GRADE_NAMES = { 7: "七年級", 8: "八年級", 9: "九年級" };
-  const LB_CACHE_KEY = "ii:leaderboard:gas_cache_v1";
-  const GAS_TIMEOUT_MS = 8000;
+  const LB_CACHE_KEY = "ii:leaderboard:gas_cache_v2";
+  const GAS_TIMEOUT_MS = 10000;
   let activeGrade = 7;
+  let activeScope = "school"; // "school" | "global"
   let remoteCache = { 7: [], 8: [], 9: [] };
+  let globalCache = { 7: [], 8: [], 9: [] };
   let remoteStatus = "idle"; // "idle" | "loading" | "ok" | "error"
   let hasRemoteSnapshot = false;
+  let hasGlobalSnapshot = false;
   let cacheSavedAt = 0;
   let fetchSeq = 0;
   let customRemoteProvider = null;
+
+  function getBoundTeacherId() {
+    if (window.Store && typeof window.Store.getTeacherId === "function") {
+      return window.Store.getTeacherId();
+    }
+    try { return String(localStorage.getItem("island_teacher_id") || "").trim(); } catch { return ""; }
+  }
+
+  function getBoundTeacherInfo() {
+    if (window.Store && typeof window.Store.getCurrentTeacher === "function") {
+      return window.Store.getCurrentTeacher();
+    }
+    return null;
+  }
 
   function loadGasCache() {
     try {
       const raw = localStorage.getItem(LB_CACHE_KEY);
       if (!raw) return;
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.data && typeof parsed.data === "object") {
+      const curTid = getBoundTeacherId();
+      if (parsed && parsed.data && typeof parsed.data === "object" && (!curTid || parsed.teacherId === curTid)) {
         remoteCache = {
           7: Array.isArray(parsed.data["7"]) ? parsed.data["7"] : [],
           8: Array.isArray(parsed.data["8"]) ? parsed.data["8"] : [],
           9: Array.isArray(parsed.data["9"]) ? parsed.data["9"] : []
         };
-        cacheSavedAt = Number(parsed.savedAt) || 0;
         hasRemoteSnapshot = true;
       }
+      if (parsed && parsed.globalData && typeof parsed.globalData === "object") {
+        globalCache = {
+          7: Array.isArray(parsed.globalData["7"]) ? parsed.globalData["7"] : [],
+          8: Array.isArray(parsed.globalData["8"]) ? parsed.globalData["8"] : [],
+          9: Array.isArray(parsed.globalData["9"]) ? parsed.globalData["9"] : []
+        };
+        hasGlobalSnapshot = true;
+      }
+      if (parsed) cacheSavedAt = Number(parsed.savedAt) || 0;
     } catch {}
   }
 
-  function saveGasCache(data) {
+  function saveGasCache(data, globalData, teacherId) {
     try {
       cacheSavedAt = Date.now();
-      localStorage.setItem(LB_CACHE_KEY, JSON.stringify({ savedAt: cacheSavedAt, data }));
+      localStorage.setItem(LB_CACHE_KEY, JSON.stringify({
+        savedAt: cacheSavedAt,
+        teacherId: teacherId || "",
+        data,
+        globalData
+      }));
     } catch {}
   }
 
@@ -154,6 +185,8 @@
     const isGatekeeper = !!(forceGatekeeper || row.isGatekeeper || row.isVirtual);
     const studentKey = String(row.studentKey || "").trim()
       || (isGatekeeper ? `gk_${grade}_${className}_${seat}` : `${grade}_${className}_${seat}`);
+    const teacherId = String(row.teacherId || "").trim();
+    const schoolName = String(row.schoolName || "").trim();
     const maskedName = row.maskedName
       ? String(row.maskedName).trim()
       : maskStudentName(row.name || "");
@@ -161,8 +194,14 @@
     const totalScore = Math.max(0, Math.round(Number(row.totalScore) || 0));
     const crownCount = Math.max(0, Math.round(Number(rawCrowns) || 0));
     const updatedAt = parseUpdatedAtMs(row.updatedAt);
+    const avatarLook = (row.avatarLook && typeof row.avatarLook === "object")
+      ? row.avatarLook
+      : ((row.avatar && row.avatar.look && typeof row.avatar.look === "object") ? row.avatar.look : null);
     return {
       studentKey,
+      globalKey: String(row.globalKey || (teacherId ? `${teacherId}__${studentKey}` : studentKey)),
+      teacherId,
+      schoolName,
       grade,
       gradeNum,
       className,
@@ -175,6 +214,7 @@
       crowns: crownCount,
       quizCount: Number(row.quizCount) || (totalScore > 0 || crownCount > 0 ? 1 : 0),
       updatedAt,
+      avatarLook,
       isGatekeeper
     };
   }
@@ -199,51 +239,82 @@
    *   3. 統一依 totalScore → crownCount 排序並取前 10 名；
    *      真實學生考出更高分時會自然把守門員擠出前 10 名。
    */
-  function getGradeLeaderboard(grade) {
+  function getGradeLeaderboard(grade, scope = activeScope) {
     const g = Number(grade) || 7;
+    const isGlobal = scope === "global";
     const realMap = new Map();
+    const myTeacherId = getBoundTeacherId();
+    const myTeacherInfo = getBoundTeacherInfo();
 
     const upsertReal = (rawRow) => {
       const entry = normalizeEntry(rawRow, g, false);
       if (!entry || entry.isGatekeeper || !entry.studentKey || !entry.className) return;
-      const prev = realMap.get(entry.studentKey);
+      const mapKey = isGlobal ? `${entry.teacherId || "DEFAULT"}__${entry.studentKey}` : entry.studentKey;
+      const prev = realMap.get(mapKey);
       if (
         !prev
         || entry.totalScore > prev.totalScore
         || (entry.totalScore === prev.totalScore && entry.crownCount > prev.crownCount)
         || (entry.totalScore === prev.totalScore && entry.crownCount === prev.crownCount && entry.updatedAt > prev.updatedAt)
       ) {
-        realMap.set(entry.studentKey, entry);
+        realMap.set(mapKey, entry);
       }
     };
 
-    if (hasRemoteSnapshot) {
-      const extRows = Array.isArray(remoteCache[g]) ? remoteCache[g] : [];
-      extRows.forEach(upsertReal);
-    } else if (window.Store && typeof window.Store.leaderboardPool === "function") {
-      const localRows = window.Store.leaderboardPool(g).filter((s) => s.quizCount > 0 || s.totalScore > 0);
-      localRows.forEach(upsertReal);
+    if (isGlobal) {
+      if (hasGlobalSnapshot) {
+        const extRows = Array.isArray(globalCache[g]) ? globalCache[g] : [];
+        extRows.forEach(upsertReal);
+      }
+    } else {
+      if (hasRemoteSnapshot) {
+        const extRows = Array.isArray(remoteCache[g]) ? remoteCache[g] : [];
+        extRows.forEach(upsertReal);
+      } else if (window.Store && typeof window.Store.leaderboardPool === "function") {
+        const localRows = window.Store.leaderboardPool(g).filter((s) => s.quizCount > 0 || s.totalScore > 0);
+        localRows.forEach(upsertReal);
+      }
     }
 
     // 合併本機尚未送達雲端的最新待同步成績（避免交卷後立刻開榜單或離線時漏掉自己）
     if (window.Store && typeof window.Store.getPendingLeaderboardUploads === "function") {
-      window.Store.getPendingLeaderboardUploads(g).forEach(upsertReal);
+      window.Store.getPendingLeaderboardUploads(g).forEach((it) => {
+        if (isGlobal) {
+          upsertReal({
+            ...it,
+            teacherId: it.teacherId || myTeacherId || "DEFAULT",
+            schoolName: it.schoolName || (myTeacherInfo && myTeacherInfo.schoolName) || "資訊課程島"
+          });
+        } else {
+          upsertReal(it);
+        }
+      });
     }
 
     const realStudents = [...realMap.values()];
-    const gatekeepers = (GATEKEEPERS[g] || GATEKEEPERS[7]).map((gk) => normalizeEntry(gk, g, true));
+    const gatekeepers = (GATEKEEPERS[g] || GATEKEEPERS[7]).map((gk) =>
+      normalizeEntry(
+        isGlobal ? { ...gk, schoolName: "資訊島示範校" } : gk,
+        g,
+        true
+      )
+    );
 
     // 真實學生與虛擬守門員合併為同一個陣列並統一排序
     const rankedPool = [...realStudents, ...gatekeepers].sort(sortEntries);
     const top10 = rankedPool.slice(0, 10);
 
-    // 依 studentKey 比對當前登入學生名次
+    // 依 studentKey（跨校總榜額外比對 teacherId）比對當前登入學生名次
     const me = window.Store && window.Store.profile;
     const myStudentKey = getMyStudentKey(me);
     let meEntry = null;
     let myRank = null;
     if (me && myStudentKey) {
-      const idx = rankedPool.findIndex((r) => !r.isGatekeeper && r.studentKey === myStudentKey);
+      const idx = rankedPool.findIndex((r) => {
+        if (r.isGatekeeper || r.studentKey !== myStudentKey) return false;
+        if (isGlobal && myTeacherId && r.teacherId && r.teacherId !== myTeacherId) return false;
+        return true;
+      });
       if (idx >= 0) {
         meEntry = rankedPool[idx];
         myRank = idx + 1;
@@ -253,6 +324,8 @@
           : null;
         meEntry = {
           studentKey: myStudentKey,
+          teacherId: myTeacherId,
+          schoolName: (myTeacherInfo && myTeacherInfo.schoolName) || "",
           grade: String(parseStudentGrade(me)),
           gradeNum: parseStudentGrade(me),
           className: String(me.cls || "").trim(),
@@ -269,12 +342,14 @@
 
     return {
       grade: g,
+      scope: isGlobal ? "global" : "school",
       top10,
       rankedPool,
       realCount: realStudents.length,
       meEntry,
       myRank,
-      myStudentKey
+      myStudentKey,
+      myTeacherId
     };
   }
 
@@ -299,6 +374,11 @@
         </div>
       </div>
 
+      <div class="lb-scope-bar" id="lbScopeTabs" role="tablist" aria-label="切換榜單範圍">
+        <button type="button" class="lb-scope-tab active" data-scope="school" role="tab" aria-selected="true">🏫 本校榜</button>
+        <button type="button" class="lb-scope-tab" data-scope="global" role="tab" aria-selected="false">🌏 全國跨校總榜</button>
+      </div>
+
       <div class="lb-toolbar">
         <div class="lb-tabs" id="lbGradeTabs" role="tablist" aria-label="切換年級排行榜">
           <button type="button" class="lb-tab" data-grade="7" role="tab">七年級</button>
@@ -308,7 +388,7 @@
         <span class="lb-rule-pill" id="lbPoolNote">🛡️ 隱私去識別化保護中</span>
       </div>
 
-      <div class="lb-list-wrap">
+      <div class="lb-list-wrap" data-scrollable="true">
         <div class="lb-col-head" aria-hidden="true">
           <span>名次</span>
           <span>班級與探險者</span>
@@ -323,6 +403,11 @@
   document.body.appendChild(wrap);
 
   const $ = (s) => wrap.querySelector(s);
+  const lbListWrap = $(".lb-list-wrap");
+  if (lbListWrap) {
+    lbListWrap.addEventListener("wheel", (e) => e.stopPropagation(), { passive: true });
+    lbListWrap.addEventListener("touchmove", (e) => e.stopPropagation(), { passive: true });
+  }
 
   function close() {
     wrap.classList.remove("show");
@@ -355,6 +440,18 @@
     }
   };
 
+  wrap.querySelectorAll("#lbScopeTabs .lb-scope-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const nextScope = btn.dataset.scope === "global" ? "global" : "school";
+      if (nextScope === activeScope) return;
+      activeScope = nextScope;
+      render();
+      if (remoteStatus !== "loading") {
+        void fetchLeaderboardFromGAS(activeGrade);
+      }
+    });
+  });
+
   wrap.querySelectorAll("#lbGradeTabs .lb-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       activeGrade = Number(btn.dataset.grade) || 7;
@@ -372,13 +469,15 @@
   function renderChaseBanner(viewData) {
     const banner = $("#lbChaseBanner");
     const me = window.Store && window.Store.profile;
+    const isGlobal = viewData.scope === "global";
+    const scopeLabel = isGlobal ? "全國跨校總榜" : "本校年級風雲榜";
     if (!me) {
-      banner.innerHTML = `<div class="lb-chase-main">🎒 請先辦理登島護照，就能立即累積積分挑戰 ${GRADE_NAMES[activeGrade]} 前 10 名！</div>`;
+      banner.innerHTML = `<div class="lb-chase-main">🎒 請先辦理登島護照，就能立即累積積分挑戰${scopeLabel} ${GRADE_NAMES[activeGrade]} 前 10 名！</div>`;
       return;
     }
 
     const myGrade = parseStudentGrade(me);
-    const myGradeData = myGrade === viewData.grade ? viewData : getGradeLeaderboard(myGrade);
+    const myGradeData = myGrade === viewData.grade ? viewData : getGradeLeaderboard(myGrade, activeScope);
     const meEntry = myGradeData.meEntry;
     const myRank = myGradeData.myRank;
     const myScore = meEntry ? meEntry.totalScore : 0;
@@ -386,10 +485,15 @@
     const myPool = myGradeData.rankedPool;
 
     let slogan = "";
-    if (remoteStatus === "loading" && !hasRemoteSnapshot) {
-      slogan = "⏳ 正在同步全校即時戰況並計算追趕分差…";
+    const hasScopeSnapshot = isGlobal ? hasGlobalSnapshot : hasRemoteSnapshot;
+    if (remoteStatus === "loading" && !hasScopeSnapshot) {
+      slogan = isGlobal
+        ? "⏳ 正在同步全國跨校即時戰況並計算追趕分差…"
+        : "⏳ 正在同步本校即時戰況並計算追趕分差…";
     } else if (myRank === 1) {
-      slogan = "👑 你目前已稱霸本年級風雲榜！繼續保持滿分紀錄！";
+      slogan = isGlobal
+        ? "👑 你目前已稱霸全國跨校總榜本年級！為校爭光中！"
+        : "👑 你目前已稱霸本校本年級風雲榜！繼續保持滿分紀錄！";
     } else if (myRank >= 2 && myRank <= 10) {
       const prevPlayer = myPool[myRank - 2];
       if (prevPlayer && prevPlayer.totalScore === myScore) {
@@ -406,7 +510,7 @@
         slogan = `🔥 與第 10 名同分！再多拿 <b>1</b> 分（或增加 <b>${crownGap}</b> 頂滿分皇冠）即可擠進前 10 名！`;
       } else {
         const gapTo10 = tenthPlayer ? Math.max(1, tenthPlayer.totalScore - myScore) : 350;
-        slogan = `🔥 距離擠進年級前 10 名還差 <b>${gapTo10}</b> 分！快去挑戰 100 分解鎖建築！`;
+        slogan = `🔥 距離擠進${scopeLabel}前 10 名還差 <b>${gapTo10}</b> 分！快去挑戰 100 分解鎖建築！`;
       }
     }
 
@@ -456,6 +560,25 @@
   function render() {
     const me = window.Store && window.Store.profile;
     const myGrade = me ? parseStudentGrade(me) : null;
+    const isGlobal = activeScope === "global";
+    const teacherInfo = getBoundTeacherInfo();
+
+    wrap.querySelectorAll("#lbScopeTabs .lb-scope-tab").forEach((btn) => {
+      const active = btn.dataset.scope === activeScope;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", active ? "true" : "false");
+    });
+
+    const subEl = $("#lbSubtitle");
+    if (subEl) {
+      if (isGlobal) {
+        subEl.textContent = "🌏 匯集全國各校頂尖探險家排名 · 統計各島嶼「易 / 中 / 難」最高積分與 100 分皇冠數";
+      } else if (teacherInfo && teacherInfo.schoolName) {
+        subEl.textContent = `🏫 ${teacherInfo.schoolName}（${teacherInfo.teacherName}老師）· 統計各島嶼最高積分與 100 分皇冠數 · 取前 10 名頒獎`;
+      } else {
+        subEl.textContent = "統計各島嶼「易 / 中 / 難」最高積分與 100 分皇冠數 · 取前 10 名頒獎";
+      }
+    }
 
     wrap.querySelectorAll("#lbGradeTabs .lb-tab").forEach((btn) => {
       const g = Number(btn.dataset.grade);
@@ -468,19 +591,26 @@
     const poolNote = $("#lbPoolNote");
     const listEl = $("#lbList");
 
-    const data = getGradeLeaderboard(activeGrade);
+    const data = getGradeLeaderboard(activeGrade, activeScope);
+    const hasScopeSnapshot = isGlobal ? hasGlobalSnapshot : hasRemoteSnapshot;
     if (poolNote) {
       const top10Real = data.top10.filter((e) => !e.isGatekeeper).length;
       if (remoteStatus === "loading") {
-        poolNote.textContent = hasRemoteSnapshot
+        poolNote.textContent = hasScopeSnapshot
           ? `⚡ 秒開快取顯示 · 背景同步最新排名中…`
-          : `⏳ 正在背景同步全校即時戰況…`;
+          : (isGlobal ? `⏳ 正在同步全國跨校即時排名…` : `⏳ 正在背景同步本校即時戰況…`);
       } else if (remoteStatus === "ok") {
-        poolNote.textContent = top10Real >= 10
-          ? `☁️ 目前即時同步 · 前 10 名全由真實學生佔據（共 ${data.realCount} 人）`
-          : `☁️ 目前即時同步 · 本年級真實 ${data.realCount} 人（含守門員基準）`;
+        if (isGlobal) {
+          poolNote.textContent = top10Real >= 10
+            ? `🌏 全國即時同步 · 前 10 名全由跨校真實學生佔據（共 ${data.realCount} 人）`
+            : `🌏 全國即時同步 · 跨校真實 ${data.realCount} 人（含示範挑戰者）`;
+        } else {
+          poolNote.textContent = top10Real >= 10
+            ? `☁️ 目前即時同步 · 前 10 名全由真實學生佔據（共 ${data.realCount} 人）`
+            : `☁️ 目前即時同步 · 本校真實 ${data.realCount} 人（含守門員基準）`;
+        }
       } else {
-        poolNote.textContent = hasRemoteSnapshot
+        poolNote.textContent = hasScopeSnapshot
           ? `📡 網路連線逾時 · 已平滑顯示快取紀錄與守門員基準`
           : `📡 離線備援模式 · 本機真實 ${data.realCount} 人（含守門員基準）`;
       }
@@ -488,17 +618,27 @@
 
     listEl.innerHTML = data.top10.map((entry, idx) => {
       const rank = idx + 1;
-      const isMe = !!(me && !entry.isGatekeeper && data.myStudentKey && entry.studentKey === data.myStudentKey);
+      const isMe = !!(
+        me
+        && !entry.isGatekeeper
+        && data.myStudentKey
+        && entry.studentKey === data.myStudentKey
+        && (!isGlobal || !data.myTeacherId || !entry.teacherId || entry.teacherId === data.myTeacherId)
+      );
       const tierCls = rank <= 3 ? ` lb-top-${rank}` : "";
       const meCls = isMe ? " is-me" : "";
       const displayWho = `${formatClassLabel(entry.className)} ${entry.maskedName}`;
       const avatarHtml = renderLeaderboardMiniAvatar(entry, isMe);
+      const schoolBadgeHtml = isGlobal
+        ? `<span class="lb-school-badge${entry.isGatekeeper ? " is-gk" : ""}">[${esc(entry.schoolName || "資訊課程島")}]</span>`
+        : "";
       return `
         <div class="lb-row${tierCls}${meCls}" data-rank="${rank}" data-gatekeeper="${entry.isGatekeeper ? "1" : "0"}">
           <div class="lb-cell-rank">${renderRankBadge(rank)}</div>
           <div class="lb-cell-who">
             ${avatarHtml}
             <div class="lb-who-meta">
+              ${schoolBadgeHtml}
               <span class="lb-who-text">${esc(displayWho)}</span>
               ${isMe ? '<span class="lb-me-tag">👈 我</span>' : ""}
             </div>
@@ -525,24 +665,36 @@
       }).catch(() => {});
     }
 
-    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = controller ? setTimeout(() => controller.abort(), GAS_TIMEOUT_MS) : null;
-
     try {
+      const tid = getBoundTeacherId();
       if (customRemoteProvider) {
         const rows = await customRemoteProvider(grade);
         if (seq !== fetchSeq) return;
         remoteCache[grade] = Array.isArray(rows) ? rows : [];
         hasRemoteSnapshot = true;
         remoteStatus = "ok";
-        saveGasCache(remoteCache);
+        saveGasCache(remoteCache, globalCache, tid);
       } else {
-        const res = await fetch(`${GAS_LEADERBOARD_URL}?t=${Date.now()}`, {
-          cache: "no-store",
-          signal: controller ? controller.signal : undefined
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const json = await res.json();
+        let json = null;
+        if (window.Store && typeof window.Store.fetchGasSnapshot === "function") {
+          json = await window.Store.fetchGasSnapshot(tid, { force: true });
+        } else {
+          const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+          const timer = controller ? setTimeout(() => controller.abort(), GAS_TIMEOUT_MS) : null;
+          try {
+            const qs = new URLSearchParams();
+            if (tid) qs.set("teacherId", tid);
+            qs.set("cb", String(Date.now()));
+            const res = await fetch(`${GAS_LEADERBOARD_URL}?${qs.toString()}`, {
+              cache: "no-store",
+              signal: controller ? controller.signal : undefined
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            json = await res.json();
+          } finally {
+            if (timer) clearTimeout(timer);
+          }
+        }
         if (!json || json.status !== "ok" || !json.data || typeof json.data !== "object") {
           throw new Error((json && json.message) || "GAS 回應格式錯誤");
         }
@@ -552,19 +704,34 @@
           8: Array.isArray(json.data["8"]) ? json.data["8"] : [],
           9: Array.isArray(json.data["9"]) ? json.data["9"] : []
         };
+        if (json.globalData && typeof json.globalData === "object") {
+          globalCache = {
+            7: Array.isArray(json.globalData["7"]) ? json.globalData["7"] : [],
+            8: Array.isArray(json.globalData["8"]) ? json.globalData["8"] : [],
+            9: Array.isArray(json.globalData["9"]) ? json.globalData["9"] : []
+          };
+          hasGlobalSnapshot = true;
+        }
         hasRemoteSnapshot = true;
         remoteStatus = "ok";
-        saveGasCache(remoteCache);
+        saveGasCache(remoteCache, globalCache, tid);
       }
     } catch (err) {
       if (seq !== fetchSeq) return;
       console.warn("拉取 GAS 即時風雲榜失敗，改用本機備份與守門員名單:", err);
       remoteStatus = "error";
     } finally {
-      if (timer) clearTimeout(timer);
       if (seq === fetchSeq && wrap.classList.contains("show")) render();
     }
   }
+
+  document.addEventListener("ii:teacher-changed", () => {
+    remoteCache = { 7: [], 8: [], 9: [] };
+    hasRemoteSnapshot = false;
+    if (wrap.classList.contains("show")) {
+      void fetchLeaderboardFromGAS(activeGrade);
+    }
+  });
 
   function open(forcedGrade) {
     if (window.Auth && !window.Auth.requireLogin()) return;

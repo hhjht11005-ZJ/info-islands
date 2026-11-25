@@ -83,10 +83,25 @@
   }
 
   async function fetchNow() {
+    if (window.Store && typeof window.Store.fetchGasSnapshot === "function") {
+      try {
+        const json = await window.Store.fetchGasSnapshot(undefined, { force: true });
+        if (json && json.status === "ok" && json.config) {
+          setConfig(json.config);
+        }
+      } catch (e) {
+        console.warn("讀取雲端任務設定失敗:", e);
+      }
+      return currentConfig;
+    }
     const url = getGasUrl();
     if (!url) return currentConfig;
     try {
-      const res = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" });
+      const tid = window.Store && typeof window.Store.getTeacherId === "function" ? window.Store.getTeacherId() : "";
+      const qs = new URLSearchParams();
+      if (tid) qs.set("teacherId", tid);
+      qs.set("cb", String(Date.now()));
+      const res = await fetch(`${url}?${qs.toString()}`, { cache: "no-store" });
       if (!res.ok) return currentConfig;
       const json = await res.json();
       if (json && json.status === "ok" && json.config) {
@@ -97,6 +112,18 @@
     }
     return currentConfig;
   }
+
+  document.addEventListener("ii:gas-snapshot", (e) => {
+    const snap = e && e.detail && e.detail.snapshot;
+    if (snap && snap.status === "ok" && snap.config) {
+      currentConfig = normalizeConfig(snap.config);
+      renderCard();
+      document.dispatchEvent(new CustomEvent("ii:config-updated", { detail: { ...currentConfig } }));
+    }
+  });
+  document.addEventListener("ii:teacher-changed", () => {
+    void fetchNow();
+  });
 
   window.CloudConfig = {
     get: () => ({ ...currentConfig }),

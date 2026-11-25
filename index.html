@@ -115,6 +115,19 @@
           <span class="pass-gate">GATE 01</span>
         </div>
 
+        <div class="login-teacher-bar" id="loginTeacherBar">
+          <div class="login-teacher-status" id="loginTeacherStatus" hidden>
+            <span class="login-teacher-badge" id="loginTeacherBadge"></span>
+            <button type="button" class="login-teacher-switch-btn" id="loginSwitchTeacherBtn" title="切換學校或老師">切換</button>
+          </div>
+          <label class="login-teacher-picker" id="loginTeacherPickerWrap" hidden>
+            <span class="lbl-ico">🏫 選擇所屬學校與老師</span>
+            <select id="loginTeacherSelect" name="teacherIdSelect">
+              <option value="">⏳ 正在載入學校與教師名單…</option>
+            </select>
+          </label>
+        </div>
+
         <div class="row3">
           <label><span class="lbl-ico">🏫 年級</span>
             <select name="grade" required>
