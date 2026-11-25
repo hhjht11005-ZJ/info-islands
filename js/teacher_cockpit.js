@@ -775,8 +775,36 @@ import QRCode from "qrcode";
     });
   }
 
+  function normalizeRosterList(list) {
+    if (!Array.isArray(list)) return [];
+    const map = new Map();
+    list.forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const cls = String(item.className || item.cls || "").trim();
+      const seatDigits = String(item.seatNum !== undefined ? item.seatNum : (item.seat || "")).replace(/號/g, "").trim();
+      const seatNum = Number(seatDigits);
+      const realName = String(item.realName !== undefined ? item.realName : (item.name || "")).trim();
+      if (!cls || !Number.isInteger(seatNum) || seatNum < 1 || seatNum > 60) return;
+      const grade = String(item.grade || parseStudentGradeFromCls("", cls)).trim();
+      const seat = String(seatNum);
+      map.set(`${cls}__${seatNum}`, {
+        grade,
+        className: cls,
+        seat,
+        seatNum,
+        name: realName,
+        realName
+      });
+    });
+    return Array.from(map.values()).sort((a, b) => {
+      const cmp = a.className.localeCompare(b.className, "zh-Hant", { numeric: true });
+      return cmp !== 0 ? cmp : a.seatNum - b.seatNum;
+    });
+  }
+
   function applyDashboardData(json, { preserveDispatchDraft = false } = {}) {
-    if (json && json.teacher && typeof json.teacher === "object") {
+    if (!json || typeof json !== "object") return;
+    if (json.teacher && typeof json.teacher === "object") {
       const nextTeacher = {
         teacherId: String(json.teacher.teacherId || "").trim(),
         schoolName: String(json.teacher.schoolName || "").trim(),
@@ -802,12 +830,24 @@ import QRCode from "qrcode";
         } catch {}
       }
     }
+    const prevData = (state.data && typeof state.data === "object")
+      ? state.data
+      : { roster: [], students: [], wrongLogs: [], config: null };
     state.hasLoadedDashboard = true;
+    // 僅在伺服器明確回傳陣列時才更新對應欄位，防止公開 doGet（roster 為 undefined）覆蓋教師私有資料
     state.data = {
-      roster: Array.isArray(json.roster) ? json.roster : [],
-      students: Array.isArray(json.students) ? json.students : [],
-      wrongLogs: Array.isArray(json.wrongLogs) ? json.wrongLogs : [],
-      config: (json.config && typeof json.config === "object") ? json.config : null
+      roster: Array.isArray(json.roster)
+        ? normalizeRosterList(json.roster)
+        : (Array.isArray(prevData.roster) ? prevData.roster : []),
+      students: Array.isArray(json.students)
+        ? json.students
+        : (Array.isArray(prevData.students) ? prevData.students : []),
+      wrongLogs: Array.isArray(json.wrongLogs)
+        ? json.wrongLogs
+        : (Array.isArray(prevData.wrongLogs) ? prevData.wrongLogs : []),
+      config: (json.config && typeof json.config === "object")
+        ? json.config
+        : (prevData.config || null)
     };
     if (state.data.config && window.CloudConfig && typeof window.CloudConfig.set === "function") {
       window.CloudConfig.set(state.data.config);
@@ -936,7 +976,10 @@ import QRCode from "qrcode";
 
     const rawRoster = state.data.roster
       .filter((r) => String(r.className || r.cls || "").trim() === cls)
-      .map((r) => ({ seatNum: Number(r.seat) || 0, name: String(r.name || "").trim() }))
+      .map((r) => ({
+        seatNum: Number(r.seatNum !== undefined ? r.seatNum : r.seat) || 0,
+        name: String(r.realName !== undefined ? r.realName : (r.name || "")).trim()
+      }))
       .filter((r) => r.seatNum > 0)
       .sort((a, b) => a.seatNum - b.seatNum);
 
@@ -1701,9 +1744,10 @@ import QRCode from "qrcode";
     state.data.roster.forEach((r) => {
       const cls = String(r.className || r.cls || "").trim();
       if (!cls) return;
-      const entry = ensureEntry(r.grade, cls, r.seat);
+      const entry = ensureEntry(r.grade, cls, r.seatNum !== undefined ? r.seatNum : r.seat);
       entry.inRoster = true;
-      if (r.name) entry.name = String(r.name).trim();
+      const rName = String(r.realName !== undefined ? r.realName : (r.name || "")).trim();
+      if (rName) entry.name = rName;
     });
 
     state.data.students.forEach((s) => {
@@ -2295,6 +2339,61 @@ import QRCode from "qrcode";
     `;
   }
 
+  function renderSavedRosterPreviewHtml(curRoster, curClasses) {
+    const list = Array.isArray(curRoster) ? curRoster : [];
+    const header = `
+      <div class="tc-roster-preview-head">
+        <div class="tc-roster-pills">
+          <strong class="tc-roster-saved-title">☁️ 目前雲端已儲存名冊預覽（共 ${list.length} 筆）</strong>
+          ${curClasses.length > 0 ? `<span class="tc-roster-stat ok">🏫 ${curClasses.length} 個班級</span>` : ""}
+        </div>
+      </div>
+    `;
+    if (list.length === 0) {
+      return `
+        <div class="tc-roster-saved-wrap">
+          ${header}
+          <div class="tc-empty-sm">☁️ 雲端試算表目前尚未儲存任何班級名冊，請使用上方匯入工具新增名冊。</div>
+        </div>
+      `;
+    }
+    return `
+      <div class="tc-roster-saved-wrap">
+        ${header}
+        <div class="tc-roster-preview-scroll" data-scrollable="true">
+          <table class="tc-comp-table tc-roster-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>年級</th>
+                <th>班級</th>
+                <th>座號</th>
+                <th>姓名</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${list.map((it, idx) => {
+                const cls = String(it.className || it.cls || "").trim();
+                const seatNum = Number(it.seatNum !== undefined ? it.seatNum : it.seat) || 0;
+                const grade = String(it.grade || parseStudentGradeFromCls("", cls)).trim();
+                const rawName = String(it.realName !== undefined ? it.realName : (it.name || "")).trim();
+                return `
+                  <tr>
+                    <td>${idx + 1}</td>
+                    <td>${esc(grade)} 年級</td>
+                    <td><span class="tc-seat-chip">${esc(cls)} 班</span></td>
+                    <td>${String(seatNum).padStart(2, "0")} 號</td>
+                    <td class="tc-name-cell">${esc(displayName(rawName, seatNum))}</td>
+                  </tr>
+                `;
+              }).join("")}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  }
+
   function renderRosterTab(body) {
     const curRoster = Array.isArray(state.data.roster) ? state.data.roster : [];
     const curClassCounts = new Map();
@@ -2355,7 +2454,9 @@ import QRCode from "qrcode";
             ⚠️ 覆蓋全部名冊
           </button>
         </div>
-        <p class="tc-df-status${statusObj.kind ? ` ${esc(statusObj.kind)}` : ""}" id="tcRosterStatus" role="status" aria-live="polite">${esc(statusObj.text || "")}</p>
+        <p class="tc-df-status tc-roster-status${statusObj.kind ? ` ${esc(statusObj.kind)}` : ""}" id="tcRosterStatus" role="status" aria-live="polite">${esc(statusObj.text || "")}</p>
+
+        ${renderSavedRosterPreviewHtml(curRoster, curClasses)}
       </section>
     `;
     bindCompletionScrollListeners(body);
@@ -2413,45 +2514,78 @@ import QRCode from "qrcode";
     if (state.rosterSaving) return;
     const parsed = state.rosterParsed || { entries: [] };
     if (!parsed.entries || parsed.entries.length === 0) {
-      state.rosterStatus = { text: "⚠️ 請先貼上或匯入至少一筆有效的名冊資料", kind: "err" };
+      state.rosterStatus = { text: "⚠️ 請先貼上或匯入至少一筆有效的名冊資料（尚未寫入雲端）", kind: "err" };
+      renderMainBody();
+      return;
+    }
+
+    const teacherSession = getTeacherSession();
+    if (!teacherSession || !teacherSession.password) {
+      clearTeacherSession();
+      state.rosterStatus = {
+        text: "❌ 寫入雲端失敗（資料未寫入雲端）：教師驗證已逾時或憑證遺失，請重新登入後再試。",
+        kind: "err"
+      };
       renderMainBody();
       return;
     }
 
     state.rosterSaving = true;
-    state.rosterStatus = { text: "⏳ 正在將班級名冊寫入教師獨立試算表…", kind: "" };
+    state.rosterStatus = { text: "⏳ 正在將班級名冊寫入雲端試算表，請稍候…", kind: "" };
     renderMainBody();
 
     try {
-      const payloadEntries = parsed.entries.map((it) => ({
-        grade: it.grade,
-        className: it.className,
-        seat: it.seat,
-        name: it.name
-      }));
-      const res = await postTeacherAction("save_roster", { mode, entries: payloadEntries });
-      if (res && res.status === "unauthorized") {
-        clearTeacherSession();
-        throw new Error("教師驗證已逾時，請重新登入");
+      const normalizedMode = mode === "overwrite" ? "overwrite" : "merge";
+      const rosterList = parsed.entries.map((it) => {
+        const cls = String(it.className || it.cls || "").trim();
+        const seatDigits = String(it.seatNum !== undefined ? it.seatNum : (it.seat || "")).replace(/\D/g, "");
+        return {
+          grade: String(it.grade || parseStudentGradeFromCls("", cls)),
+          className: cls,
+          seat: seatDigits.padStart(2, "0"),
+          realName: String(it.realName !== undefined ? it.realName : (it.name || "")).trim()
+        };
+      });
+
+      const res = await postGasAction({
+        action: "save_roster",
+        teacherId: String(teacherSession.teacherId || "").trim(),
+        account: String(teacherSession.account || "").trim(),
+        password: String(teacherSession.password || "").trim(),
+        mode: normalizedMode,
+        rosterList
+      });
+
+      if (!res || typeof res !== "object") {
+        throw new Error("後端未回傳有效的 JSON 格式回應");
       }
-      if (!res || res.status !== "ok") {
-        throw new Error((res && res.message) || "儲存名冊失敗");
+      if (res.status === "unauthorized") {
+        clearTeacherSession();
+        throw new Error((res.message || "教師帳號或密碼驗證失敗") + "，請重新登入");
+      }
+      if (res.status !== "ok") {
+        throw new Error(res.message || res.error || `後端回傳異常狀態（${res.status || "unknown"}）`);
       }
 
       if (Array.isArray(res.roster)) {
-        state.data.roster = res.roster;
+        state.data.roster = normalizeRosterList(res.roster);
       }
       const classes = getAllClasses();
       if ((!state.selectedClass || !classes.includes(state.selectedClass)) && classes.length > 0) {
         state.selectedClass = classes[0];
       }
+      const totalSaved = Array.isArray(res.roster) ? state.data.roster.length : (Number(res.count) || rosterList.length);
       state.rosterStatus = {
-        text: `✅ 已成功${mode === "overwrite" ? "覆蓋" : "合併更新"}班級名冊（雲端目前共 ${state.data.roster.length} 位學生），抓漏雷達與個別完成度已同步更新！`,
+        text: `✅ 已成功寫入雲端試算表（共 ${totalSaved} 筆），「未交卷抓漏雷達」與「📊 個別完成度」已同步更新！`,
         kind: "ok"
       };
-      showToast("✅ 班級名冊已更新並同步雲端！", "ok", 3000);
+      showToast(`✅ 已成功寫入雲端試算表（共 ${totalSaved} 筆）`, "ok", 3200);
     } catch (err) {
-      state.rosterStatus = { text: `❌ 儲存失敗：${(err && err.message) || "請檢查網路或 GAS 部署"}`, kind: "err" };
+      state.rosterStatus = {
+        text: `❌ 寫入雲端失敗（資料未寫入雲端）：${(err && err.message) || "請檢查網路連線或 GAS 部署"}`,
+        kind: "err"
+      };
+      showToast("❌ 名冊寫入雲端失敗，資料未儲存！", "warn", 3500);
     } finally {
       state.rosterSaving = false;
       renderMainBody();
@@ -2771,6 +2905,9 @@ import QRCode from "qrcode";
         setTeacherSession(res.teacher || { account }, pwd, account);
         const preserveDraft = state.pendingReauthOnly;
         state.pendingReauthOnly = false;
+        if (!preserveDraft) {
+          state.rosterStatus = { text: "", kind: "" };
+        }
         closeAuthModal();
         applyDashboardData(res, { preserveDispatchDraft: preserveDraft });
         showCockpitWorkspace();
@@ -3070,7 +3207,7 @@ import QRCode from "qrcode";
       if (mergeBtn) mergeBtn.disabled = state.rosterSaving || !hasEntries;
       if (overBtn) overBtn.disabled = state.rosterSaving || !hasEntries;
       const statusEl = cockpitWrap.querySelector("#tcRosterStatus");
-      if (statusEl) { statusEl.textContent = ""; statusEl.className = "tc-df-status"; }
+      if (statusEl) { statusEl.textContent = ""; statusEl.className = "tc-df-status tc-roster-status"; }
       return;
     }
     if (id === "tcCompSearch") {

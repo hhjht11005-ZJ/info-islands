@@ -4671,4 +4671,38 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 }
 .tc-danger-btn:hover:not(:disabled) { background: rgba(239, 68, 68, 0.34); }
 .tc-danger-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.tc-roster-status:not(:empty) {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+}
+.tc-roster-status.ok:not(:empty) {
+  background: rgba(16, 185, 129, 0.16);
+  border-color: rgba(52, 211, 153, 0.5);
+  color: #6ee7b7;
+}
+.tc-roster-status.warn:not(:empty) {
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(251, 191, 36, 0.5);
+  color: #fde68a;
+}
+.tc-roster-status.err:not(:empty) {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(248, 113, 113, 0.72);
+  color: #fecaca;
+}
+.tc-roster-saved-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(148, 163, 184, 0.22);
+  font-family: "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+.tc-roster-saved-title {
+  font-size: 0.94rem;
+  color: #7dd3fc;
+}
 

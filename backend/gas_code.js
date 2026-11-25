@@ -690,16 +690,21 @@ function readRosterList_(ss) {
     var rRows = rSh.getDataRange().getValues();
     for (var i = 1; i < rRows.length; i++) {
       var rCls = String(rRows[i][0] || "").trim();
-      var rSeat = Number(rRows[i][1]);
+      var rSeat = Number(String(rRows[i][1] || "").replace(/號/g, "").trim());
       var rName = String(rRows[i][2] || "").trim();
-      if (!rCls || !rSeat) continue;
+      if (!rCls || !(rSeat >= 1 && rSeat <= 60) || rSeat % 1 !== 0) continue;
       roster.push({
         grade: parseGrade_("", rCls),
         className: rCls,
         seat: String(rSeat),
-        name: rName
+        name: rName,
+        realName: rName
       });
     }
+    roster.sort(function (a, b) {
+      if (a.className !== b.className) return a.className < b.className ? -1 : 1;
+      return Number(a.seat) - Number(b.seat);
+    });
   }
   return roster;
 }
@@ -792,7 +797,9 @@ function saveRoster_(req) {
   }
   var mode = String(req.mode || "merge").trim().toLowerCase();
   if (mode !== "overwrite") mode = "merge";
-  var entries = Array.isArray(req.entries) ? req.entries : [];
+  var entries = Array.isArray(req.rosterList)
+    ? req.rosterList
+    : (Array.isArray(req.entries) ? req.entries : []);
   if (entries.length === 0) {
     return { status: "error", message: "請提供至少一筆有效的班級名冊資料" };
   }
@@ -805,21 +812,28 @@ function saveRoster_(req) {
     var existing = sh.getDataRange().getValues();
     for (var i = 1; i < existing.length; i++) {
       var eCls = String(existing[i][0] || "").trim();
-      var eSeat = Number(existing[i][1]);
+      var eSeat = Number(String(existing[i][1] || "").replace(/號/g, "").trim());
       var eName = String(existing[i][2] || "").trim();
-      if (!eCls || !(eSeat >= 1 && eSeat <= 60)) continue;
+      if (!eCls || !(eSeat >= 1 && eSeat <= 60) || eSeat % 1 !== 0) continue;
       map[eCls + "__" + eSeat] = { className: eCls, seat: eSeat, name: eName };
     }
   }
 
+  var incomingCount = 0;
   for (var j = 0; j < entries.length; j++) {
     var item = entries[j];
     if (!item || typeof item !== "object") continue;
     var cls = normalizeRosterClass_(item.grade, item.className || item.cls);
-    var seat = Number(item.seat);
-    var name = String(item.name || "").trim();
+    var seat = Number(String(item.seat || "").replace(/號/g, "").trim());
+    var rawName = item.realName !== undefined ? item.realName : item.name;
+    var name = String(rawName || "").trim();
     if (!cls || !(seat >= 1 && seat <= 60) || seat % 1 !== 0 || !name) continue;
     map[cls + "__" + seat] = { className: cls, seat: seat, name: name.slice(0, 20) };
+    incomingCount++;
+  }
+
+  if (incomingCount === 0) {
+    return { status: "error", message: "沒有可寫入的有效名冊資料（請確認班級、座號 1~60 與姓名格式）" };
   }
 
   var list = Object.keys(map).map(function (k) { return map[k]; });
@@ -835,15 +849,18 @@ function saveRoster_(req) {
     var rowsToWrite = list.map(function (it) {
       return [it.className, it.seat, it.name];
     });
+    sh.getRange("A:A").setNumberFormat("@");
     sh.getRange(2, 1, rowsToWrite.length, 3).setValues(rowsToWrite);
   }
+  SpreadsheetApp.flush();
 
   var rosterOut = list.map(function (it) {
     return {
       grade: parseGrade_("", it.className),
       className: it.className,
       seat: String(it.seat),
-      name: it.name
+      name: it.name,
+      realName: it.name
     };
   });
   return { status: "ok", mode: mode, count: rosterOut.length, roster: rosterOut };
