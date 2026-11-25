@@ -357,7 +357,7 @@ import QRCode from "qrcode";
   }
 
   function setTeacherSession(teacherObj, pwd, fallbackAccount = "") {
-    const passwordStr = String(pwd || "");
+    const passwordStr = String(pwd ?? "").trim();
     if (!passwordStr) {
       clearTeacherSession();
       return null;
@@ -536,7 +536,7 @@ import QRCode from "qrcode";
         </label>
         <label class="tc-auth-field">
           <span>密碼</span>
-          <input id="tcPasswordInput" type="password" autocomplete="current-password" placeholder="請輸入教師密碼" required />
+          <input id="tcPasswordInput" type="password" inputMode="text" autocomplete="current-password" placeholder="請輸入教師密碼" required />
         </label>
         <p class="err" id="tcAuthErr" role="alert"></p>
         <button type="submit" class="btn-primary tc-auth-submit" id="tcAuthSubmit">🔓 驗證並開啟戰情室</button>
@@ -558,11 +558,11 @@ import QRCode from "qrcode";
         <div class="tc-auth-row2">
           <label class="tc-auth-field">
             <span>🔐 設定密碼</span>
-            <input id="tcRegPassword" type="password" maxlength="64" autocomplete="new-password" placeholder="至少 4 碼" required />
+            <input id="tcRegPassword" type="password" inputMode="text" maxlength="64" autocomplete="new-password" placeholder="至少 4 碼" required />
           </label>
           <label class="tc-auth-field">
             <span>🔐 確認密碼</span>
-            <input id="tcRegPasswordConfirm" type="password" maxlength="64" autocomplete="new-password" placeholder="再次輸入密碼" required />
+            <input id="tcRegPasswordConfirm" type="password" inputMode="text" maxlength="64" autocomplete="new-password" placeholder="再次輸入密碼" required />
           </label>
         </div>
         <p class="err" id="tcRegErr" role="alert"></p>
@@ -728,7 +728,7 @@ import QRCode from "qrcode";
 
   async function fetchTeacherDashboard(password, explicitSession = null) {
     const sess = explicitSession || getTeacherSession();
-    const pwd = String(password || (sess && sess.password) || "");
+    const pwd = String(password || (sess && sess.password) || "").trim();
     const payload = { action: "teacher_dashboard", password: pwd };
     const tid = (explicitSession && explicitSession.teacherId) || (sess && sess.teacherId) || "";
     const acc = (explicitSession && explicitSession.account) || (sess && sess.account) || "";
@@ -740,18 +740,18 @@ import QRCode from "qrcode";
   async function teacherLoginApi(account, password) {
     return await postGasAction({
       action: "teacher_login",
-      account: String(account || "").trim(),
-      password: String(password || "")
+      account: String(account ?? "").trim(),
+      password: String(password ?? "").trim()
     });
   }
 
   async function registerTeacherApi({ schoolName, teacherName, account, password }) {
     return await postGasAction({
       action: "register_teacher",
-      schoolName: String(schoolName || "").trim(),
-      teacherName: String(teacherName || "").trim(),
-      account: String(account || "").trim(),
-      password: String(password || "")
+      schoolName: String(schoolName ?? "").trim(),
+      teacherName: String(teacherName ?? "").trim(),
+      account: String(account ?? "").trim(),
+      password: String(password ?? "").trim()
     });
   }
 
@@ -2693,8 +2693,8 @@ import QRCode from "qrcode";
     const pwdInput = authWrap.querySelector("#tcPasswordInput");
     const errEl = authWrap.querySelector("#tcAuthErr");
     const submitBtn = authWrap.querySelector("#tcAuthSubmit");
-    const account = (accInput ? accInput.value : "").trim();
-    const pwd = pwdInput ? pwdInput.value : "";
+    const account = String(accInput ? accInput.value : "").trim();
+    const pwd = String(pwdInput ? pwdInput.value : "").trim();
     if (!account) {
       errEl.textContent = "請輸入教師帳號";
       if (accInput) accInput.focus();
@@ -2745,11 +2745,11 @@ import QRCode from "qrcode";
     const errEl = authWrap.querySelector("#tcRegErr");
     const submitBtn = authWrap.querySelector("#tcRegSubmit");
 
-    const schoolName = (schoolEl ? schoolEl.value : "").trim();
-    const teacherName = (nameEl ? nameEl.value : "").trim();
-    const account = (accEl ? accEl.value : "").trim();
-    const password = pwdEl ? pwdEl.value : "";
-    const passwordConfirm = pwd2El ? pwd2El.value : "";
+    const schoolName = String(schoolEl ? schoolEl.value : "").trim();
+    const teacherName = String(nameEl ? nameEl.value : "").trim();
+    const account = String(accEl ? accEl.value : "").trim();
+    const password = String(pwdEl ? pwdEl.value : "").trim();
+    const passwordConfirm = String(pwd2El ? pwd2El.value : "").trim();
 
     if (schoolName.length < 2) {
       errEl.textContent = "請輸入學校名稱（至少 2 字）";

@@ -52,7 +52,7 @@
             <label><span class="lbl-ico">🧭 探險者姓名</span><input name="name" type="text" maxlength="10" autocomplete="off" placeholder="請輸入真實姓名" required /></label>
             <label><span class="lbl-ico">🔑 驗證碼</span>
               <div class="pin-input-wrap">
-                <input name="pinCode" id="loginPinInput" type="password" maxlength="6" autocomplete="off" placeholder="請輸入 4~6 碼個人驗證碼" required />
+                <input name="pinCode" id="loginPinInput" type="password" inputMode="text" maxlength="6" autocomplete="off" placeholder="請輸入 4~6 碼個人驗證碼" required />
                 <button type="button" class="pin-eye-btn" id="loginPinEye" aria-label="顯示或隱藏驗證碼" title="顯示／隱藏驗證碼">👁️</button>
               </div>
             </label>
@@ -61,7 +61,7 @@
             <p class="pin-setup-tip" id="loginPinSetupTip">🌟 歡迎首次登入！請設定您的專屬個人驗證碼（下次登入需輸入此碼）</p>
             <label><span class="lbl-ico">🔐 再次輸入確認驗證碼</span>
               <div class="pin-input-wrap">
-                <input name="pinConfirm" id="loginPinConfirmInput" type="password" maxlength="6" autocomplete="off" placeholder="請再次輸入相同的 4~6 碼驗證碼" />
+                <input name="pinConfirm" id="loginPinConfirmInput" type="password" inputMode="text" maxlength="6" autocomplete="off" placeholder="請再次輸入相同的 4~6 碼驗證碼" />
                 <button type="button" class="pin-eye-btn" id="loginPinConfirmEye" aria-label="顯示或隱藏確認驗證碼" title="顯示／隱藏確認驗證碼">👁️</button>
               </div>
             </label>
@@ -286,9 +286,9 @@
     e.preventDefault();
     err.textContent = "";
     const v = Object.fromEntries(new FormData(form));
-    v.name = (v.name || "").trim();
-    v.pinCode = (v.pinCode || "").trim();
-    v.pinConfirm = (v.pinConfirm || "").trim();
+    v.name = String(v.name ?? "").trim();
+    v.pinCode = String(v.pinCode ?? "").trim();
+    v.pinConfirm = String(v.pinConfirm ?? "").trim();
 
     const boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
     const knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];

@@ -145,6 +145,19 @@ function ensureLeaderboardSchema_(sh) {
       sh.getRange(1, c).setValue(LEADERBOARD_HEADER[c - 1]).setFontWeight("bold").setBackground("#d9ead3");
     }
   }
+  // 強制將「驗證碼」欄（第 9 欄 I:I）設為純文字格式，避免 0 開頭驗證碼被吃掉開頭的 0
+  sh.getRange("I:I").setNumberFormat("@");
+}
+function ensureTeachersSchema_(sh) {
+  if (!sh) return;
+  var curCols = sh.getLastColumn();
+  if (curCols < TEACHERS_HEADER.length) {
+    for (var c = curCols + 1; c <= TEACHERS_HEADER.length; c++) {
+      sh.getRange(1, c).setValue(TEACHERS_HEADER[c - 1]).setFontWeight("bold").setBackground("#d9ead3");
+    }
+  }
+  // 強制將 Teachers 密碼欄（第 5 欄 E:E）設為純文字格式，避免 0 開頭密碼被自動轉為數字
+  sh.getRange("E:E").setNumberFormat("@");
 }
 function leaderboardSheetOn_(ss) {
   var sh = sheetOn_(ss, SHEET_LEADERBOARD, LEADERBOARD_HEADER);
@@ -231,7 +244,9 @@ function verifyPassword_(plain, stored) {
 }
 
 function teachersSheet_(masterSs) {
-  return sheetOn_(masterSs || masterSs_(), SHEET_TEACHERS, TEACHERS_HEADER);
+  var sh = sheetOn_(masterSs || masterSs_(), SHEET_TEACHERS, TEACHERS_HEADER);
+  ensureTeachersSchema_(sh);
+  return sh;
 }
 
 function listTeacherRecords_(masterSs) {
@@ -301,7 +316,7 @@ function generateNextTeacherId_(masterSs) {
 }
 
 function initTeacherSpreadsheet_(newSs) {
-  sheetOn_(newSs, SHEET_LEADERBOARD, LEADERBOARD_HEADER);
+  leaderboardSheetOn_(newSs);
   sheetOn_(newSs, SHEET_WRONGLOGS, WRONGLOGS_HEADER);
   sheetOn_(newSs, SHEET_TEACHER_ROSTER, TEACHER_ROSTER_HEADER);
   sheetOn_(newSs, SHEET_CONFIG, CONFIG_HEADER);
@@ -353,7 +368,7 @@ function authenticateTeacher_(req) {
   var masterSs = masterSs_();
   var teacherId = String((req && req.teacherId) || "").trim();
   var account = String((req && req.account) || "").trim();
-  var password = String((req && req.password) || "");
+  var password = String((req && req.password) || "").trim();
 
   if (teacherId || account) {
     var teacher = teacherId ? findTeacherById_(masterSs, teacherId) : findTeacherByAccount_(masterSs, account);
@@ -397,7 +412,7 @@ function registerTeacher_(req) {
   var schoolName = String(req.schoolName || "").trim();
   var teacherName = String(req.teacherName || "").trim();
   var account = String(req.account || "").trim();
-  var password = String(req.password || "");
+  var password = String(req.password || "").trim();
 
   if (schoolName.length < 2 || schoolName.length > 40) {
     return { status: "error", message: "請輸入有效的學校名稱（2~40 字）" };
@@ -423,10 +438,14 @@ function registerTeacher_(req) {
   initTeacherSpreadsheet_(newSs);
 
   var sheetId = newSs.getId();
-  var passwordHash = hashPassword_(password);
+  var passwordHash = String(hashPassword_(password));
   var ts = now_();
 
-  tSh.appendRow([teacherId, schoolName, teacherName, account, passwordHash, sheetId, ts]);
+  var nextRow = tSh.getLastRow() + 1;
+  tSh.getRange(nextRow, 5).setNumberFormat("@");
+  tSh.getRange(nextRow, 1, 1, TEACHERS_HEADER.length).setValues([[
+    teacherId, schoolName, teacherName, account, passwordHash, sheetId, ts
+  ]]);
 
   var teacherPublic = {
     teacherId: teacherId,
@@ -441,7 +460,7 @@ function registerTeacher_(req) {
 
 function teacherLogin_(req) {
   var account = String(req.account || "").trim();
-  var password = String(req.password || "");
+  var password = String(req.password || "").trim();
   if (!account) {
     return { status: "unauthorized", message: "請輸入教師帳號" };
   }
@@ -541,9 +560,13 @@ function studentLogin_(req) {
       var rowName = String(hit.row[4] || "").trim() || name;
       lbSh.getRange(hit.rowNum, 5).setValue(rowName);
       lbSh.getRange(hit.rowNum, 8).setValue(ts);
-      lbSh.getRange(hit.rowNum, 9).setValue(pinCode);
+      lbSh.getRange(hit.rowNum, 9).setNumberFormat("@").setValue(String(pinCode).trim());
     } else {
-      lbSh.appendRow([studentKey, grade, className, seat, name, 0, 0, ts, pinCode, "", "[]"]);
+      var nextLbRow = lbSh.getLastRow() + 1;
+      lbSh.getRange(nextLbRow, 9).setNumberFormat("@");
+      lbSh.getRange(nextLbRow, 1, 1, LEADERBOARD_HEADER.length).setValues([[
+        studentKey, grade, className, seat, name, 0, 0, ts, String(pinCode).trim(), "", "[]"
+      ]]);
     }
 
     login_({ cls: className, seat: seatNum, name: name }, ss);
@@ -842,7 +865,7 @@ function resetStudentPin_(req) {
   if (!hit) {
     return { status: "ok", cleared: false, message: "該生尚無雲端登入紀錄" };
   }
-  lbSh.getRange(hit.rowNum, 9).setValue("");
+  lbSh.getRange(hit.rowNum, 9).setNumberFormat("@").setValue("");
   return { status: "ok", cleared: true, studentKey: studentKey };
 }
 
