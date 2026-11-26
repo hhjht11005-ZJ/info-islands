@@ -161,6 +161,11 @@
       window.resumeMainMapControls();
     }
     document.dispatchEvent(new CustomEvent("ii:modalclosed", { detail: { id: "aetherCitadelModal" } }));
+    if (window.__island3D && typeof window.__island3D.updateAetherCitadelArchitecture === "function") {
+      window.__island3D.updateAetherCitadelArchitecture({ animate: true });
+    } else if (typeof window.updateAetherCitadelArchitecture === "function") {
+      window.updateAetherCitadelArchitecture({ animate: true });
+    }
   }
 
   wrap.querySelector("#citadelCloseBtn").addEventListener("click", close);
