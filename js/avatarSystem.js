@@ -1090,6 +1090,60 @@
   const stateKey = (p) => `ii:avatar:${p.cls}-${p.seat}-${p.name}`;
   const labKey = (p) => (p ? `ii:microlab:${p.cls}-${p.seat}-${p.name}` : "ii:microlab:guest");
   const LAB_COIN_REWARD = 20;
+  const DOJO_COIN_REWARD = 30;
+  const CAPSTONE_COIN_REWARD = 50;
+  const CITADEL_DOJO_KEYS = ["dojo:fsm", "dojo:dag", "dojo:bitwise", "dojo:recursion"];
+  const CITADEL_CAPSTONE_KEYS = ["capstone:zero-day", "capstone:smart-city"];
+  const CITADEL_ALL_KEYS = new Set([...CITADEL_DOJO_KEYS, ...CITADEL_CAPSTONE_KEYS, "citadel:unlocked"]);
+  const CITADEL_HONOR_KEYS = new Set([...CITADEL_DOJO_KEYS, ...CITADEL_CAPSTONE_KEYS]);
+
+  function sanitizeCitadelTokens(raw) {
+    const out = new Set();
+    const scan = (val) => {
+      if (!val) return;
+      if (Array.isArray(val)) {
+        val.forEach((x) => {
+          const k = String(x || "").trim().toLowerCase();
+          if (CITADEL_ALL_KEYS.has(k)) out.add(k);
+        });
+      } else if (typeof val === "object") {
+        if (Array.isArray(val.citadelTokens)) scan(val.citadelTokens);
+        if (Array.isArray(val.citadelHonors)) scan(val.citadelHonors);
+        if (val.look && Array.isArray(val.look.citadelHonors)) scan(val.look.citadelHonors);
+      }
+    };
+    scan(raw);
+    return Array.from(out).sort();
+  }
+
+  function getCitadelHonorsSummary(tokensInput) {
+    const list = sanitizeCitadelTokens(tokensInput);
+    const set = new Set(list);
+    const dojoPassed = CITADEL_DOJO_KEYS.filter((k) => set.has(k));
+    const capstonePassed = CITADEL_CAPSTONE_KEYS.filter((k) => set.has(k));
+    const isDojoMaster = dojoPassed.length === CITADEL_DOJO_KEYS.length;
+    const isForensicChief = capstonePassed.length === CITADEL_CAPSTONE_KEYS.length;
+    const hasAnyHonor = dojoPassed.length > 0 || capstonePassed.length > 0;
+    const titles = [];
+    if (isDojoMaster) titles.push({ id: "algo-master", name: "演算法宗師", icon: "⚡" });
+    if (isForensicChief) titles.push({ id: "forensic-chief", name: "首席資安鑑識官", icon: "🕵️" });
+    let badgeText = "";
+    if (isDojoMaster && isForensicChief) badgeText = "🏛️ 演算法宗師 · 首席資安鑑識官";
+    else if (isDojoMaster) badgeText = "⚡ 演算法宗師";
+    else if (isForensicChief) badgeText = "🕵️ 首席資安鑑識官";
+    else if (capstonePassed.length > 0) badgeText = "🕵️ 天穹鑑識特派員";
+    else if (dojoPassed.length > 0) badgeText = "⚡ 天穹試煉勇士";
+    return {
+      tokens: list,
+      dojoPassed,
+      capstonePassed,
+      isDojoMaster,
+      isForensicChief,
+      hasAnyHonor,
+      titles,
+      badgeText
+    };
+  }
   const LAB_ID_ALIAS = {
     sys: "sys", hardware: "sys", hw: "sys",
     citizen: "citizen", security: "citizen", sec: "citizen",
@@ -1120,7 +1174,7 @@
       return sanitizeLabList(raw);
     } catch { return []; }
   }
-  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], labCompleted: [], presetLocked: false });
+  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], labCompleted: [], citadelTokens: [], presetLocked: false });
   let guestState = (() => {
     const st = blankState();
     st.labCompleted = readGuestLabCompleted();
@@ -1136,6 +1190,7 @@
       st.unlocked = Array.isArray(raw.unlocked) ? Array.from(new Set(raw.unlocked.filter((id) => ITEM_MAP[id]))) : [];
       st.npcSolved = Array.isArray(raw.npcSolved) ? Array.from(new Set(raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)))) : [];
       st.labCompleted = sanitizeLabList(raw.labCompleted);
+      st.citadelTokens = sanitizeCitadelTokens(raw);
       const eq = raw.equipped && typeof raw.equipped === "object" ? raw.equipped : {};
       Object.keys(eq).forEach((slot) => {
         const item = ITEM_MAP[eq[slot]];
@@ -1147,7 +1202,12 @@
 
   function getState() {
     const p = profile();
-    if (!p) return guestState;
+    if (!p) {
+      if (window.Store && typeof window.Store.getCitadelTokens === "function") {
+        guestState.citadelTokens = sanitizeCitadelTokens([...guestState.citadelTokens, ...window.Store.getCitadelTokens(null)]);
+      }
+      return guestState;
+    }
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { raw = null; }
     const st = sanitizeState(raw);
@@ -1155,7 +1215,17 @@
       const extraLabs = sanitizeLabList(JSON.parse(localStorage.getItem(labKey(p)) || "[]"));
       if (extraLabs.length) st.labCompleted = Array.from(new Set([...st.labCompleted, ...extraLabs]));
     } catch {}
+    if (window.Store && typeof window.Store.getCitadelTokens === "function") {
+      const storeTokens = window.Store.getCitadelTokens(p);
+      if (storeTokens.length) st.citadelTokens = sanitizeCitadelTokens([...st.citadelTokens, ...storeTokens]);
+    }
     return st;
+  }
+  function buildCloudAvatarPayload(st) {
+    const honorList = (st.citadelTokens || []).filter((t) => CITADEL_HONOR_KEYS.has(t));
+    const nextLook = { ...st.look };
+    if (honorList.length > 0) nextLook.citadelHonors = honorList;
+    return { ...st, look: nextLook };
   }
   function saveState(st, opt = {}) {
     const p = profile();
@@ -1169,13 +1239,14 @@
       localStorage.setItem(labKey(p), JSON.stringify(st.labCompleted || []));
     } catch (e) { console.warn(e); }
     if (opt.syncCloud !== false && window.Store && typeof window.Store.saveAvatarToCloud === "function") {
+      const payload = buildCloudAvatarPayload(st);
       if (opt.immediate) {
         clearTimeout(cloudSyncTimer);
-        window.Store.saveAvatarToCloud(st, p);
+        window.Store.saveAvatarToCloud(payload, p);
       } else {
         clearTimeout(cloudSyncTimer);
         cloudSyncTimer = setTimeout(() => {
-          window.Store.saveAvatarToCloud(getState(), p);
+          window.Store.saveAvatarToCloud(buildCloudAvatarPayload(getState()), p);
         }, 450);
       }
     }
@@ -1218,6 +1289,7 @@
     const mergedUnlocked = Array.from(new Set([...localSt.unlocked, ...cloudSt.unlocked]));
     const mergedNpcSolved = Array.from(new Set([...localSt.npcSolved, ...cloudSt.npcSolved]));
     const mergedLabs = Array.from(new Set([...localSt.labCompleted, ...cloudSt.labCompleted]));
+    const mergedCitadel = Array.from(new Set([...localSt.citadelTokens, ...cloudSt.citadelTokens])).sort();
     const hasCloudLocked = cloudAv.presetLocked !== undefined;
     const presetLocked = hasCloudLocked ? Boolean(cloudAv.presetLocked) : localSt.presetLocked;
     const useCloudLook = Boolean(cloudAv.look && (cloudSt.presetLocked || !localRaw || !localRaw.look));
@@ -1232,6 +1304,7 @@
       unlocked: mergedUnlocked,
       npcSolved: mergedNpcSolved,
       labCompleted: mergedLabs,
+      citadelTokens: mergedCitadel,
       equipped: eqSource
     });
     try {
@@ -1271,6 +1344,29 @@
       gained,
       already,
       guest: isGuest,
+      coins: wallet(st).coins
+    };
+  }
+
+  function grantCitadelToken(token, opt = {}) {
+    const clean = String(token || "").trim().toLowerCase();
+    if (!CITADEL_ALL_KEYS.has(clean)) return { ok: false, gained: 0, coins: wallet().coins };
+    const st = getState();
+    const already = (st.citadelTokens || []).includes(clean);
+    let gained = 0;
+    if (!already) {
+      st.citadelTokens = sanitizeCitadelTokens([...(st.citadelTokens || []), clean]);
+      if (CITADEL_DOJO_KEYS.includes(clean)) gained = DOJO_COIN_REWARD;
+      else if (CITADEL_CAPSTONE_KEYS.includes(clean)) gained = CAPSTONE_COIN_REWARD;
+      saveState(st, { syncCloud: opt.syncCloud !== false, immediate: true });
+      emit();
+    }
+    return {
+      ok: true,
+      token: clean,
+      already,
+      gained,
+      tokens: st.citadelTokens.slice(),
       coins: wallet(st).coins
     };
   }
@@ -1336,8 +1432,14 @@
     Object.keys(earned).forEach((k) => { avail[k] = Math.max(0, earned[k] - used[k]); });
     const labCount = Array.isArray(st.labCompleted) ? st.labCompleted.length : 0;
     const labCoinsEarned = labCount * LAB_COIN_REWARD;
-    const coinsEarned = st.npcSolved.length * COIN_PER_QUESTION + labCoinsEarned;
-    return { earned, used, avail, coinsEarned, labCoinsEarned, spent, coins: Math.max(0, coinsEarned - spent) };
+    const ctSet = new Set(Array.isArray(st.citadelTokens) ? st.citadelTokens : []);
+    const dojoCount = CITADEL_DOJO_KEYS.filter((k) => ctSet.has(k)).length;
+    const capstoneCount = CITADEL_CAPSTONE_KEYS.filter((k) => ctSet.has(k)).length;
+    const dojoCoinsEarned = dojoCount * DOJO_COIN_REWARD;
+    const capstoneCoinsEarned = capstoneCount * CAPSTONE_COIN_REWARD;
+    const citadelCoinsEarned = dojoCoinsEarned + capstoneCoinsEarned;
+    const coinsEarned = st.npcSolved.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned;
+    return { earned, used, avail, coinsEarned, labCoinsEarned, dojoCoinsEarned, capstoneCoinsEarned, citadelCoinsEarned, spent, coins: Math.max(0, coinsEarned - spent) };
   }
 
   const TITLES = [
@@ -1694,10 +1796,11 @@
   }
 
   window.AvatarSystem = {
-    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
+    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DOJO_COIN_REWARD, CAPSTONE_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
     renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState,
     getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc,
     resolveLabIslandId, isMicroLabCompleted, getCompletedMicroLabs, completeMicroLab,
+    grantCitadelToken, getCitadelHonorsSummary, sanitizeCitadelTokens,
     toast, mountNpcQuiz, downloadCard, esc
   };
 })();

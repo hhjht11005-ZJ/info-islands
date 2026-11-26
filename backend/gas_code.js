@@ -930,7 +930,8 @@ function defaultConfigObj_() {
     announcement: "",
     targetIsland: "",
     taskLinkTitle: "",
-    taskLinkUrl: ""
+    taskLinkUrl: "",
+    unlockCitadel: "false"
   };
 }
 
@@ -942,7 +943,7 @@ function getConfigData_(ss) {
   for (var i = 1; i < rows.length; i++) {
     var k = String(rows[i][0] || "").trim();
     var v = String(rows[i][1] || "").trim();
-    if (k === "announcement" || k === "targetIsland" || k === "taskLinkTitle" || k === "taskLinkUrl") {
+    if (k === "announcement" || k === "targetIsland" || k === "taskLinkTitle" || k === "taskLinkUrl" || k === "unlockCitadel") {
       cfg[k] = v;
     }
   }
@@ -955,11 +956,15 @@ function saveConfig_(req) {
     return { status: "unauthorized", message: auth.message || "密碼錯誤" };
   }
   var incoming = (req.config && typeof req.config === "object") ? req.config : {};
+  var prevCfg = getConfigData_(auth.targetSs);
+  var rawUnlock = incoming.unlockCitadel !== undefined ? incoming.unlockCitadel : prevCfg.unlockCitadel;
+  var unlockFlag = (rawUnlock === true || String(rawUnlock || "").trim().toLowerCase() === "true" || String(rawUnlock || "").trim() === "1") ? "true" : "false";
   var nextCfg = {
-    announcement: String(incoming.announcement || "").trim(),
-    targetIsland: String(incoming.targetIsland || "").trim(),
-    taskLinkTitle: String(incoming.taskLinkTitle || "").trim(),
-    taskLinkUrl: String(incoming.taskLinkUrl || "").trim()
+    announcement: String(incoming.announcement !== undefined ? incoming.announcement : prevCfg.announcement || "").trim(),
+    targetIsland: String(incoming.targetIsland !== undefined ? incoming.targetIsland : prevCfg.targetIsland || "").trim(),
+    taskLinkTitle: String(incoming.taskLinkTitle !== undefined ? incoming.taskLinkTitle : prevCfg.taskLinkTitle || "").trim(),
+    taskLinkUrl: String(incoming.taskLinkUrl !== undefined ? incoming.taskLinkUrl : prevCfg.taskLinkUrl || "").trim(),
+    unlockCitadel: unlockFlag
   };
 
   var sh = sheetOn_(auth.targetSs, SHEET_CONFIG, CONFIG_HEADER);
@@ -970,7 +975,8 @@ function saveConfig_(req) {
     ["announcement", nextCfg.announcement],
     ["targetIsland", nextCfg.targetIsland],
     ["taskLinkTitle", nextCfg.taskLinkTitle],
-    ["taskLinkUrl", nextCfg.taskLinkUrl]
+    ["taskLinkUrl", nextCfg.taskLinkUrl],
+    ["unlockCitadel", nextCfg.unlockCitadel]
   ];
   sh.getRange(2, 1, rows.length, 2).setValues(rows);
   return { status: "ok", config: nextCfg };
@@ -1001,6 +1007,22 @@ function getLeaderboardPublicData_(ss) {
     if (!out[g]) out[g] = [];
     var avatarObj = safeJsonParse_(String(r[9] || ""), null);
     var publicLook = (avatarObj && avatarObj.look && typeof avatarObj.look === "object") ? avatarObj.look : null;
+    var progressArr = safeJsonParse_(String(r[10] || "[]"), []);
+    var citadelTokens = [];
+    if (Array.isArray(progressArr)) {
+      for (var p = 0; p < progressArr.length; p++) {
+        var tok = String(progressArr[p] || "").trim().toLowerCase();
+        if (tok.indexOf("dojo:") === 0 || tok.indexOf("capstone:") === 0 || tok === "citadel:unlocked") {
+          if (citadelTokens.indexOf(tok) === -1) citadelTokens.push(tok);
+        }
+      }
+    }
+    if (avatarObj && Array.isArray(avatarObj.citadelTokens)) {
+      for (var c = 0; c < avatarObj.citadelTokens.length; c++) {
+        var ct = String(avatarObj.citadelTokens[c] || "").trim().toLowerCase();
+        if (ct && citadelTokens.indexOf(ct) === -1) citadelTokens.push(ct);
+      }
+    }
     out[g].push({
       studentKey: String(r[0] || ""),
       grade: g,
@@ -1010,7 +1032,8 @@ function getLeaderboardPublicData_(ss) {
       totalScore: Number(r[5]) || 0,
       crownCount: Number(r[6]) || 0,
       updatedAt: String(r[7] || ""),
-      avatarLook: publicLook
+      avatarLook: publicLook,
+      citadelTokens: citadelTokens
     });
   }
   return sortPublicLeaderboardBuckets_(out);

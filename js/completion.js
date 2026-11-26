@@ -9,6 +9,7 @@
 
 const DIFFICULTIES = ["easy", "medium", "hard"];
 const DEFAULT_PASS_SCORE = 60;
+const CITADEL_TOKEN_RE = /^(?:dojo|capstone|citadel):[a-z0-9_-]+$/i;
 
 const ISLAND_ID_ALIASES = {
   sys: "sys",
@@ -93,7 +94,7 @@ export function normalizeDifficultyToken(rawDiff, { allowSingle = false, mapSing
 
 export function parseProgressToken(rawToken, { mapSingleToEasy = false } = {}) {
   const s = String(rawToken || "").trim();
-  if (!s) return null;
+  if (!s || CITADEL_TOKEN_RE.test(s)) return null;
   let rawUnit = "";
   let rawDiff = "";
   const colonIdx = s.lastIndexOf(":");

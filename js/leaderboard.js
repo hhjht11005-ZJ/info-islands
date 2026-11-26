@@ -197,6 +197,27 @@
     const avatarLook = (row.avatarLook && typeof row.avatarLook === "object")
       ? row.avatarLook
       : ((row.avatar && row.avatar.look && typeof row.avatar.look === "object") ? row.avatar.look : null);
+    let citadelTokens = [];
+    if (!isGatekeeper) {
+      const tokSet = new Set();
+      const collectFrom = (src) => {
+        if (!src) return;
+        if (window.Store && typeof window.Store.extractCitadelTokens === "function") {
+          window.Store.extractCitadelTokens(src).forEach((t) => tokSet.add(t));
+        } else if (Array.isArray(src)) {
+          src.forEach((x) => {
+            const k = String(x || "").trim().toLowerCase();
+            if (k.startsWith("dojo:") || k.startsWith("capstone:") || k === "citadel:unlocked") tokSet.add(k);
+          });
+        }
+      };
+      collectFrom(row.citadelTokens);
+      collectFrom(row.completedProgress);
+      collectFrom(row.progress);
+      collectFrom(row.avatar);
+      if (avatarLook && Array.isArray(avatarLook.citadelHonors)) collectFrom(avatarLook.citadelHonors);
+      citadelTokens = Array.from(tokSet).sort();
+    }
     return {
       studentKey,
       globalKey: String(row.globalKey || (teacherId ? `${teacherId}__${studentKey}` : studentKey)),
@@ -215,6 +236,7 @@
       quizCount: Number(row.quizCount) || (totalScore > 0 || crownCount > 0 ? 1 : 0),
       updatedAt,
       avatarLook,
+      citadelTokens,
       isGatekeeper
     };
   }
@@ -251,13 +273,20 @@
       if (!entry || entry.isGatekeeper || !entry.studentKey || !entry.className) return;
       const mapKey = isGlobal ? `${entry.teacherId || "DEFAULT"}__${entry.studentKey}` : entry.studentKey;
       const prev = realMap.get(mapKey);
+      const mergedTokens = Array.from(new Set([
+        ...(prev && Array.isArray(prev.citadelTokens) ? prev.citadelTokens : []),
+        ...(Array.isArray(entry.citadelTokens) ? entry.citadelTokens : [])
+      ])).sort();
       if (
         !prev
         || entry.totalScore > prev.totalScore
         || (entry.totalScore === prev.totalScore && entry.crownCount > prev.crownCount)
         || (entry.totalScore === prev.totalScore && entry.crownCount === prev.crownCount && entry.updatedAt > prev.updatedAt)
       ) {
+        entry.citadelTokens = mergedTokens;
         realMap.set(mapKey, entry);
+      } else if (prev) {
+        prev.citadelTokens = mergedTokens;
       }
     };
 
@@ -537,24 +566,51 @@
     return h >>> 0;
   }
 
-  function renderLeaderboardMiniAvatar(entry, isMe) {
+  function getEntryCitadelHonors(entry, isMe) {
+    if (!entry || entry.isGatekeeper) return { hasAnyHonor: false, badgeText: "", titles: [] };
+    const tokSet = new Set(Array.isArray(entry.citadelTokens) ? entry.citadelTokens : []);
+    if (isMe && window.Store && typeof window.Store.getCitadelTokens === "function") {
+      window.Store.getCitadelTokens().forEach((t) => tokSet.add(t));
+    }
+    const tokens = Array.from(tokSet);
+    const AV = window.AvatarSystem;
+    if (AV && typeof AV.getCitadelHonorsSummary === "function") {
+      return AV.getCitadelHonorsSummary(tokens);
+    }
+    const hasDojo = tokens.some((t) => t.startsWith("dojo:"));
+    const hasCap = tokens.some((t) => t.startsWith("capstone:"));
+    const hasAnyHonor = hasDojo || hasCap;
+    return {
+      hasAnyHonor,
+      badgeText: hasCap ? "🕵️ 首席資安鑑識官" : (hasDojo ? "⚡ 演算法宗師" : ""),
+      titles: []
+    };
+  }
+
+  function renderLeaderboardMiniAvatar(entry, isMe, honors) {
     const AV = window.AvatarSystem;
     if (!AV || typeof AV.renderMiniAvatar !== "function") return "";
+    let innerSvg = "";
     if (isMe && typeof AV.getState === "function") {
-      return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar(AV.getState(), { label: "我的頭像" })}</span>`;
+      innerSvg = AV.renderMiniAvatar(AV.getState(), { label: "我的頭像" });
+    } else {
+      const hairs = AV.HAIR_STYLES || [];
+      const faces = AV.FACES || [];
+      const seed = hashSeed(entry.studentKey || `${entry.className}_${entry.seat}_${entry.maskedName}`);
+      const pickedHair = hairs[seed % hairs.length] || {};
+      const look = entry.avatarLook && typeof entry.avatarLook === "object"
+        ? entry.avatarLook
+        : {
+            hair: pickedHair.id || "male_gojo",
+            hairColor: pickedHair.defaultColor || "silver",
+            face: (faces[(seed >>> 8) % faces.length] || {}).id || "calm"
+          };
+      innerSvg = AV.renderMiniAvatar({ look, equipped: {} }, { label: entry.maskedName });
     }
-    const hairs = AV.HAIR_STYLES || [];
-    const faces = AV.FACES || [];
-    const seed = hashSeed(entry.studentKey || `${entry.className}_${entry.seat}_${entry.maskedName}`);
-    const pickedHair = hairs[seed % hairs.length] || {};
-    const look = entry.avatarLook && typeof entry.avatarLook === "object"
-      ? entry.avatarLook
-      : {
-          hair: pickedHair.id || "male_gojo",
-          hairColor: pickedHair.defaultColor || "silver",
-          face: (faces[(seed >>> 8) % faces.length] || {}).id || "calm"
-        };
-    return `<span class="lb-avatar" aria-hidden="true">${AV.renderMiniAvatar({ look, equipped: {} }, { label: entry.maskedName })}</span>`;
+    if (honors && honors.hasAnyHonor) {
+      return `<span class="lb-avatar-frame is-citadel-honored" title="${esc(honors.badgeText || "天穹試煉榮譽")}"><span class="lb-halo-ring" aria-hidden="true"></span><span class="lb-halo-star s1" aria-hidden="true">✦</span><span class="lb-halo-star s2" aria-hidden="true">✦</span><span class="lb-avatar" aria-hidden="true">${innerSvg}</span></span>`;
+    }
+    return `<span class="lb-avatar" aria-hidden="true">${innerSvg}</span>`;
   }
 
   function render() {
@@ -627,13 +683,18 @@
       );
       const tierCls = rank <= 3 ? ` lb-top-${rank}` : "";
       const meCls = isMe ? " is-me" : "";
+      const honors = getEntryCitadelHonors(entry, isMe);
+      const honorCls = honors.hasAnyHonor ? " has-citadel-honor" : "";
       const displayWho = `${formatClassLabel(entry.className)} ${entry.maskedName}`;
-      const avatarHtml = renderLeaderboardMiniAvatar(entry, isMe);
+      const avatarHtml = renderLeaderboardMiniAvatar(entry, isMe, honors);
       const schoolBadgeHtml = isGlobal
         ? `<span class="lb-school-badge${entry.isGatekeeper ? " is-gk" : ""}">[${esc(entry.schoolName || "資訊課程島")}]</span>`
         : "";
+      const honorBadgeHtml = honors.hasAnyHonor && honors.badgeText
+        ? `<span class="lb-citadel-badge">${esc(honors.badgeText)}</span>`
+        : "";
       return `
-        <div class="lb-row${tierCls}${meCls}" data-rank="${rank}" data-gatekeeper="${entry.isGatekeeper ? "1" : "0"}">
+        <div class="lb-row${tierCls}${meCls}${honorCls}" data-rank="${rank}" data-gatekeeper="${entry.isGatekeeper ? "1" : "0"}">
           <div class="lb-cell-rank">${renderRankBadge(rank)}</div>
           <div class="lb-cell-who">
             ${avatarHtml}
@@ -641,6 +702,7 @@
               ${schoolBadgeHtml}
               <span class="lb-who-text">${esc(displayWho)}</span>
               ${isMe ? '<span class="lb-me-tag">👈 我</span>' : ""}
+              ${honorBadgeHtml}
             </div>
           </div>
           <div class="lb-cell-crowns"><span class="lb-crown-pill">👑 ${entry.crownCount}</span></div>
@@ -753,6 +815,9 @@
     if (wrap.classList.contains("show") && remoteStatus !== "loading") render();
   });
   document.addEventListener("ii:avatar-changed", () => {
+    if (wrap.classList.contains("show")) render();
+  });
+  document.addEventListener("ii:citadel-updated", () => {
     if (wrap.classList.contains("show")) render();
   });
   document.addEventListener("ii:leaderboard-synced", () => {

@@ -188,6 +188,7 @@
       const gradeNum = parseGradeFromCls(p);
       const totalScore = hasQuiz ? stats.totalScore : (existing ? Math.max(0, Number(existing.totalScore) || 0) : 0);
       const crownCount = hasQuiz ? stats.crowns : (existing ? Math.max(0, Number(existing.crownCount !== undefined ? existing.crownCount : existing.crowns) || 0) : 0);
+      const citadelTokens = getCitadelTokens(p);
       students[key] = {
         key,
         studentKey: buildStudentKey(gradeNum, p.cls, p.seat),
@@ -200,6 +201,8 @@
         crowns: crownCount,
         crownCount,
         quizCount: hasQuiz ? stats.quizCount : (existing ? Number(existing.quizCount) || 0 : 0),
+        citadelTokens,
+        hasCitadelHonor: citadelTokens.some((t) => CITADEL_HONOR_TOKENS.has(t)),
         updatedAt: stats.latestTs || (existing ? (existing.updatedAt || 0) : 0) || Date.now(),
         isVirtual: false,
         isGatekeeper: false
@@ -346,10 +349,130 @@
     }
   }
 
+  const CITADEL_TOKENS = [
+    "dojo:fsm",
+    "dojo:dag",
+    "dojo:bitwise",
+    "dojo:recursion",
+    "capstone:zero-day",
+    "capstone:smart-city",
+    "citadel:unlocked"
+  ];
+  const CITADEL_TOKEN_SET = new Set(CITADEL_TOKENS);
+  const CITADEL_HONOR_TOKENS = new Set(CITADEL_TOKENS.filter((t) => t !== "citadel:unlocked"));
+
+  const citadelKey = (p) => (p && p.cls && p.name)
+    ? `ii:citadel:${String(p.cls).trim()}-${Number(p.seat) || p.seat}-${String(p.name).trim()}`
+    : "ii:citadel:guest";
+
+  function extractCitadelTokens(raw) {
+    const out = new Set();
+    const walk = (val) => {
+      if (!val) return;
+      if (val instanceof Set) { val.forEach(walk); return; }
+      if (typeof val === "string") {
+        const t = val.trim();
+        if (!t) return;
+        if ((t.startsWith("[") && t.endsWith("]")) || (t.startsWith("{") && t.endsWith("}"))) {
+          try { walk(JSON.parse(t)); return; } catch {}
+        }
+        t.split(/[,;\n\r]+/).forEach((part) => {
+          const k = part.trim().toLowerCase();
+          if (CITADEL_TOKEN_SET.has(k)) out.add(k);
+        });
+        return;
+      }
+      if (Array.isArray(val)) {
+        val.forEach(walk);
+        return;
+      }
+      if (typeof val === "object") {
+        if (val.citadelTokens !== undefined) walk(val.citadelTokens);
+        if (val.citadelHonors !== undefined) walk(val.citadelHonors);
+        if (val.completedProgress !== undefined) walk(val.completedProgress);
+        if (val.progress !== undefined) walk(val.progress);
+        if (val.look && val.look.citadelHonors !== undefined) walk(val.look.citadelHonors);
+        Object.entries(val).forEach(([k, v]) => {
+          const lk = String(k || "").trim().toLowerCase();
+          if (CITADEL_TOKEN_SET.has(lk) && v) out.add(lk);
+        });
+      }
+    };
+    walk(raw);
+    return Array.from(out).sort();
+  }
+
+  function getCitadelTokens(explicitProfile) {
+    const p = explicitProfile !== undefined ? explicitProfile : Store.profile;
+    const set = new Set();
+    if (!p || !p.cls || !p.name) {
+      extractCitadelTokens(ls.get("ii:citadel:guest", [])).forEach((t) => set.add(t));
+      return Array.from(set).sort();
+    }
+    const clsStr = String(p.cls).trim();
+    const seatNum = Number(p.seat) || 0;
+    const seatVariants = Array.from(new Set([
+      String(seatNum || p.seat || "").trim(),
+      seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
+    ].filter(Boolean)));
+    const nameStr = String(p.name).trim();
+    seatVariants.forEach((sv) => {
+      extractCitadelTokens(ls.get(`ii:citadel:${clsStr}-${sv}-${nameStr}`, [])).forEach((t) => set.add(t));
+      const av = ls.get(`ii:avatar:${clsStr}-${sv}-${nameStr}`, null);
+      if (av) extractCitadelTokens(av).forEach((t) => set.add(t));
+    });
+    return Array.from(set).sort();
+  }
+
+  function recordCitadelToken(token, { sync = true } = {}) {
+    const clean = String(token || "").trim().toLowerCase();
+    if (!CITADEL_TOKEN_SET.has(clean)) return { ok: false, gained: 0, tokens: getCitadelTokens() };
+    const p = Store.profile;
+    const cur = new Set(getCitadelTokens(p));
+    const isNew = !cur.has(clean);
+    cur.add(clean);
+    const nextList = Array.from(cur).sort();
+
+    if (window.AvatarSystem && typeof window.AvatarSystem.grantCitadelToken === "function") {
+      window.AvatarSystem.grantCitadelToken(clean, { syncCloud: false });
+    }
+    ls.set(citadelKey(p), nextList);
+
+    const gained = isNew
+      ? (clean.startsWith("dojo:") ? 30 : (clean.startsWith("capstone:") ? 50 : 0))
+      : 0;
+
+    if (p && sync) {
+      const avState = (window.AvatarSystem && typeof window.AvatarSystem.getState === "function")
+        ? window.AvatarSystem.getState()
+        : ls.get(`ii:avatar:${p.cls}-${Number(p.seat) || p.seat}-${p.name}`, null);
+      if (avState && typeof avState === "object") {
+        const honorList = nextList.filter((t) => CITADEL_HONOR_TOKENS.has(t));
+        const payloadAv = {
+          ...avState,
+          citadelTokens: nextList,
+          look: {
+            ...(avState.look || {}),
+            ...(honorList.length > 0 ? { citadelHonors: honorList } : {})
+          }
+        };
+        void saveAvatarToCloud(payloadAv, p);
+      }
+      if (getLeaderboardUrl()) {
+        void uploadLeaderboardScore(p, null, { force: true });
+      }
+      syncLeaderboardPool(p);
+    }
+
+    document.dispatchEvent(new CustomEvent("ii:citadel-updated", { detail: { token: clean, isNew, gained, tokens: nextList } }));
+    return { ok: true, isNew, gained, token: clean, tokens: nextList };
+  }
+
   function clearStudentLocalData(targetProfile, { includeActiveIsland = true } = {}) {
     try {
       localStorage.removeItem("ii:microlab:guest");
       localStorage.removeItem("ii:microlab:stages:guest");
+      localStorage.removeItem("ii:citadel:guest");
     } catch {}
     if (!targetProfile || !targetProfile.cls || !targetProfile.name) return;
     const clsStr = String(targetProfile.cls).trim();
@@ -364,7 +487,8 @@
       "ii:badges:",
       "ii:avatar:",
       "ii:microlab:",
-      "ii:microlab:stages:"
+      "ii:microlab:stages:",
+      "ii:citadel:"
     ];
     if (includeActiveIsland) prefixes.push("ii:activeIslandId:");
     seatVariants.forEach((sv) => {
@@ -402,6 +526,8 @@
       }
     });
 
+    getCitadelTokens(p).forEach((tok) => passedSet.add(tok));
+
     return Array.from(passedSet).sort();
   }
 
@@ -422,6 +548,8 @@
     const evs = ls.get(evKey(pObj), []);
     const stats = summarizeQuizEvents(evs);
     const completedProgress = collectAllPassedProgress(pObj);
+    const citadelTokens = getCitadelTokens(pObj);
+    const honorTokens = citadelTokens.filter((t) => CITADEL_HONOR_TOKENS.has(t));
     const avatarState = ls.get(`ii:avatar:${className}-${Number(seat) || seat}-${name}`, null);
     const payload = {
       grade,
@@ -430,10 +558,25 @@
       name,
       totalScore: Math.max(0, Math.round(Number(stats.totalScore) || 0)),
       crownCount: Math.max(0, Math.round(Number(stats.crowns) || 0)),
-      completedProgress
+      completedProgress,
+      citadelTokens
     };
     if (avatarState && typeof avatarState === "object") {
-      payload.avatar = avatarState;
+      const clonedAvatar = {
+        ...avatarState,
+        citadelTokens: Array.from(new Set([...(Array.isArray(avatarState.citadelTokens) ? avatarState.citadelTokens : []), ...citadelTokens])).sort()
+      };
+      if (clonedAvatar.look && typeof clonedAvatar.look === "object") {
+        clonedAvatar.look = { ...clonedAvatar.look };
+        if (honorTokens.length > 0) clonedAvatar.look.citadelHonors = honorTokens;
+        else delete clonedAvatar.look.citadelHonors;
+      }
+      payload.avatar = clonedAvatar;
+    } else if (honorTokens.length > 0) {
+      payload.avatar = {
+        look: { hair: "male_gojo", hairColor: "silver", face: "calm", citadelHonors: honorTokens },
+        citadelTokens
+      };
     }
     return {
       studentKey: buildStudentKey(grade, className, seat),
@@ -656,6 +799,8 @@
       const completedProgress = Array.isArray(it.completedProgress)
         ? Array.from(new Set([
             ...it.completedProgress.map((tok) => {
+              const raw = String(tok || "").trim().toLowerCase();
+              if (CITADEL_TOKEN_SET.has(raw)) return raw;
               const parsed = parseProgressToken(tok);
               return parsed ? parsed.key : "";
             }).filter(Boolean),
@@ -722,7 +867,16 @@
         });
         return s;
       })();
-    const cloudProgress = Array.from(cloudTokenSet).sort();
+    const cloudQuizProgress = Array.from(cloudTokenSet).sort();
+    const cloudCitadelTokens = Array.from(new Set([
+      ...extractCitadelTokens(rawCloudSource),
+      ...extractCitadelTokens(student.avatar),
+      ...extractCitadelTokens(student.citadelTokens)
+    ])).sort();
+    if (cloudCitadelTokens.length > 0) {
+      ls.set(citadelKey(profile), cloudCitadelTokens);
+    }
+    const cloudProgress = Array.from(new Set([...cloudQuizProgress, ...cloudCitadelTokens])).sort();
 
     const restoredEvents = [];
     const restoredBadges = [];
@@ -773,7 +927,16 @@
     ls.set(badgeKey, restoredBadges);
 
     // 嚴格以雲端回傳的 student.avatar 作為該生基準外觀還原（無則重置為初始空白外觀）
-    const cloudAvatar = (student.avatar && typeof student.avatar === "object") ? student.avatar : null;
+    const rawCloudAvatar = (student.avatar && typeof student.avatar === "object") ? student.avatar : null;
+    const cloudAvatar = rawCloudAvatar
+      ? {
+          ...rawCloudAvatar,
+          citadelTokens: Array.from(new Set([
+            ...(Array.isArray(rawCloudAvatar.citadelTokens) ? rawCloudAvatar.citadelTokens : []),
+            ...cloudCitadelTokens
+          ])).sort()
+        }
+      : (cloudCitadelTokens.length > 0 ? { citadelTokens: cloudCitadelTokens } : null);
     if (window.AvatarSystem && typeof window.AvatarSystem.restoreCloudAvatar === "function") {
       window.AvatarSystem.restoreCloudAvatar(cloudAvatar, profile, { replace: true });
     } else if (cloudAvatar) {
@@ -1029,6 +1192,10 @@
     summarizeQuizEvents,
     collectAllPassedProgress,
     collectCompletedProgress,
+    CITADEL_TOKENS,
+    extractCitadelTokens,
+    getCitadelTokens,
+    recordCitadelToken,
     clearStudentLocalData,
     calculateIslandCompletion: (islandId, state) => (window.calculateIslandCompletion ? window.calculateIslandCompletion(islandId, state) : null),
     syncLeaderboardPool,

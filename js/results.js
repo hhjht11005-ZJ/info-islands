@@ -195,9 +195,13 @@
 
     $("#avName").innerHTML = `<b>${esc(p.name)}</b><span>${esc(who)}</span>`;
     const t = AV.title(qs.totalScore);
+    const citadelHonors = typeof AV.getCitadelHonorsSummary === "function"
+      ? AV.getCitadelHonorsSummary(st.citadelTokens || [])
+      : { titles: [] };
     const badge = $("#avTitle");
     badge.style.setProperty("--tc", t.color);
-    badge.innerHTML = `<span class="lv">Lv.${t.level}</span>${t.icon} ${esc(t.name)}`;
+    const extraTitlesHtml = (citadelHonors.titles || []).map((ct) => `<span class="av-citadel-title-pill">${ct.icon} ${esc(ct.name)}</span>`).join("");
+    badge.innerHTML = `<span class="lv">Lv.${t.level}</span>${t.icon} ${esc(t.name)}${extraTitlesHtml}`;
     $("#avTitleNext").innerHTML = t.next
       ? `<span class="track"><i style="width:${t.pct}%"></i></span><small>再 ${t.need} 分晉升「${t.next.icon} ${esc(t.next.name)}」</small>`
       : `<small>🌟 已達最高稱號，你就是資訊島的傳奇！</small>`;
@@ -470,6 +474,7 @@
   // 視窗開著時若有新成績或換裝變動，即時更新
   document.addEventListener("ii:quizdone", () => { if (isOpen()) render(); });
   document.addEventListener("ii:avatar-changed", () => { if (isOpen()) render(); });
+  document.addEventListener("ii:citadel-updated", () => { if (isOpen()) render(); });
   document.addEventListener("ii:login", () => { if (isOpen()) render(); });
   document.addEventListener("ii:logout", () => {
     if (chart) { chart.destroy(); chart = null; }

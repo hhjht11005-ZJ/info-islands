@@ -515,11 +515,14 @@ import QRCode from "qrcode";
 
   function createDraftFromConfig(cfg) {
     const src = (cfg && typeof cfg === "object") ? cfg : {};
+    const rawUnlock = src.unlockCitadel;
+    const unlockCitadel = rawUnlock === true || String(rawUnlock || "").trim().toLowerCase() === "true" || String(rawUnlock || "").trim() === "1";
     return {
       announcement: String(src.announcement || ""),
       targetIsland: String(src.targetIsland || ""),
       taskLinkTitle: String(src.taskLinkTitle || ""),
-      taskLinkUrl: String(src.taskLinkUrl || "")
+      taskLinkUrl: String(src.taskLinkUrl || ""),
+      unlockCitadel
     };
   }
 
@@ -624,6 +627,7 @@ import QRCode from "qrcode";
           <button type="button" class="tc-stage-btn" data-stage="2">2/3 擴建</button>
           <button type="button" class="tc-stage-btn" data-stage="3">3/3 竣工</button>
           <button type="button" class="tc-stage-btn tc-stage-gold" data-stage="4">👑 終極慶典</button>
+          <button type="button" id="tcCitadelUnlockBtn" class="tc-pill-btn tc-citadel-toggle" aria-pressed="false" title="開啟後課堂演示或全班培訓可直接登島，關閉即恢復七島皆達 80% 嚴格門檻">⚡ 臨時開放天穹浮島（課堂演示／競賽培訓模式）</button>
         </div>
 
         <div class="tc-top-right">
@@ -948,6 +952,19 @@ import QRCode from "qrcode";
     cockpitWrap.querySelectorAll(".tc-stage-btn").forEach((btn) => {
       btn.classList.toggle("active", Number(btn.dataset.stage) === state.activeStage);
     });
+
+    const citadelBtn = cockpitWrap.querySelector("#tcCitadelUnlockBtn");
+    if (citadelBtn) {
+      const isCitadelOpen = Boolean(
+        (state.data.config && (state.data.config.unlockCitadel === true || String(state.data.config.unlockCitadel || "").toLowerCase() === "true"))
+        || (window.CloudConfig && typeof window.CloudConfig.isCitadelTempUnlocked === "function" && window.CloudConfig.isCitadelTempUnlocked())
+      );
+      citadelBtn.classList.toggle("active", isCitadelOpen);
+      citadelBtn.setAttribute("aria-pressed", String(isCitadelOpen));
+      citadelBtn.textContent = isCitadelOpen
+        ? "⚡ 臨時開放天穹浮島：已開啟（點擊關閉）"
+        : "⚡ 臨時開放天穹浮島（課堂演示／競賽培訓模式）";
+    }
 
     cockpitWrap.querySelectorAll(".tc-tab").forEach((tab) => {
       const isAct = tab.dataset.tab === state.activeTab;
@@ -1533,11 +1550,16 @@ import QRCode from "qrcode";
       return;
     }
 
+    const currentUnlockFlag = Boolean(
+      (state.data.config && (state.data.config.unlockCitadel === true || String(state.data.config.unlockCitadel || "").toLowerCase() === "true"))
+      || (window.CloudConfig && typeof window.CloudConfig.isCitadelTempUnlocked === "function" && window.CloudConfig.isCitadelTempUnlocked())
+    );
     const nextConfig = {
       announcement: (announcementEl ? announcementEl.value : "").trim(),
       targetIsland: (targetIslandEl ? targetIslandEl.value : "").trim(),
       taskLinkTitle: (linkTitleEl ? linkTitleEl.value : "").trim(),
-      taskLinkUrl: (linkUrlEl ? linkUrlEl.value : "").trim()
+      taskLinkUrl: (linkUrlEl ? linkUrlEl.value : "").trim(),
+      unlockCitadel: currentUnlockFlag ? "true" : "false"
     };
 
     state.dispatchSaving = true;
@@ -1981,12 +2003,19 @@ import QRCode from "qrcode";
         ? (AV && typeof AV.normalizeLook === "function" ? AV.normalizeLook(st.avatar.look) : st.avatar.look)
         : null;
       const presetObj = look ? hairStyles.find((h) => h.id === look.hair) : null;
+      const citadelTokens = (window.Store && typeof window.Store.extractCitadelTokens === "function")
+        ? Array.from(new Set([
+            ...window.Store.extractCitadelTokens(st.rawProgressList),
+            ...window.Store.extractCitadelTokens(st.avatar)
+          ])).sort()
+        : [];
 
       return {
         ...st,
         progress: Array.from(progressSet),
         progressSet,
         passedSet: progressSet,
+        citadelTokens,
         islandCompletions,
         passedTotal,
         pctNum,
@@ -2304,6 +2333,39 @@ import QRCode from "qrcode";
       </section>`;
     }).join("");
 
+    const citadelTokens = Array.isArray(st.citadelTokens)
+      ? st.citadelTokens
+      : ((window.Store && typeof window.Store.extractCitadelTokens === "function")
+        ? Array.from(new Set([
+            ...window.Store.extractCitadelTokens(st.rawProgressList),
+            ...window.Store.extractCitadelTokens(st.avatar)
+          ])).sort()
+        : []);
+    const ctSet = new Set(citadelTokens);
+    const dojoSpecs = [
+      { id: "dojo:fsm", icon: "🔐", name: "有限狀態機金庫" },
+      { id: "dojo:dag", icon: "⚡", name: "多約束 DAG 排程賽" },
+      { id: "dojo:bitwise", icon: "🔌", name: "位元遮罩邏輯逆向工程" },
+      { id: "dojo:recursion", icon: "🌲", name: "遞迴回溯與堆疊剪枝" }
+    ];
+    const capstoneSpecs = [
+      { id: "capstone:zero-day", icon: "🚨", name: "零日危機：校慶系統癱瘓" },
+      { id: "capstone:smart-city", icon: "🚐", name: "失控的智慧城市風暴" }
+    ];
+    const allDojoDone = dojoSpecs.every((d) => ctSet.has(d.id));
+    const allCapDone = capstoneSpecs.every((c) => ctSet.has(c.id));
+    const citadelAccessMet = ctSet.has("citadel:unlocked") || (catalog.islandCatalog.length >= 7 && catalog.islandCatalog.every((isl) => {
+      const comp = typeof window.calculateIslandCompletion === "function" ? window.calculateIslandCompletion(isl.id, progressSet) : null;
+      return comp && comp.percentage >= 80;
+    }));
+    const renderCitadelBadge = (item, kindColor) => {
+      const ok = ctSet.has(item.id);
+      const stStyle = ok
+        ? `background: rgba(251, 191, 36, 0.22); border: 1px solid ${kindColor}; color: #fde68a;`
+        : "background: rgba(148, 163, 184, 0.1); border: 1px solid rgba(148, 163, 184, 0.24); color: #94a3b8;";
+      return `<span style="display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; ${stStyle}">${ok ? "✔" : "○"} ${item.icon} ${esc(item.name)}</span>`;
+    };
+
     card.innerHTML = `
       <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.15);">
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
@@ -2317,6 +2379,28 @@ import QRCode from "qrcode";
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 16px;">
         ${islandCardsHtml}
       </div>
+      <section style="margin-top: 18px; padding: 16px; border-radius: 16px; border: 1.5px solid rgba(251, 191, 36, 0.42); background: linear-gradient(135deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.9)); display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;">
+          <h4 style="margin: 0; font-size: 1.02rem; font-weight: 900; color: #fde68a;">🏛️ 天穹試煉浮島戰績</h4>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            <span style="padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 800; ${citadelAccessMet ? "background: rgba(16,185,129,0.22); border: 1px solid rgba(52,211,153,0.6); color:#6ee7b7;" : "background: rgba(148,163,184,0.12); border: 1px solid rgba(148,163,184,0.25); color:#94a3b8;"}">${citadelAccessMet ? "✨ 已達 80% 解封天穹浮島" : "🔒 尚未達 80% 解封門檻"}</span>
+            ${allDojoDone ? `<span style="padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 900; background: rgba(56,189,248,0.22); border: 1px solid rgba(125,211,252,0.7); color:#7dd3fc;">⚡ 演算法宗師</span>` : ""}
+            ${allCapDone ? `<span style="padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 900; background: rgba(251,191,36,0.25); border: 1px solid rgba(253,224,71,0.75); color:#fde68a;">🕵️ 首席資安鑑識官</span>` : ""}
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-size: 0.8rem; font-weight: 800; color: #7dd3fc;">🧠 運算思維互動道場（+30 ⭐／關）</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${dojoSpecs.map((d) => renderCitadelBadge(d, "rgba(56, 189, 248, 0.75)")).join("")}
+          </div>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 6px;">
+          <div style="font-size: 0.8rem; font-weight: 800; color: #fde68a;">🕵️ 跨島綜合解謎檔案室（+50 ⭐／案）</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${capstoneSpecs.map((c) => renderCitadelBadge(c, "rgba(251, 191, 36, 0.8)")).join("")}
+          </div>
+        </div>
+      </section>
     `;
 
     modal.appendChild(card);
@@ -2970,6 +3054,61 @@ import QRCode from "qrcode";
     notifyCockpitToggle();
   }
 
+  async function toggleCitadelTemporaryUnlock() {
+    const cloudCur = (window.CloudConfig && typeof window.CloudConfig.get === "function") ? window.CloudConfig.get() : {};
+    const curFlag = Boolean(
+      (state.data.config && (state.data.config.unlockCitadel === true || String(state.data.config.unlockCitadel || "").toLowerCase() === "true"))
+      || (window.CloudConfig && typeof window.CloudConfig.isCitadelTempUnlocked === "function" && window.CloudConfig.isCitadelTempUnlocked())
+    );
+    const nextFlag = !curFlag;
+
+    if (window.CloudConfig && typeof window.CloudConfig.setLocalCitadelOverride === "function") {
+      window.CloudConfig.setLocalCitadelOverride(nextFlag);
+    }
+    const baseCfg = {
+      announcement: String((state.data.config && state.data.config.announcement) ?? cloudCur.announcement ?? ""),
+      targetIsland: String((state.data.config && state.data.config.targetIsland) ?? cloudCur.targetIsland ?? ""),
+      taskLinkTitle: String((state.data.config && state.data.config.taskLinkTitle) ?? cloudCur.taskLinkTitle ?? ""),
+      taskLinkUrl: String((state.data.config && state.data.config.taskLinkUrl) ?? cloudCur.taskLinkUrl ?? ""),
+      unlockCitadel: nextFlag ? "true" : "false"
+    };
+    state.data.config = createDraftFromConfig(baseCfg);
+    if (state.dispatchDraft) state.dispatchDraft.unlockCitadel = nextFlag;
+    if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
+      window.CloudConfig.set(baseCfg);
+    } else {
+      document.dispatchEvent(new CustomEvent("ii:config-updated", { detail: { ...baseCfg, unlockCitadel: nextFlag } }));
+    }
+    if (window.__island3D && typeof window.__island3D.syncCitadelState === "function") {
+      window.__island3D.syncCitadelState();
+    }
+    renderTopBar();
+    setGlobalStatus(
+      nextFlag
+        ? "⚡ 已臨時開放天穹浮島（課堂演示／競賽培訓模式），本機已即時解封！正在同步至雲端 Config…"
+        : "🔒 已關閉臨時開放模式，恢復「七島皆達 80%」嚴格結界門檻，正在同步至雲端 Config…",
+      "ok"
+    );
+
+    const sess = getTeacherSession();
+    if (sess && sess.password) {
+      try {
+        const res = await saveCloudConfig(baseCfg, sess);
+        if (res && res.status === "ok") {
+          setGlobalStatus(
+            nextFlag
+              ? "✅ 已臨時開放天穹浮島並同步雲端 Config（全班學生可立即登島練習）！"
+              : "✅ 已關閉臨時開放並同步雲端 Config（恢復七島皆達 80% 嚴格門檻）！",
+            "ok"
+          );
+        }
+      } catch (err) {
+        console.warn("[teacher_cockpit] 同步 unlockCitadel 至雲端失敗:", err);
+      }
+    }
+    setTimeout(() => setGlobalStatus(""), 3600);
+  }
+
   function minimizeFor3DStage(stageNum) {
     state.activeStage = stageNum;
     if (typeof window.previewAllStage === "function") {
@@ -3451,6 +3590,10 @@ import QRCode from "qrcode";
     if (target.closest("#tcPrivacyBtn")) {
       state.isPrivacyMode = !state.isPrivacyMode;
       renderMainBody();
+      return;
+    }
+    if (target.closest("#tcCitadelUnlockBtn")) {
+      void toggleCitadelTemporaryUnlock();
       return;
     }
     const stageBtn = target.closest(".tc-stage-btn");

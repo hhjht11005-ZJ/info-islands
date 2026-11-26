@@ -25,9 +25,32 @@
     announcement: "",
     targetIsland: "",
     taskLinkTitle: "",
-    taskLinkUrl: ""
+    taskLinkUrl: "",
+    unlockCitadel: false
   };
   let isCollapsed = false;
+
+  const OVERRIDE_PREFIX = "ii:citadel:teacher_override:";
+  function getOverrideKey() {
+    const tid = window.Store && typeof window.Store.getTeacherId === "function" ? window.Store.getTeacherId() : "";
+    return `${OVERRIDE_PREFIX}${tid || "DEFAULT"}`;
+  }
+  function getLocalCitadelOverride() {
+    try {
+      return localStorage.getItem(getOverrideKey()) === "true";
+    } catch { return false; }
+  }
+  function setLocalCitadelOverride(val) {
+    try {
+      if (val) localStorage.setItem(getOverrideKey(), "true");
+      else localStorage.removeItem(getOverrideKey());
+    } catch {}
+  }
+  function parseBoolFlag(v) {
+    if (v === true || v === 1) return true;
+    const s = String(v ?? "").trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
 
   const card = document.createElement("aside");
   card.id = "cloudTaskCard";
@@ -38,11 +61,14 @@
 
   function normalizeConfig(raw) {
     const src = (raw && typeof raw === "object") ? raw : {};
+    const hasCloudFlag = src.unlockCitadel !== undefined && src.unlockCitadel !== null && String(src.unlockCitadel).trim() !== "";
+    const unlockCitadel = hasCloudFlag ? parseBoolFlag(src.unlockCitadel) : getLocalCitadelOverride();
     return {
       announcement: String(src.announcement || "").trim(),
       targetIsland: String(src.targetIsland || "").trim(),
       taskLinkTitle: String(src.taskLinkTitle || "").trim(),
-      taskLinkUrl: String(src.taskLinkUrl || "").trim()
+      taskLinkUrl: String(src.taskLinkUrl || "").trim(),
+      unlockCitadel
     };
   }
 
@@ -129,7 +155,10 @@
     get: () => ({ ...currentConfig }),
     set: setConfig,
     fetchNow,
-    sanitizeUrl
+    sanitizeUrl,
+    getLocalCitadelOverride,
+    setLocalCitadelOverride,
+    isCitadelTempUnlocked: () => !!(currentConfig.unlockCitadel || getLocalCitadelOverride())
   };
 
   fetchNow();
