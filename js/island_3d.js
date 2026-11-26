@@ -873,7 +873,7 @@
     ctx.shadowColor = "rgba(255, 255, 255, 0.85)";
     ctx.shadowBlur = 2;
     ctx.shadowOffsetY = 1;
-    ctx.fillText(subtitle, 256, 115);
+    ctx.fillText(subtitle, 256, 115, 434);
     ctx.restore();
   }
 
@@ -11808,13 +11808,19 @@
 
     const listEl = certModalWrap.querySelector("#certIslandsList");
     listEl.innerHTML = ISLANDS_DATA.slice(0, 7)
-      .map(
-        (isl) => `
+      .map((isl) => {
+        const comp = (!grandFinalePreview && typeof window.calculateIslandCompletion === "function")
+          ? window.calculateIslandCompletion(isl.id)
+          : null;
+        const pct = grandFinalePreview ? 100 : (comp ? comp.percentage : 0);
+        const lv = computeCompletionLevel(pct);
+        const stageText = comp ? `${comp.passedStages}/${comp.totalStages} 關` : `${pct}%`;
+        return `
         <div class="cert-island-item" style="--c:${isl.color}">
           <span>${isl.emoji} <b>${isl.name}</b> <small style="color:#a9c3dc">(${isl.tag})</small></span>
-          <span class="ci-tag">Lv.3 · 100% 滿分</span>
-        </div>`
-      )
+          <span class="ci-tag">Lv.${lv} · ${pct}%${pct >= 100 ? " 滿分" : ` (${stageText})`}</span>
+        </div>`;
+      })
       .join("");
 
     certModalWrap.classList.add("show");
@@ -11825,8 +11831,13 @@
     const labels = ISLANDS_DATA.slice(0, 7).map((i) => i.name);
     const colors = ISLANDS_DATA.slice(0, 7).map((i) => i.color);
     const scores = ISLANDS_DATA.slice(0, 7).map((i) => {
+      if (grandFinalePreview) return 100;
+      const comp = typeof window.calculateIslandCompletion === "function"
+        ? window.calculateIslandCompletion(i.id)
+        : null;
+      if (comp) return comp.percentage;
       const rec = islandRecords.find((r) => r.id === i.id);
-      return rec && rec.progressPct > 0 ? rec.progressPct : 100;
+      return rec ? (rec.progressPct || 0) : 0;
     });
 
     if (typeof Chart !== "undefined") {
@@ -12570,84 +12581,48 @@
     }
   }
 
-  function calculateIslandProgressMap(customInput) {
-    const progressMap = {};
+  function calculateIslandCompletionMap(customInput) {
+    const completionMap = {};
+    const knownIds = new Set(islandRecords.map((r) => r.id));
 
-    // 支援直接傳入 { sys: 80, citizen: 100 } 形式供快速測試
-    if (
-      customInput &&
-      typeof customInput === "object" &&
-      !Array.isArray(customInput) &&
-      !(customInput instanceof Event) &&
-      !("animateUpgrade" in customInput)
-    ) {
+    // 支援直接傳入 { sys: 80, citizen: 100 } 形式供快速預覽或測試
+    const isPlainObj = customInput && typeof customInput === "object" && !Array.isArray(customInput)
+      && !(customInput instanceof Event) && !(customInput instanceof Set) && !("animateUpgrade" in customInput);
+    const objKeys = isPlainObj ? Object.keys(customInput) : [];
+    const isNumericOverride = objKeys.length > 0 && objKeys.every((k) => knownIds.has(k) && typeof customInput[k] === "number");
+
+    if (isNumericOverride) {
       islandRecords.forEach((rec) => {
         const raw = Number(customInput[rec.id]);
-        progressMap[rec.id] = Number.isFinite(raw)
-          ? Math.max(0, Math.min(100, Math.round(raw)))
-          : 0;
+        const totalStages = Math.max(0, (rec.sequenceLen || 0) * 3);
+        const pct = Number.isFinite(raw) ? Math.max(0, Math.min(100, Math.round(raw))) : 0;
+        const passedStages = totalStages > 0 ? Math.round((pct / 100) * totalStages) : 0;
+        completionMap[rec.id] = { percentage: pct, passedStages, totalStages };
       });
-      return progressMap;
+      return completionMap;
     }
 
-    const rawEvents = Array.isArray(customInput)
+    const sourceState = customInput !== undefined && !(customInput instanceof Event)
       ? customInput
-      : window.Store && typeof window.Store.events === "function"
-      ? window.Store.events()
-      : [];
-
-    const quizEvents = (Array.isArray(rawEvents) ? rawEvents : []).filter(
-      (e) => e && (!e.type || e.type === "quiz")
-    );
+      : (window.Store && window.Store.profile && typeof window.Store.events === "function" ? window.Store.events() : []);
 
     islandRecords.forEach((rec) => {
-      const islQuiz = quizEvents.filter((e) => {
-        if (e.island === rec.id) return true;
-        if (e.unit && String(e.unit).split("-")[0] === rec.id) return true;
-        return false;
-      });
-
-      if (!islQuiz.length) {
-        progressMap[rec.id] = 0;
-        return;
+      if (typeof window.calculateIslandCompletion === "function") {
+        completionMap[rec.id] = window.calculateIslandCompletion(rec.id, sourceState);
+      } else {
+        completionMap[rec.id] = { percentage: 0, passedStages: 0, totalStages: (rec.sequenceLen || 0) * 3 };
       }
-
-      // 1. 學生於該島測驗的最高得分 (0 ~ 100)
-      const bestScore = islQuiz.reduce(
-        (maxSc, e) => Math.max(maxSc, Number(e.score) || 0),
-        0
-      );
-
-      // 2. 統計該島各單元完成比例（若該島所有可測驗單元皆已通過，亦視為 100%）
-      const unitBest = {};
-      islQuiz.forEach((e) => {
-        if (e.unit) {
-          unitBest[e.unit] = Math.max(unitBest[e.unit] ?? -1, Number(e.score) || 0);
-        }
-      });
-
-      let totalQuizUnits = 0;
-      let passedUnits = 0;
-      const seqLen = rec.sequenceLen || 5;
-      for (let uIdx = 1; uIdx <= seqLen; uIdx++) {
-        const uKey = `${rec.id}-${uIdx}`;
-        const qCfg = window.CONTENT && window.CONTENT[uKey] && window.CONTENT[uKey].quiz;
-        if (qCfg) {
-          totalQuizUnits++;
-          const passScore = Number(qCfg.passScore) || 60;
-          if ((unitBest[uKey] ?? -1) >= passScore) {
-            passedUnits++;
-          }
-        }
-      }
-
-      const unitCompletionPct =
-        totalQuizUnits > 0 ? Math.round((passedUnits / totalQuizUnits) * 100) : 0;
-
-      const finalPct = Math.max(0, Math.min(100, Math.round(Math.max(bestScore, unitCompletionPct))));
-      progressMap[rec.id] = finalPct;
     });
 
+    return completionMap;
+  }
+
+  function calculateIslandProgressMap(customInput) {
+    const compMap = calculateIslandCompletionMap(customInput);
+    const progressMap = {};
+    islandRecords.forEach((rec) => {
+      progressMap[rec.id] = compMap[rec.id] ? compMap[rec.id].percentage : 0;
+    });
     return progressMap;
   }
 
@@ -12701,13 +12676,14 @@
     const previewFullMap = grandFinalePreview
       ? Object.fromEntries(islandRecords.map((r) => [r.id, 100]))
       : null;
-    const progressMap = calculateIslandProgressMap(previewFullMap || customRecords);
+    const completionMap = calculateIslandCompletionMap(previewFullMap || customRecords);
 
     const summary = {};
     let fullCount = 0;
 
     islandRecords.forEach((rec, idx) => {
-      const pct = progressMap[rec.id] ?? 0;
+      const comp = completionMap[rec.id] || { percentage: 0, passedStages: 0, totalStages: (rec.sequenceLen || 0) * 3 };
+      const pct = comp.percentage ?? 0;
       const newLevel = computeCompletionLevel(pct);
       const prevLevel = rec.currentLevel;
 
@@ -12727,9 +12703,9 @@
         rec.level3Props.scale.setScalar(1);
       }
 
-      // 更新島嶼懸浮名牌副標題（顯示繁榮度等級與完成度）
+      // 更新島嶼懸浮名牌副標題（顯示繁榮度等級與唯一權威完成度）
       if (rec.labelSprite && rec.labelSprite.userData && rec.labelSprite.userData.updateSubtitle) {
-        rec.labelSprite.userData.updateSubtitle(`${rec.tag} · Lv.${newLevel} (${pct}%)`);
+        rec.labelSprite.userData.updateSubtitle(`${rec.tag} · Lv.${newLevel} (${pct}% · ${comp.passedStages}/${comp.totalStages})`);
       }
 
       // 當完成測驗、分數使島嶼升級時，觸發 Scale Bounce 彈跳縮放動畫
@@ -12775,10 +12751,12 @@
 
       rec.currentLevel = newLevel;
       rec.progressPct = pct;
+      rec.passedStages = comp.passedStages;
+      rec.totalStages = comp.totalStages;
       if (rec.stageSys && rec.stageSys.stageAuraGroup) {
         rec.stageSys.stageAuraGroup.userData.effectiveStage = Math.max(rec.stageSys.stage || 0, newLevel || 0);
       }
-      summary[rec.id] = { pct, level: newLevel, leveledUp };
+      summary[rec.id] = { pct, passedStages: comp.passedStages, totalStages: comp.totalStages, level: newLevel, leveledUp };
     });
 
     // 判斷中央聖殿島是否達成 7 島 100% 終極解鎖
@@ -13046,6 +13024,12 @@
     triggerBoardingCameraTransition();
   });
   document.addEventListener("ii:logout", () => {
+    grandFinalePreview = false;
+    stageDebug.override = null;
+    pendingUpgradeReplays.length = 0;
+    closeCertModal();
+    hideNpcSpeechBubble();
+    if (sealToastEl) sealToastEl.classList.remove("show");
     islandRecords.forEach((r) => {
       r.currentLevel = null;
     });
@@ -13273,7 +13257,7 @@
   }
 
   function isAllIslandsCompleted() {
-    return islandRecords.length > 0 && islandRecords.every((r) => computeIslandStage(r) >= 3);
+    return islandRecords.length > 0 && islandRecords.every((r) => (r.progressPct || 0) >= 100);
   }
 
   function setPlayerCursorTarget(targetId, opts = {}) {

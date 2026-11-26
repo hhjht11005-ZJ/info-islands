@@ -222,6 +222,9 @@
   };
 
   function canonicalizeUnitId(unitId) {
+    if (window.CompletionCenter && typeof window.CompletionCenter.canonicalizeUnitId === "function") {
+      return window.CompletionCenter.canonicalizeUnitId(unitId);
+    }
     const raw = String(unitId || "").trim();
     if (!raw) return "";
     const normalized = raw.replace(/^([a-z]+)(\d+)$/i, "$1-$2");
@@ -233,6 +236,9 @@
   }
 
   function normalizeDifficultyToken(rawDiff, { allowSingle = false } = {}) {
+    if (window.CompletionCenter && typeof window.CompletionCenter.normalizeDifficultyToken === "function") {
+      return window.CompletionCenter.normalizeDifficultyToken(rawDiff, { allowSingle });
+    }
     const raw = String(rawDiff || "").trim();
     if (!raw) return allowSingle ? "single" : "";
     const low = raw.toLowerCase();
@@ -340,68 +346,61 @@
     }
   }
 
+  function clearStudentLocalData(targetProfile, { includeActiveIsland = true } = {}) {
+    try {
+      localStorage.removeItem("ii:microlab:guest");
+      localStorage.removeItem("ii:microlab:stages:guest");
+    } catch {}
+    if (!targetProfile || !targetProfile.cls || !targetProfile.name) return;
+    const clsStr = String(targetProfile.cls).trim();
+    const seatNum = Number(targetProfile.seat) || 0;
+    const seatVariants = Array.from(new Set([
+      String(seatNum || targetProfile.seat || "").trim(),
+      seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
+    ].filter(Boolean)));
+    const nameStr = String(targetProfile.name).trim();
+    const prefixes = [
+      "ii:ev:",
+      "ii:badges:",
+      "ii:avatar:",
+      "ii:microlab:",
+      "ii:microlab:stages:"
+    ];
+    if (includeActiveIsland) prefixes.push("ii:activeIslandId:");
+    seatVariants.forEach((sv) => {
+      prefixes.forEach((pref) => {
+        try { localStorage.removeItem(`${pref}${clsStr}-${sv}-${nameStr}`); } catch {}
+      });
+    });
+  }
+
   function collectAllPassedProgress(explicitProfile) {
     const p = explicitProfile || Store.profile;
+    // 未登入狀態不可掃描任何其他學生遺留在 localStorage 的紀錄
+    if (!p || !p.cls || !p.name) return [];
+
+    const clsStr = String(p.cls).trim();
+    const seatNum = Number(p.seat) || 0;
+    const seatVariants = Array.from(new Set([
+      String(seatNum || p.seat || "").trim(),
+      seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
+    ].filter(Boolean)));
+    const nameStr = String(p.name).trim();
+
     const passedSet = new Set();
-    const addPair = (rawUnit, rawDiff) => {
-      const unit = canonicalizeUnitId(rawUnit);
-      const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
-      if (!unit || !diff) return;
-      passedSet.add(`${unit}:${diff}`);
-    };
-
-    if (p && p.cls && p.name) {
-      const clsStr = String(p.cls).trim();
-      const seatNum = Number(p.seat) || 0;
-      const seatVariants = Array.from(new Set([
-        String(seatNum || p.seat || "").trim(),
-        seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
-      ].filter(Boolean)));
-      const nameStr = String(p.name).trim();
-
-      seatVariants.forEach((sv) => {
-        const evs = ls.get(`ii:ev:${clsStr}-${sv}-${nameStr}`, null);
-        if (evs) extractPassedFromAny(evs, addPair);
-        const badges = ls.get(`ii:badges:${clsStr}-${sv}-${nameStr}`, null);
-        if (badges) extractPassedFromAny(badges, addPair);
-      });
-
-      const gradeStr = String(parseGradeFromCls(p));
-      const studentSuffixes = new Set();
-      seatVariants.forEach((sv) => {
-        studentSuffixes.add(`${clsStr}-${sv}-${nameStr}`);
-        studentSuffixes.add(`${clsStr}_${sv}_${nameStr}`);
-        studentSuffixes.add(`${gradeStr}_${clsStr}_${sv}`);
-      });
-
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (!k) continue;
-          if (k.startsWith("ii:leaderboard:") || k.startsWith("ii:teacher") || k.startsWith("island_teacher")) continue;
-          const isOtherStudentScoped = (k.startsWith("ii:ev:") || k.startsWith("ii:badges:") || k.startsWith("ii:avatar:") || k.startsWith("ii:activeIslandId:"));
-          if (isOtherStudentScoped) {
-            const matchedOwn = Array.from(studentSuffixes).some((suf) => k.endsWith(suf));
-            if (!matchedOwn) continue;
-          } else if (!/progress|passed|completed/i.test(k)) {
-            continue;
-          }
-          const raw = localStorage.getItem(k);
-          if (raw) extractPassedFromAny(raw, addPair);
-        }
-      } catch {}
-    } else {
-      try {
-        for (let i = 0; i < localStorage.length; i++) {
-          const k = localStorage.key(i);
-          if (!k || k.startsWith("ii:leaderboard:") || k.startsWith("ii:teacher") || k.startsWith("island_teacher")) continue;
-          if (k.startsWith("ii:ev:") || k.startsWith("ii:badges:") || /progress|passed|completed/i.test(k)) {
-            const raw = localStorage.getItem(k);
-            if (raw) extractPassedFromAny(raw, addPair);
-          }
-        }
-      } catch {}
-    }
+    seatVariants.forEach((sv) => {
+      const evs = ls.get(`ii:ev:${clsStr}-${sv}-${nameStr}`, null);
+      if (!evs) return;
+      if (window.CompletionCenter && typeof window.CompletionCenter.extractPassedStageSet === "function") {
+        window.CompletionCenter.extractPassedStageSet(evs).forEach((tok) => passedSet.add(tok));
+      } else {
+        extractPassedFromAny(evs, (rawUnit, rawDiff) => {
+          const unit = canonicalizeUnitId(rawUnit);
+          const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
+          if (unit && diff) passedSet.add(`${unit}:${diff === "single" ? "easy" : diff}`);
+        });
+      }
+    });
 
     return Array.from(passedSet).sort();
   }
@@ -474,17 +473,19 @@
     return map && map[scopedKey] ? map[scopedKey] : null;
   }
 
-  function markLeaderboardSynced(sKey, payload, teacherId) {
+  function markLeaderboardSynced(sKey, payload, teacherId, { overwrite = false } = {}) {
     if (!sKey || !payload) return;
     const map = ls.get(LB_SYNCED, {});
     const scopedKey = buildSyncedCacheKey(sKey, teacherId);
     const prev = map[scopedKey];
     const nextScore = Math.max(0, Math.round(Number(payload.totalScore) || 0));
     const nextCrowns = Math.max(0, Math.round(Number(payload.crownCount) || 0));
-    const nextProgSig = Array.isArray(payload.completedProgress) ? payload.completedProgress.join(",") : (prev && prev.progressSig) || "";
+    const nextProgSig = Array.isArray(payload.completedProgress)
+      ? payload.completedProgress.join(",")
+      : (overwrite ? "" : ((prev && prev.progressSig) || ""));
     map[scopedKey] = {
-      totalScore: prev ? Math.max(prev.totalScore || 0, nextScore) : nextScore,
-      crownCount: prev ? Math.max(prev.crownCount || 0, nextCrowns) : nextCrowns,
+      totalScore: overwrite ? nextScore : (prev ? Math.max(prev.totalScore || 0, nextScore) : nextScore),
+      crownCount: overwrite ? nextCrowns : (prev ? Math.max(prev.crownCount || 0, nextCrowns) : nextCrowns),
       progressSig: nextProgSig,
       syncedAt: Date.now()
     };
@@ -704,52 +705,55 @@
   function restoreCloudStudentData(profile, student) {
     if (!profile || !student || typeof student !== "object") return { cloudProgress: [], needsBackgroundSync: false };
     const key = evKey(profile);
-    const localEvs = ls.get(key, []);
-    const hadLocalEvents = Array.isArray(localEvs) && localEvs.length > 0;
-    const existingPassSet = new Set();
-    (Array.isArray(localEvs) ? localEvs : []).forEach((e) => {
-      if (!e || e.type !== "quiz" || (Number(e.score) || 0) < 60) return;
-      const u = canonicalizeUnitId(String(e.unit || e.unitId || "").trim());
-      const rd = String(e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single").trim();
-      const d = normalizeDifficultyToken(rd, { allowSingle: true }) || "single";
-      if (u) existingPassSet.add(`${u}:${d}`);
-    });
+    const badgeKey = `ii:badges:${profile.cls}-${profile.seat}-${profile.name}`;
+
+    // 以雲端回傳資料為基準，先清除本機可能殘留的舊測驗/徽章/穿搭快取避免污染
+    clearStudentLocalData(profile, { includeActiveIsland: false });
 
     const rawCloudSource = student.progress !== undefined ? student.progress : student.completedProgress;
-    const cloudTokenSet = new Set();
-    extractPassedFromAny(rawCloudSource, (rawUnit, rawDiff) => {
-      const unit = canonicalizeUnitId(rawUnit);
-      const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
-      if (unit && diff) cloudTokenSet.add(`${unit}:${diff}`);
-    });
+    const cloudTokenSet = (window.CompletionCenter && typeof window.CompletionCenter.extractPassedStageSet === "function")
+      ? window.CompletionCenter.extractPassedStageSet(rawCloudSource)
+      : (() => {
+        const s = new Set();
+        extractPassedFromAny(rawCloudSource, (rawUnit, rawDiff) => {
+          const unit = canonicalizeUnitId(rawUnit);
+          const diff = normalizeDifficultyToken(rawDiff, { allowSingle: true });
+          if (unit && diff) s.add(`${unit}:${diff === "single" ? "easy" : diff}`);
+        });
+        return s;
+      })();
     const cloudProgress = Array.from(cloudTokenSet).sort();
 
-    const addedEvents = [];
-    let crownsLeft = !hadLocalEvents ? Math.max(0, Number(student.crownCount) || 0) : 0;
+    const restoredEvents = [];
+    const restoredBadges = [];
+    const badgeSeen = new Set();
+    let crownsLeft = Math.max(0, Number(student.crownCount) || 0);
+    const baseTs = Date.now();
 
     cloudProgress.forEach((token, idx) => {
       const parsed = parseProgressToken(token);
       if (!parsed) return;
       const unit = parsed.unit;
       const diff = parsed.diff;
-      if (!unit || existingPassSet.has(`${unit}:${diff}`)) return;
-      existingPassSet.add(`${unit}:${diff}`);
+      if (!unit) return;
       const [island, numStr] = unit.split("-");
       const islObj = Array.isArray(window.ISLANDS) ? window.ISLANDS.find((i) => i && i.id === island) : null;
       const seqItem = islObj && Array.isArray(islObj.sequence) ? islObj.sequence[(Number(numStr) || 0) - 1] : null;
       const unitMeta = window.CONTENT && window.CONTENT[unit];
+      const unitName = (seqItem && seqItem.unit) || (unitMeta && unitMeta.unit) || unit;
+      const evTs = baseTs - (cloudProgress.length - idx);
       const useCrown = crownsLeft > 0;
       if (useCrown) crownsLeft--;
-      addedEvents.push({
+      restoredEvents.push({
         eid: `cloud-restore-${unit}-${diff}`,
-        ts: Date.now() - (cloudProgress.length - idx),
+        ts: evTs,
         type: "quiz",
         island,
         unit,
         unitId: unit,
-        unitName: (seqItem && seqItem.unit) || (unitMeta && unitMeta.unit) || unit,
+        unitName,
         grade: parseGradeFromCls(profile),
-        term: 1,
+        term: Number(seqItem && seqItem.term) || 1,
         difficulty: diff === "single" ? null : diff,
         quizDifficulty: diff,
         score: useCrown ? 100 : 80,
@@ -758,45 +762,38 @@
         sec: 0,
         restoredFromCloud: true
       });
+      const badgeType = diff === "hard" ? "gold" : (diff === "medium" ? "silver" : "");
+      if (badgeType && !badgeSeen.has(`${unit}:${badgeType}`)) {
+        badgeSeen.add(`${unit}:${badgeType}`);
+        restoredBadges.push({ unit, island, unitName, type: badgeType, ts: evTs });
+      }
     });
 
-    if (addedEvents.length > 0) {
-      ls.set(key, [...(Array.isArray(localEvs) ? localEvs : []), ...addedEvents]);
-    }
+    ls.set(key, restoredEvents);
+    ls.set(badgeKey, restoredBadges);
 
-    // 還原雲端角色外觀與鎖定狀態
-    if (student.avatar && typeof student.avatar === "object") {
-      if (window.AvatarSystem && typeof window.AvatarSystem.restoreCloudAvatar === "function") {
-        window.AvatarSystem.restoreCloudAvatar(student.avatar, profile);
-      } else {
-        ls.set(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`, student.avatar);
-      }
-    } else if (window.AvatarSystem && typeof window.AvatarSystem.getState === "function") {
-      // 若雲端尚無角色外觀但本機已有，背景補送
-      const localAv = window.AvatarSystem.getState();
-      if (localAv && (localAv.presetLocked || (localAv.unlocked && localAv.unlocked.length > 0))) {
-        Store.saveAvatarToCloud(localAv, profile);
-      }
+    // 嚴格以雲端回傳的 student.avatar 作為該生基準外觀還原（無則重置為初始空白外觀）
+    const cloudAvatar = (student.avatar && typeof student.avatar === "object") ? student.avatar : null;
+    if (window.AvatarSystem && typeof window.AvatarSystem.restoreCloudAvatar === "function") {
+      window.AvatarSystem.restoreCloudAvatar(cloudAvatar, profile, { replace: true });
+    } else if (cloudAvatar) {
+      ls.set(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`, cloudAvatar);
+    } else {
+      try { localStorage.removeItem(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`); } catch {}
     }
 
     const gradeNum = parseGradeFromCls(profile);
     const sKey = buildStudentKey(gradeNum, profile.cls, profile.seat);
-    // 僅以雲端實際已知的 progress 紀錄同步指紋，避免掩蓋本機尚未上傳的過關明細
     markLeaderboardSynced(sKey, {
       totalScore: Number(student.totalScore) || 0,
       crownCount: Number(student.crownCount) || 0,
       completedProgress: cloudProgress
-    });
+    }, undefined, { overwrite: true });
 
-    const localProgress = collectAllPassedProgress(profile);
-    const localStats = summarizeQuizEvents(ls.get(key, []));
-    const hasMissingInCloud = localProgress.some((tok) => !cloudTokenSet.has(tok));
-    const hasHigherScore = localStats.totalScore > (Number(student.totalScore) || 0)
-      || localStats.crowns > (Number(student.crownCount) || 0);
     return {
       cloudProgress,
-      localProgress,
-      needsBackgroundSync: hasMissingInCloud || hasHigherScore
+      localProgress: cloudProgress,
+      needsBackgroundSync: false
     };
   }
 
@@ -907,10 +904,19 @@
         } catch (e) { return { ok: false, msg: "無法連線到成績伺服器:" + e.message }; }
       }
 
+      const prevProfile = Store.profile;
+      if (prevProfile && studentKey(prevProfile) !== studentKey(p)) {
+        clearStudentLocalData(prevProfile);
+      }
+      if (window.AvatarSystem && typeof window.AvatarSystem.resetGuestState === "function") {
+        window.AvatarSystem.resetGuestState({ silent: true });
+      }
       Store.profile = p; ls.set(PROFILE, p);
       let syncInfo = { needsBackgroundSync: false };
       if (loginRes && loginRes.student) {
         syncInfo = restoreCloudStudentData(p, loginRes.student) || { needsBackgroundSync: false };
+      } else if (lbUrl) {
+        clearStudentLocalData(p, { includeActiveIsland: false });
       }
       try {
         const savedForStudent = readActiveIslandRaw(activeIslandKey(p));
@@ -927,9 +933,14 @@
       return { ok: true, isNewPin: !!(loginRes && loginRes.isNewPin), student: loginRes && loginRes.student };
     },
     logout() {
+      const prevProfile = Store.profile;
       Store.profile = null;
-      localStorage.removeItem(PROFILE);
+      try { localStorage.removeItem(PROFILE); } catch {}
       try { localStorage.removeItem(ACTIVE_ISLAND); } catch {}
+      clearStudentLocalData(prevProfile);
+      if (window.AvatarSystem && typeof window.AvatarSystem.resetGuestState === "function") {
+        window.AvatarSystem.resetGuestState({ silent: true });
+      }
     },
 
     getActiveIslandId() {
@@ -960,7 +971,10 @@
     },
 
     events() { return Store.profile ? ls.get(evKey(Store.profile), []) : []; },
-    quizEvents(unit) { return Store.events().filter(e => e.type === "quiz" && e.unit === unit); },
+    quizEvents(unit) {
+      const target = canonicalizeUnitId(unit);
+      return Store.events().filter(e => e.type === "quiz" && canonicalizeUnitId(e.unit || e.unitId) === target);
+    },
 
     /** 徽章(silver 銀色羅盤 / gold 金色大師):存於 localStorage,每位學生每單元每種徽章只記一次 */
     badges() { return Store.profile ? ls.get(`ii:badges:${Store.profile.cls}-${Store.profile.seat}-${Store.profile.name}`, []) : []; },
@@ -1015,6 +1029,8 @@
     summarizeQuizEvents,
     collectAllPassedProgress,
     collectCompletedProgress,
+    clearStudentLocalData,
+    calculateIslandCompletion: (islandId, state) => (window.calculateIslandCompletion ? window.calculateIslandCompletion(islandId, state) : null),
     syncLeaderboardPool,
     buildStudentKey,
     buildLeaderboardPayload,

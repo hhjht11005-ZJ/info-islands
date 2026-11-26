@@ -91,10 +91,10 @@
       const hill = el("g", { transform: "scale(.6) translate(0,-8)" }, bob);
       el("path", { d: blob(isl.pos.r, idx + 11, 7), fill: "rgba(0,0,0,.18)" }, hill);
       el("text", { class: "emoji", x: 0, y: -4 }, bob).textContent = isl.emoji;
-      const ly = isl.pos.r * 0.82 + 14, w = Math.max(150, isl.name.length * 24 + 30);
+      const ly = isl.pos.r * 0.82 + 14, w = Math.max(185, isl.name.length * 24 + 48);
       el("rect", { class: "label-bg", x: -w / 2, y: ly, width: w, height: 52, rx: 14 }, g);
       el("text", { class: "label", x: 0, y: ly + 24 }, g).textContent = isl.name;
-      el("text", { class: "sub", x: 0, y: ly + 43 }, g).textContent = isl.tag + (isl.extra ? "" : "");
+      el("text", { class: "sub", x: 0, y: ly + 43, "data-sub-id": isl.id }, g).textContent = isl.tag;
       // grade dots
       grades(isl).forEach((gr, k, arr) => {
         const cx = (k - (arr.length - 1) / 2) * 26;
@@ -109,14 +109,25 @@
 
   /* ---------- list & term views ---------- */
   const isMicroLabDone = (id) => !!(window.IslandMicroLabs && typeof window.IslandMicroLabs.isLabCompleted === "function" && window.IslandMicroLabs.isLabCompleted(id));
+  const getProgressState = () => (window.Store && window.Store.profile ? window.Store.events() : []);
+  const getCompletion = (id) => {
+    if (typeof window.calculateIslandCompletion === "function") {
+      return window.calculateIslandCompletion(id, getProgressState());
+    }
+    const isl = byId[id];
+    const uLen = isl && Array.isArray(isl.sequence) ? isl.sequence.length : 0;
+    return { islandId: id, totalUnits: uLen, totalStages: uLen * 3, passedStages: 0, percentage: 0, unitDetails: [] };
+  };
 
   function buildCards() {
     const box = $("#cards"); box.innerHTML = "";
     ISLANDS.forEach(i => {
       const b = document.createElement("button");
       const labDone = isMicroLabDone(i.id);
+      const comp = getCompletion(i.id);
       b.className = "card" + (matches(i) ? "" : " dim"); b.style.setProperty("--c", i.color);
-      b.innerHTML = `<div class="card-head-row"><h3>${i.emoji} ${i.name}</h3>${labDone ? `<span class="mlab-card-badge">✔ 微實作已通關</span>` : ""}</div><p>${i.tagline}</p>
+      b.innerHTML = `<div class="card-head-row"><h3>${i.emoji} ${i.name}</h3><div class="card-head-badges"><span class="card-comp-pill">${comp.percentage}%（${comp.passedStages}/${comp.totalStages} 關）</span>${labDone ? `<span class="mlab-card-badge">🔬 微實作已通關</span>` : ""}</div></div><p>${i.tagline}</p>
+        <div class="card-comp-bar" aria-hidden="true"><i style="width:${comp.percentage}%"></i></div>
         <p class="meta">${i.tag} · ${grades(i).map(g => gradeName[g]).join("、")} · 建議 ${hours(i)} 節 · ${i.sequence.length} 個單元</p>`;
       b.onclick = () => openIsland(i.id);
       box.appendChild(b);
@@ -143,9 +154,23 @@
     });
   }
   function refresh() {
-    document.querySelectorAll(".island").forEach(g => g.classList.toggle("dim", !matches(byId[g.dataset.id])));
+    document.querySelectorAll(".island").forEach(g => {
+      const isl = byId[g.dataset.id];
+      g.classList.toggle("dim", !matches(isl));
+      if (isl) {
+        const subEl = g.querySelector(`.sub[data-sub-id="${isl.id}"]`);
+        if (subEl) {
+          const comp = getCompletion(isl.id);
+          subEl.textContent = `${isl.tag} · ${comp.percentage}% (${comp.passedStages}/${comp.totalStages})`;
+        }
+      }
+    });
     buildCards(); buildTerms();
-    if (state.island) renderTab();
+    if (state.island) {
+      syncDrawerBadges(state.island);
+      syncDrawerCompletion(state.island);
+      renderTab();
+    }
   }
 
   /* ---------- drawer ---------- */
@@ -184,6 +209,15 @@
     }
   }
 
+  function syncDrawerCompletion(i) {
+    if (!i) return;
+    const compEl = $("#drawerCompletion");
+    if (!compEl) return;
+    const comp = getCompletion(i.id);
+    compEl.innerHTML = `<div class="d-comp-row"><span>🎯 測驗完成度</span><b>${comp.percentage}%（${comp.passedStages} / ${comp.totalStages} 關）</b></div>
+      <div class="d-comp-track" aria-hidden="true"><i style="width:${comp.percentage}%"></i></div>`;
+  }
+
   function openIsland(id, tab = "標準", unitKey = null) {
     const i = byId[id]; if (!i) return;
     state.island = i; state.tab = tab; state.unit = null; state.usub = "learn";
@@ -194,7 +228,8 @@
     $("#drawerHead").innerHTML = `<div class="d-head" style="--c:${i.color}">
       <div class="big">${i.emoji}</div><h2>${i.name}</h2>
       <p>${i.tagline}</p>
-      <p class="d-badges" style="margin-top:8px"><span class="badge">${i.tag}</span><span class="badge">${grades(i).map(g => gradeName[g]).join("、")}</span><span class="badge">建議 ${hours(i)} 節</span>${i.extra ? '<span class="badge">延伸</span>' : ""}</p></div>`;
+      <p class="d-badges" style="margin-top:8px"><span class="badge">${i.tag}</span><span class="badge">${grades(i).map(g => gradeName[g]).join("、")}</span><span class="badge">建議 ${hours(i)} 節</span>${i.extra ? '<span class="badge">延伸</span>' : ""}</p>
+      <div class="d-completion" id="drawerCompletion"></div></div>`;
     const tabs = $("#tabs"); tabs.innerHTML = "";
     TABS.forEach(t => {
       const b = document.createElement("button"); b.className = "tab"; b.dataset.t = t; b.textContent = TAB_LABEL[t];
@@ -202,6 +237,7 @@
       b.onclick = () => { state.tab = t; state.unit = null; renderTab(); }; tabs.appendChild(b);
     });
     syncDrawerBadges(i);
+    syncDrawerCompletion(i);
     renderTab();
     drawer.classList.add("open"); backdrop.classList.add("show"); drawer.setAttribute("aria-hidden", "false");
     history.replaceState(null, "", "#" + id);
@@ -240,22 +276,30 @@
       return i.structure.map((g, k) => `<div class="group"><h4>${k + 1}. ${g.title}</h4><ul>${g.items.map(x => `<li>${x}</li>`).join("")}</ul></div>`).join("");
     },
     順序(i) {
+      const comp = getCompletion(i.id);
+      const detailById = Object.fromEntries((comp.unitDetails || []).map(u => [u.unitId, u]));
       const seq = i.sequence.map((s, idx) => ({ ...s, key: `${i.id}-${idx + 1}` }))
         .sort((a, b) => a.grade * 10 + a.term - (b.grade * 10 + b.term));
-      return `<p style="color:var(--muted);margin-top:0">共 ${seq.length} 個單元、建議 ${hours(i)} 節。依學期排序${state.grade ? `(已標示 ${gradeName[state.grade]})` : ""}。</p>` +
+      return `<p style="color:var(--muted);margin-top:0">共 ${seq.length} 個單元（${comp.totalStages} 個難度關卡）、建議 ${hours(i)} 節 · 測驗完成度 <b>${comp.percentage}%</b>（${comp.passedStages} / ${comp.totalStages} 關）${state.grade ? ` · 已標示 ${gradeName[state.grade]}` : ""}。</p>` +
         seq.map((s, k) => {
           const uc = (window.CONTENT && window.CONTENT[s.key]) || {};
           const hasLesson = !!uc.lesson;
           const hasWs = !!uc.worksheet;
           const quiz = window.Quiz && Quiz.hasQuiz(s.key);
           const best = quiz && window.Store ? Store.quizEvents(s.key).reduce((m, e) => Math.max(m, e.score), -1) : -1;
+          const ud = detailById[s.key];
+          const passedDiffs = ud && ud.passedDiffs ? ud.passedDiffs : {};
+          const diffNames = [["easy", "易"], ["medium", "中"], ["hard", "難"]];
+          const unitStagePills = quiz ? diffNames.map(([d, label]) =>
+            `<span class="pill${passedDiffs[d] ? " is-pass" : ""}">${label}${passedDiffs[d] ? " ✔" : ""}</span>`
+          ).join("") : "";
           return `<div class="step${state.grade && state.grade !== s.grade ? " dim" : ""}" data-key="${s.key}">
           <span class="when">${termLabel(s.grade, s.term)} · 單元 ${k + 1} · ${s.hours} 節</span>
           <b>${s.unit}</b><p>📚 ${s.topics}</p><p>🎯 活動:${s.activity}</p>
           <div class="unit-actions">
             ${hasLesson ? `<button class="btn-doc" type="button" data-lesson="${s.key}">📖 教案綱要</button>` : ""}
             ${hasWs ? `<button class="btn-doc" type="button" data-ws="${s.key}">📋 學習單</button>` : ""}
-            ${quiz ? `<button class="btn-quiz" type="button" data-quiz="${s.key}">📝 單元測驗</button>${best >= 0 ? `<span class="pill">最佳 ${best} 分</span>` : ""}` : ""}
+            ${quiz ? `<button class="btn-quiz" type="button" data-quiz="${s.key}">📝 單元測驗</button>${best >= 0 ? `<span class="pill">最佳 ${best} 分</span>` : ""}${unitStagePills}` : ""}
             ${uc.study ? `<button class="btn-unit" type="button" data-unit="${s.key}">📚 單元學習頁</button>` : ""}
           </div></div>`;
         }).join("");
@@ -327,17 +371,18 @@
 
   const syncLabUiBadges = () => {
     buildCards();
-    if (state.island) syncDrawerBadges(state.island);
+    if (state.island) {
+      syncDrawerBadges(state.island);
+      syncDrawerCompletion(state.island);
+    }
   };
   document.addEventListener("ii:microlab-updated", syncLabUiBadges);
   document.addEventListener("ii:avatar-changed", syncLabUiBadges);
   document.addEventListener("ii:login", () => {
-    syncLabUiBadges();
-    if (state.island && state.tab === "延伸" && !state.unit) renderTab();
+    refresh();
   });
   document.addEventListener("ii:logout", () => {
-    syncLabUiBadges();
-    if (state.island && state.tab === "延伸" && !state.unit) renderTab();
+    refresh();
   });
 
   /* ---------- 教案綱要 / 學習單彈窗 ---------- */
@@ -456,8 +501,8 @@
     const wBtn = e.target.closest("[data-ws]");
     if (wBtn) { openDoc(wBtn.dataset.ws, "ws"); return; }
   });
-  // 測驗完成後,若正在看「課程內容」就重新整理,讓最佳成績立即顯示
-  document.addEventListener("ii:quizdone", () => { if (state.island && state.tab === "順序") renderTab(); });
+  // 測驗完成後即時更新島嶼進度、卡片百分比與「課程內容」單元狀態
+  document.addEventListener("ii:quizdone", () => { refresh(); });
 
   /* ---------- 搜尋即時提示選單 (Auto-complete) ---------- */
   const searchInput = $("#search");

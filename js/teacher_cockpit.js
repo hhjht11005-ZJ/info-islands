@@ -1694,9 +1694,24 @@ import QRCode from "qrcode";
 
   function parseStudentProgressSet(rawProgress) {
     const set = new Set();
+    const cc = window.CompletionCenter;
+    if (cc && typeof cc.extractPassedStageSet === "function") {
+      cc.extractPassedStageSet(rawProgress).forEach((tok) => {
+        const [canon, diff] = tok.split(":");
+        if (!canon || !diff) return;
+        set.add(`${canon}:${diff}`);
+        getUnitAliasCandidates(canon).forEach((alias) => {
+          set.add(`${alias}:${diff}`);
+          set.add(`${String(alias).toLowerCase()}:${diff}`);
+        });
+      });
+      return set;
+    }
+
     const addUnitDiff = (rawUnit, rawDiff) => {
       const u = String(rawUnit || "").trim();
-      const diff = normalizeProgressDifficulty(rawDiff, { allowSingle: true });
+      const rawD = normalizeProgressDifficulty(rawDiff, { allowSingle: true });
+      const diff = rawD === "single" ? "easy" : rawD;
       if (!u || !diff) return;
       const canon = canonicalizeUnitKey(u);
       if (canon) {
@@ -1824,13 +1839,8 @@ import QRCode from "qrcode";
           }
         }
         if (contentUnit && contentUnit.id) aliasSet.add(String(contentUnit.id).trim());
-        const q = contentUnit && contentUnit.quiz;
-        const diffs = (q && q.levels)
-          ? ["easy", "medium", "hard"].filter((d) => q.levels[d])
-          : ((q && (q.easy || q.medium || q.hard))
-            ? ["easy", "medium", "hard"].filter((d) => Array.isArray(q[d]) && q[d].length > 0)
-            : ["single"]);
-        const effectiveDiffs = diffs.length > 0 ? diffs : ["single"];
+        // 每個單元固定包含 easy / medium / hard 三個難度關卡（分母嚴格等於 units.length * 3）
+        const effectiveDiffs = ["easy", "medium", "hard"];
         const gNum = Number(seq && seq.grade) || 7;
         const tNum = Number(seq && seq.term) || 1;
         const gStr = String(gNum);
@@ -1856,7 +1866,7 @@ import QRCode from "qrcode";
         emoji: isl.emoji || "🏝️",
         color: isl.color || "#38bdf8",
         units,
-        totalLevels: units.reduce((sum, u) => sum + u.diffs.length, 0)
+        totalLevels: units.length * 3
       };
     });
     return { totalLevels, gradeTotal, unitGradeMap, islandCatalog };
@@ -1924,29 +1934,48 @@ import QRCode from "qrcode";
 
     return Array.from(map.values()).map((st) => {
       const progressSet = parseStudentProgressSet(st.rawProgressList);
+      const cc = window.CompletionCenter;
       let easyCount = 0;
       let mediumCount = 0;
       let hardCount = 0;
       let passedTotal = 0;
       let gradePassed = 0;
+      const islandCompletions = {};
 
-      // 與「島嶼明細彈窗」共用完全相同的 progressSet 與全站課綱計算，確保列表與彈窗數字 100% 一致
+      // 強制共用全站唯一權威完成度計算中心 calculateIslandCompletion，確保與大地圖、雷達圖 100% 一致
       catalog.islandCatalog.forEach((isl) => {
-        isl.units.forEach((u) => {
-          u.diffs.forEach((d) => {
-            if (!isUnitDiffPassed(progressSet, u, d)) return;
-            passedTotal++;
-            if (d === "medium") mediumCount++;
-            else if (d === "hard") hardCount++;
-            else easyCount++;
-            if (u.grade === st.grade) gradePassed++;
+        const comp = typeof window.calculateIslandCompletion === "function"
+          ? window.calculateIslandCompletion(isl.id, progressSet)
+          : null;
+        if (comp) {
+          islandCompletions[isl.id] = comp;
+          passedTotal += comp.passedStages;
+          (comp.unitDetails || []).forEach((ud) => {
+            if (ud.passedDiffs.easy) { easyCount++; if (ud.grade === Number(st.grade)) gradePassed++; }
+            if (ud.passedDiffs.medium) { mediumCount++; if (ud.grade === Number(st.grade)) gradePassed++; }
+            if (ud.passedDiffs.hard) { hardCount++; if (ud.grade === Number(st.grade)) gradePassed++; }
           });
-        });
+        } else {
+          isl.units.forEach((u) => {
+            u.diffs.forEach((d) => {
+              if (!isUnitDiffPassed(progressSet, u, d)) return;
+              passedTotal++;
+              if (d === "medium") mediumCount++;
+              else if (d === "hard") hardCount++;
+              else easyCount++;
+              if (u.grade === st.grade) gradePassed++;
+            });
+          });
+        }
       });
 
-      const pctNum = catalog.totalLevels > 0 ? (passedTotal / catalog.totalLevels) * 100 : 0;
-      const gradeTotal = catalog.gradeTotal[st.grade] || 1;
-      const gradePctNum = (gradePassed / gradeTotal) * 100;
+      const pctNum = cc && typeof cc.computeCompletionPercentage === "function"
+        ? cc.computeCompletionPercentage(passedTotal, catalog.totalLevels)
+        : (catalog.totalLevels > 0 ? Math.round((passedTotal / catalog.totalLevels) * 100) : 0);
+      const gradeTotal = catalog.gradeTotal[st.grade] || 0;
+      const gradePctNum = cc && typeof cc.computeCompletionPercentage === "function"
+        ? cc.computeCompletionPercentage(gradePassed, gradeTotal)
+        : (gradeTotal > 0 ? Math.round((gradePassed / gradeTotal) * 100) : 0);
 
       const look = st.avatar && st.avatar.look
         ? (AV && typeof AV.normalizeLook === "function" ? AV.normalizeLook(st.avatar.look) : st.avatar.look)
@@ -1958,12 +1987,13 @@ import QRCode from "qrcode";
         progress: Array.from(progressSet),
         progressSet,
         passedSet: progressSet,
+        islandCompletions,
         passedTotal,
         pctNum,
-        pctText: pctNum.toFixed(1),
+        pctText: String(pctNum),
         gradePassed,
         gradeTotal,
-        gradePctText: gradePctNum.toFixed(1),
+        gradePctText: String(gradePctNum),
         easyCount,
         mediumCount,
         hardCount,
@@ -2228,11 +2258,20 @@ import QRCode from "qrcode";
     const totalUnits = catalog.islandCatalog.reduce((sum, isl) => sum + isl.units.length, 0);
 
     const islandCardsHtml = catalog.islandCatalog.map((isl) => {
-      let islPassed = 0;
+      const comp = typeof window.calculateIslandCompletion === "function"
+        ? window.calculateIslandCompletion(isl.id, progressSet)
+        : null;
+      const detailById = comp
+        ? Object.fromEntries((comp.unitDetails || []).map((ud) => [ud.unitId, ud]))
+        : {};
+      const islPassed = comp ? comp.passedStages : 0;
+      const islTotal = comp ? comp.totalStages : isl.totalLevels;
+      const islPct = comp ? comp.percentage : 0;
+
       const unitRowsHtml = isl.units.map((u) => {
+        const ud = detailById[u.unitKey];
         const diffBadgesHtml = u.diffs.map((d) => {
-          const ok = isUnitDiffPassed(progressSet, u, d);
-          if (ok) islPassed++;
+          const ok = ud ? Boolean(ud.passedDiffs && ud.passedDiffs[d]) : isUnitDiffPassed(progressSet, u, d);
           const fullLabel = DIFF_FULL_LABELS[d] || DIFF_LABELS[d] || d;
           const badgeStyle = ok
             ? (d === "hard"
@@ -2253,11 +2292,10 @@ import QRCode from "qrcode";
         </div>`;
       }).join("");
 
-      const islPct = isl.totalLevels > 0 ? Math.round((islPassed / isl.totalLevels) * 100) : 0;
       return `<section style="padding: 14px; border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(255, 255, 255, 0.04); display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px;">
           <h4 style="margin: 0; font-size: 0.98rem; font-weight: 900; color: #ffffff;">${esc(isl.emoji)} ${esc(isl.name)}</h4>
-          <span style="font-size: 0.8rem; font-weight: 800; color: #7dd3fc; white-space: nowrap;">${islPassed} / ${isl.totalLevels} (${islPct}%)</span>
+          <span style="font-size: 0.8rem; font-weight: 800; color: #7dd3fc; white-space: nowrap;">${islPassed} / ${islTotal} (${islPct}%)</span>
         </div>
         <div style="height: 6px; border-radius: 999px; background: rgba(15, 23, 42, 0.8); overflow: hidden; border: 1px solid rgba(148, 163, 184, 0.22);">
           <i style="display: block; height: 100%; width: ${islPct}%; border-radius: 999px; background: linear-gradient(90deg, #38bdf8, #34d399);"></i>

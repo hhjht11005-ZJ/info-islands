@@ -1180,9 +1180,37 @@
       }
     }
   }
-  function restoreCloudAvatar(cloudAv, explicitProfile) {
+  function resetGuestState({ silent = false } = {}) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+    guestState = blankState();
+    try {
+      localStorage.removeItem(labKey(null));
+      localStorage.removeItem("ii:microlab:stages:guest");
+    } catch {}
+    if (!silent) {
+      emit();
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { reset: true } }));
+    }
+  }
+  function restoreCloudAvatar(cloudAv, explicitProfile, opts = {}) {
     const p = explicitProfile || profile();
-    if (!p || !cloudAv || typeof cloudAv !== "object") return getState();
+    if (!p) return getState();
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+
+    if (opts && opts.replace) {
+      const nextState = (cloudAv && typeof cloudAv === "object") ? sanitizeState(cloudAv) : blankState();
+      try {
+        localStorage.setItem(stateKey(p), JSON.stringify(nextState));
+        localStorage.setItem(labKey(p), JSON.stringify(nextState.labCompleted || []));
+      } catch (e) { console.warn(e); }
+      emit();
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { restored: true } }));
+      return nextState;
+    }
+
+    if (!cloudAv || typeof cloudAv !== "object") return getState();
     let localRaw = null;
     try { localRaw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { localRaw = null; }
     const localSt = sanitizeState(localRaw);
@@ -1214,6 +1242,7 @@
     return merged;
   }
   const emit = () => document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
+  document.addEventListener("ii:logout", () => resetGuestState());
 
   function getCompletedMicroLabs() {
     return (getState().labCompleted || []).slice();
@@ -1251,21 +1280,43 @@
     const evs = window.Store && window.Store.profile ? window.Store.events().filter((e) => e && e.type === "quiz") : [];
     const passed = { easy: new Set(), medium: new Set(), hard: new Set() };
     const cleared = new Set();
-    evs.forEach((e) => {
-      const unit = String(e.unit || e.unitId || "").trim();
-      if (!unit) return;
-      const raw = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
-      const diff = raw === "single" ? "easy" : raw; // 早期無分級的單元測驗視同「易」
-      if ((Number(e.score) || 0) >= PASS_SCORE) {
-        if (passed[diff]) passed[diff].add(unit);
-        cleared.add(unit);
-      }
-    });
+    const cc = window.CompletionCenter;
+    if (cc && typeof cc.extractPassedStageSet === "function") {
+      cc.extractPassedStageSet(evs).forEach((tok) => {
+        const [unit, diff] = tok.split(":");
+        if (unit && passed[diff]) {
+          passed[diff].add(unit);
+          cleared.add(unit);
+        }
+      });
+    } else {
+      evs.forEach((e) => {
+        const unit = String(e.unit || e.unitId || "").trim();
+        if (!unit) return;
+        const raw = e.difficulty || e.quizDifficulty || (e.detail && e.detail.difficulty) || "single";
+        const diff = raw === "single" ? "easy" : raw;
+        if ((Number(e.score) || 0) >= PASS_SCORE) {
+          if (passed[diff]) passed[diff].add(unit);
+          cleared.add(unit);
+        }
+      });
+    }
+    const overall = cc && typeof cc.calculateOverallCompletion === "function"
+      ? cc.calculateOverallCompletion(evs)
+      : null;
     const sum = window.Store && window.Store.summarizeQuizEvents ? window.Store.summarizeQuizEvents(evs) : { totalScore: 0, crowns: 0, quizCount: 0 };
     const isl = Array.isArray(window.ISLANDS) ? window.ISLANDS : [];
-    const totalUnits = isl.reduce((n, i) => n + ((i.sequence && i.sequence.length) || 0), 0) || 1;
+    const totalUnits = overall ? overall.totalUnits : isl.reduce((n, i) => n + ((i.sequence && i.sequence.length) || 0), 0);
+    const totalStages = overall ? overall.totalStages : totalUnits * 3;
+    const passedStages = overall ? overall.passedStages : (passed.easy.size + passed.medium.size + passed.hard.size);
+    const completionPct = overall ? overall.percentage : 0;
     return {
-      passed, cleared: cleared.size, totalUnits,
+      passed,
+      cleared: cleared.size,
+      totalUnits,
+      passedStages,
+      totalStages,
+      completionPct,
       totalScore: sum.totalScore || 0, crowns: sum.crowns || 0, quizCount: sum.quizCount || 0,
       maxScore: Math.max(isl.length, 1) * 300, maxCrowns: Math.max(isl.length, 1) * 3
     };
@@ -1644,7 +1695,7 @@
 
   window.AvatarSystem = {
     ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
-    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar,
+    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState,
     getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc,
     resolveLabIslandId, isMicroLabCompleted, getCompletedMicroLabs, completeMicroLab,
     toast, mountNpcQuiz, downloadCard, esc

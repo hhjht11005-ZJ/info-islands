@@ -565,8 +565,7 @@
    * ============================================================ */
   function readStudentQuizEventsFromStorage() {
     if (window.Store && typeof window.Store.events === "function") {
-      const storeEvs = window.Store.events();
-      if (Array.isArray(storeEvs) && storeEvs.length) return storeEvs;
+      return window.Store.events();
     }
     try {
       const rawProfile = localStorage.getItem("ii:profile");

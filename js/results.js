@@ -48,7 +48,7 @@
           <summary>📊 資訊素養七向度雷達圖 ＆ 🏅 徽章牆</summary>
           <div class="res-body">
             <div class="radar-box"><canvas id="radarCanvas" aria-label="資訊素養七向度雷達圖" role="img"></canvas></div>
-            <p class="res-note">每個向度對應一座島，顯示該島<b>最新一次</b>測驗得分；尚未完成測驗的島嶼以 0 分計。</p>
+            <p class="res-note">每個向度對應一座島，顯示該島的<b>測驗完成度（%）</b>（依各單元易／中／難及格通關數 ÷ 總關卡數計算；「🔬 微實作已通關」徽章獨立計算，不覆蓋測驗百分比）。</p>
             <div id="resList" class="res-list"></div>
             <h3>🏅 我的徽章牆</h3>
             <div id="resBadges" class="res-badges"></div>
@@ -129,12 +129,33 @@
     }
   });
 
-  /** 讀取 localStorage 內的測驗成績，回傳每座島最新得分（沒有則 0） */
+  /** 讀取測驗紀錄並透過完成度計算中心統一計算每座島完成度（%）與通關關卡數 */
   function islandScores() {
-    const quiz = Store.events().filter((e) => e.type === "quiz");
+    const quiz = Store.profile ? Store.events().filter((e) => e && e.type === "quiz") : [];
+    const cc = window.CompletionCenter;
     return ISLANDS.map((isl) => {
-      const mine = quiz.filter((e) => e.island === isl.id).sort((a, b) => b.ts - a.ts);
-      return { isl, done: mine.length > 0, score: mine.length ? mine[0].score : 0, latest: mine[0] || null, attempts: mine.length };
+      const mine = quiz.filter((e) => {
+        const u = cc && typeof cc.canonicalizeUnitId === "function"
+          ? cc.canonicalizeUnitId(e.unit || e.unitId || "")
+          : String(e.unit || e.unitId || "");
+        return e.island === isl.id || u.split("-")[0] === isl.id;
+      }).sort((a, b) => b.ts - a.ts);
+      const comp = typeof window.calculateIslandCompletion === "function"
+        ? window.calculateIslandCompletion(isl.id, quiz)
+        : { islandId: isl.id, totalUnits: (isl.sequence || []).length, totalStages: (isl.sequence || []).length * 3, passedStages: 0, percentage: 0 };
+      const labDone = typeof AV.isMicroLabCompleted === "function" && AV.isMicroLabCompleted(isl.id);
+      return {
+        isl,
+        completion: comp,
+        percentage: comp.percentage,
+        passedStages: comp.passedStages,
+        totalStages: comp.totalStages,
+        done: mine.length > 0 || comp.passedStages > 0,
+        score: comp.percentage,
+        latest: mine[0] || null,
+        attempts: mine.length,
+        labDone
+      };
     });
   }
 
@@ -188,11 +209,16 @@
 
   /* ---------------- 右側：RPG 戰績條 ---------------- */
   function renderBars(qs) {
-    const bar = (cls, icon, label, val, max) => {
-      const pct = Math.min(100, Math.round((val / Math.max(1, max)) * 100));
+    const bar = (cls, icon, label, val, max, explicitPct) => {
+      const pct = explicitPct !== undefined
+        ? explicitPct
+        : Math.min(100, Math.round((val / Math.max(1, max)) * 100));
       return `<div class="av-bar ${cls}"><span class="lbl">${icon} ${label}</span><span class="track"><i style="width:${pct}%"></i></span><span class="val">${val}<small> / ${max}</small></span></div>`;
     };
-    $("#avBars").innerHTML = bar("hp", "🏝️", "海島單元開拓", qs.cleared, qs.totalUnits)
+    const totalStages = qs.totalStages || (qs.totalUnits * 3);
+    const passedStages = qs.passedStages ?? 0;
+    const compPct = qs.completionPct ?? 0;
+    $("#avBars").innerHTML = bar("hp", "🏝️", `全島關卡完成度 (${compPct}%)`, passedStages, totalStages, compPct)
       + bar("mp", "👑", "滿分皇冠", qs.crowns, qs.maxCrowns)
       + bar("xp", "📊", "總積分", qs.totalScore, qs.maxScore);
   }
@@ -373,9 +399,9 @@
     const rows = islandScores();
     $("#resList").innerHTML = rows.map((r) => `<div class="res-row" style="--c:${r.isl.color}">
         <span class="nm">${r.isl.emoji} ${r.isl.name}</span>
-        <span class="bar"><i style="width:${r.score}%"></i></span>
-        <span class="sc">${r.done ? r.score + " 分" : "尚未測驗"}</span>
-        <span class="meta">${r.done ? `${r.attempts} 次 · ${new Date(r.latest.ts).toLocaleDateString("zh-TW")}` : ""}</span></div>`).join("");
+        <span class="bar"><i style="width:${r.percentage}%"></i></span>
+        <span class="sc">${r.percentage}% (${r.passedStages}/${r.totalStages} 關)</span>
+        <span class="meta">${r.attempts ? `${r.attempts} 次挑戰` : "尚未測驗"}${r.latest ? ` · ${new Date(r.latest.ts).toLocaleDateString("zh-TW")}` : ""}${r.labDone ? " · 🔬 微實作已通關" : ""}</span></div>`).join("");
 
     const bd = Store.badges(), BG = (window.Quiz && Quiz.BADGES) || {};
     const labIds = typeof AV.getCompletedMicroLabs === "function" ? AV.getCompletedMicroLabs() : [];
@@ -401,7 +427,7 @@
       data: {
         labels: rows.map((r) => r.isl.name),
         datasets: [{
-          label: "最新得分", data: rows.map((r) => r.score),
+          label: "島嶼完成度 (%)", data: rows.map((r) => r.percentage),
           backgroundColor: "rgba(255,209,102,.30)", borderColor: "#ffd166", borderWidth: 2,
           pointBackgroundColor: rows.map((r) => r.isl.color), pointBorderColor: "#fff", pointRadius: 5, pointHoverRadius: 7
         }]
@@ -410,14 +436,21 @@
         responsive: true, maintainAspectRatio: true, aspectRatio: 1.1,
         scales: {
           r: {
-            min: 0, max: 100, ticks: { stepSize: 20, color: "#a9c3dc", backdropColor: "transparent" },
+            min: 0, max: 100, ticks: { stepSize: 20, color: "#a9c3dc", backdropColor: "transparent", callback: (v) => `${v}%` },
             grid: { color: "rgba(255,255,255,.2)" }, angleLines: { color: "rgba(255,255,255,.2)" },
-            pointLabels: { color: "#eaf4ff", font: { size: 13, weight: "600" } }
+            pointLabels: { color: "#eaf4ff", font: { size: 13, weight: "600", family: "'Noto Sans TC', sans-serif" } }
           }
         },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: (c) => ` ${c.parsed.r} 分${rows[c.dataIndex].done ? "" : "（尚未測驗）"}` } }
+          tooltip: {
+            callbacks: {
+              label: (c) => {
+                const r = rows[c.dataIndex];
+                return ` 完成度 ${r.percentage}%（${r.passedStages} / ${r.totalStages} 關）`;
+              }
+            }
+          }
         }
       }
     });
@@ -437,6 +470,10 @@
   // 視窗開著時若有新成績或換裝變動，即時更新
   document.addEventListener("ii:quizdone", () => { if (isOpen()) render(); });
   document.addEventListener("ii:avatar-changed", () => { if (isOpen()) render(); });
-  document.addEventListener("ii:logout", close);
+  document.addEventListener("ii:login", () => { if (isOpen()) render(); });
+  document.addEventListener("ii:logout", () => {
+    if (chart) { chart.destroy(); chart = null; }
+    close();
+  });
   window.Results = { open, close, islandScores };
 })();

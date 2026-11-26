@@ -908,10 +908,10 @@ table.rubric { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .radar-box { max-width: 520px; margin: 0 auto; }
 .res-note { text-align: center; font-size: .8rem; color: var(--muted); margin: 0 0 12px; }
 .res-list { display: grid; gap: 6px; }
-.res-row { display: grid; grid-template-columns: 8.5em 1fr 4.5em; align-items: center; gap: 4px 10px; font-size: .9rem; }
+.res-row { display: grid; grid-template-columns: 8.5em 1fr minmax(7.2em, auto); align-items: center; gap: 4px 10px; font-size: .9rem; }
 .res-row .bar { height: 10px; border-radius: 999px; background: rgba(255,255,255,.12); overflow: hidden; }
 .res-row .bar i { display: block; height: 100%; background: var(--c); border-radius: 999px; }
-.res-row .sc { text-align: right; font-weight: 700; }
+.res-row .sc { text-align: right; font-weight: 700; white-space: nowrap; }
 .res-row .meta { grid-column: 2 / 4; font-size: .72rem; color: var(--muted); margin-top: -4px; }
 .res-row .meta:empty { display: none; }
 
@@ -4807,6 +4807,75 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   justify-content: space-between;
   gap: 8px;
   flex-wrap: wrap;
+}
+.card-head-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.card-comp-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.2);
+  color: #bae6fd;
+  border: 1px solid rgba(56, 189, 248, 0.45);
+}
+.card-comp-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  overflow: hidden;
+  margin: 8px 0 4px;
+}
+.card-comp-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--c, #38bdf8), #34d399);
+  transition: width 0.3s ease;
+}
+.d-completion {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.26);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+.d-comp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.84rem;
+  margin-bottom: 5px;
+}
+.d-comp-row b {
+  color: #fde68a;
+  font-weight: 800;
+}
+.d-comp-track {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.d-comp-track i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #38bdf8, #34d399);
+  transition: width 0.3s ease;
+}
+.pill.is-pass {
+  background: rgba(16, 185, 129, 0.24);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.55);
+  font-weight: 700;
 }
 .mlab-card-badge,
 .mlab-tab-badge,
