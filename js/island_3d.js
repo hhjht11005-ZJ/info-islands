@@ -12853,6 +12853,51 @@
     cameraFocusState.focusedIslandId = null;
   }
 
+  let aetherCitadelLoadPromise = null;
+  async function openAetherCitadelLazy(opts = {}) {
+    if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
+      window.AetherCitadel.open(opts);
+      return;
+    }
+    const hudBtn = document.getElementById("citadelHudBtn");
+    const prevText = hudBtn ? hudBtn.textContent : "";
+    if (hudBtn) {
+      hudBtn.disabled = true;
+      hudBtn.textContent = "⏳ 載入天穹浮島中…";
+    }
+    if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+      window.AvatarSystem.toast("⏳ 正在載入天穹試煉浮島模組…", "info", 1800);
+    }
+    try {
+      if (!aetherCitadelLoadPromise) {
+        aetherCitadelLoadPromise = import("./aetherCitadel.js");
+      }
+      await aetherCitadelLoadPromise;
+      if (typeof attachSceneModalObservers === "function") {
+        attachSceneModalObservers();
+      }
+      if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
+        window.AetherCitadel.open(opts);
+      }
+    } catch (err) {
+      aetherCitadelLoadPromise = null;
+      console.error("[island_3d] 動態載入天穹試煉浮島失敗:", err);
+      if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+        window.AvatarSystem.toast("⚠️ 天穹浮島模組載入失敗，請檢查網路後再試一次。", "warn", 3200);
+      }
+    } finally {
+      if (hudBtn) {
+        hudBtn.disabled = false;
+        if (hudBtn.textContent === "⏳ 載入天穹浮島中…") {
+          hudBtn.textContent = prevText;
+        }
+      }
+      if (typeof syncCitadelVisualState === "function") {
+        syncCitadelVisualState();
+      }
+    }
+  }
+
   // 綁定右上角全景重置按鈕
   const cameraResetBtnEl = document.getElementById("cameraResetBtn");
   if (cameraResetBtnEl) {
@@ -12870,9 +12915,7 @@
       citadelHudBtn.title = "開啟天穹試煉浮島狀態檢核與雙殿堂";
       citadelHudBtn.addEventListener("click", (e) => {
         e.stopPropagation();
-        if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
-          window.AetherCitadel.open();
-        }
+        void openAetherCitadelLazy();
       });
       controlsWrap.insertBefore(citadelHudBtn, cameraResetBtnEl.nextSibling);
       syncCitadelVisualState();
@@ -12937,9 +12980,7 @@
 
     if (picked.type === "aetherCitadel") {
       focusOnAetherCitadel();
-      if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
-        window.AetherCitadel.open();
-      }
+      void openAetherCitadelLazy();
       return;
     }
 
@@ -14187,7 +14228,8 @@
     if (typeof syncCitadelVisualState === "function") syncCitadelVisualState();
   });
 
-  function renderSceneFrame() {
+  function renderSceneFrame(frameOpts = {}) {
+    const ecoMode = Boolean(frameOpts && frameOpts.ecoMode) && hasRenderedInitialFullFrame;
     const t = clock.getElapsedTime();
     const dt = lastNightUpdateTime === null ? 0.016 : Math.min(0.1, Math.max(0.001, t - lastNightUpdateTime));
     lastNightUpdateTime = t;
@@ -14266,29 +14308,31 @@
       updateWorldExpansion(t);
     }
 
-    // 1. 海面正弦波上下微動態
-    const posArr = oceanPosAttr.array;
-    for (let i = 0; i < posArr.length; i += 3) {
-      const bx = oceanBaseVertices[i];
-      const bz = oceanBaseVertices[i + 2];
-      const waveY =
-        Math.sin(bx * 0.16 + t * 1.65) * 0.24 +
-        Math.cos(bz * 0.18 + t * 1.35) * 0.2 +
-        Math.sin((bx + bz) * 0.1 + t * 2.1) * 0.1;
-      posArr[i + 1] = waveY;
+    if (!ecoMode) {
+      // 1. 海面正弦波上下微動態
+      const posArr = oceanPosAttr.array;
+      for (let i = 0; i < posArr.length; i += 3) {
+        const bx = oceanBaseVertices[i];
+        const bz = oceanBaseVertices[i + 2];
+        const waveY =
+          Math.sin(bx * 0.16 + t * 1.65) * 0.24 +
+          Math.cos(bz * 0.18 + t * 1.35) * 0.2 +
+          Math.sin((bx + bz) * 0.1 + t * 2.1) * 0.1;
+        posArr[i + 1] = waveY;
+      }
+      oceanPosAttr.needsUpdate = true;
+      oceanGeo.computeVertexNormals();
+
+      // 四層大環境生態動態更新
+      if (oceanEnv) oceanEnv.update(t);
+
+      // 2. 白天白色微波輕微起伏與擺動
+      rippleItems.forEach((item) => {
+        const waveOffset = Math.sin(t * item.speed + item.phase);
+        item.mesh.position.y = 0.22 + waveOffset * 0.12;
+        item.mesh.scale.x = 0.85 + Math.cos(t * item.speed + item.phase) * 0.22;
+      });
     }
-    oceanPosAttr.needsUpdate = true;
-    oceanGeo.computeVertexNormals();
-
-    // 四層大環境生態動態更新
-    if (oceanEnv) oceanEnv.update(t);
-
-    // 2. 白天白色微波輕微起伏與擺動
-    rippleItems.forEach((item) => {
-      const waveOffset = Math.sin(t * item.speed + item.phase);
-      item.mesh.position.y = 0.22 + waveOffset * 0.12;
-      item.mesh.scale.x = 0.85 + Math.cos(t * item.speed + item.phase) * 0.22;
-    });
 
     // 3. 7 座小島隨海浪輕柔微幅浮動、岸邊與淺灘外緣浪花呼吸縮放與淡入淡出、滑鼠懸停回饋與建築動態
     const baseFoamOp = THREE.MathUtils.lerp(THEME.day.foamOpacity, THEME.night.foamOpacity, nightBlend);
@@ -15226,9 +15270,9 @@
       }
     }
 
-    // (2) 外圍深海區 2 隻【跳躍海豚】以拋物線弧度定時躍出水面並激起微小水花粒子後潛入
+    // (2) 外圍深海區 2 隻【跳躍海豚】以拋物線弧度定時躍出水面並激起微小水花粒子後潛入（省電登入模式暫停粒子）
     const dtDolphin = 0.016;
-    jumpingDolphins.forEach((d) => {
+    if (!ecoMode) jumpingDolphins.forEach((d) => {
       const cycleTime = (t + d.phaseOffset) % d.cyclePeriod;
       if (cycleTime < d.jumpDuration) {
         const u = cycleTime / d.jumpDuration; // 0 -> 1
@@ -15324,8 +15368,8 @@
       }
     }
 
-    // 6. 夜晚星光與螢火蟲微粒漂浮、透明度/亮度微閃效果（碼頭光暈已由 applyNightVisuals 平滑接管）
-    if (nightBlend > 0.01) {
+    // 6. 夜晚星光與螢火蟲微粒漂浮、透明度/亮度微閃效果（省電登入模式暫停高頻微粒更新）
+    if (!ecoMode && nightBlend > 0.01) {
       const ffArr = fireflyGeo.attributes.position.array;
       const colArr = fireflyGeo.attributes.color.array;
       for (let i = 0; i < fireflyCount; i++) {
@@ -15378,6 +15422,7 @@
     }
 
     renderer.render(scene, camera);
+    hasRenderedInitialFullFrame = true;
   }
 
   const resetView = resetCameraToPanorama;
@@ -15440,9 +15485,20 @@
   window.resumeMainMapControls = resumeMainMapControls;
 
   let isModalOpen = false;
+  const ECO_FRAME_INTERVAL_MS = 1000 / 24; // 登入視窗開啟期間節流至 ~24 FPS 省電平滑模式
+  let lastRenderTimestamp = 0;
+  let hasRenderedInitialFullFrame = false;
 
   function isAnyBlockingModalOpen() {
     return !!document.querySelector("#quizModal.show, #docModal.show, #leaderboardModal.show, #resultModal.show, #aetherCitadelModal.show");
+  }
+
+  function isLoginModalOpen() {
+    const loginEl = document.getElementById("loginModal");
+    const tcAuthEl = document.getElementById("tcAuthModal");
+    const studentOpen = !!(loginEl && loginEl.classList.contains("show") && !loginEl.hidden);
+    const teacherOpen = !!(tcAuthEl && tcAuthEl.classList.contains("show") && !tcAuthEl.hidden);
+    return studentOpen || teacherOpen;
   }
 
   function isScenePaused() {
@@ -15452,14 +15508,24 @@
     return isModalOpen;
   }
 
-  function animate() {
+  function animate(nowMs) {
     // 永遠在函式最開頭持續排程下一幀，絕不在提早 return 時中斷 requestAnimationFrame 迴圈
     animFrameId = requestAnimationFrame(animate);
     if (isScenePaused()) {
       return;
     }
+    const ecoMode = isLoginModalOpen();
+    const now = typeof nowMs === "number" ? nowMs : performance.now();
+    if (ecoMode) {
+      if (lastRenderTimestamp && (now - lastRenderTimestamp) < ECO_FRAME_INTERVAL_MS) {
+        return;
+      }
+      lastRenderTimestamp = now;
+    } else {
+      lastRenderTimestamp = 0;
+    }
     try {
-      renderSceneFrame();
+      renderSceneFrame({ ecoMode });
     } catch (err) {
       console.error("[island_3d] renderSceneFrame error:", err);
     }
@@ -15467,6 +15533,7 @@
 
   function resumeMainMapControls() {
     const cockpitOpen = !!(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
+    const loginOpen = isLoginModalOpen();
     isModalOpen = isAnyBlockingModalOpen();
     document.body.style.overflow = "";
     cameraFocusState.active = false;
@@ -15480,15 +15547,16 @@
     if (stage) {
       stage.style.cursor = "grab";
     }
-    controls.enabled = !cockpitOpen && !isModalOpen;
+    controls.enabled = !cockpitOpen && !isModalOpen && !loginOpen;
     controls.update();
+    if (!loginOpen) lastRenderTimestamp = 0;
     if (animFrameId === null) {
       animate();
     }
     if (!document.hidden && !cockpitOpen && !isModalOpen) {
       try {
         lastNightUpdateTime = clock.getElapsedTime();
-        renderSceneFrame();
+        renderSceneFrame({ ecoMode: loginOpen });
       } catch (err) {
         console.error("[island_3d] resumeMainMapControls render error:", err);
       }
@@ -15497,19 +15565,21 @@
 
   function resumeSceneLoop() {
     const cockpitOpen = !!(window.isTeacherCockpitOpen && window.isTeacherCockpitOpen());
+    const loginOpen = isLoginModalOpen();
     isModalOpen = isAnyBlockingModalOpen();
-    controls.enabled = !cockpitOpen && !isModalOpen;
+    controls.enabled = !cockpitOpen && !isModalOpen && !loginOpen;
+    if (!loginOpen) lastRenderTimestamp = 0;
     if (animFrameId === null) {
       animate();
     }
-    if (!cockpitOpen && !isModalOpen) {
+    if (!cockpitOpen && !isModalOpen && !loginOpen) {
       controls.update();
     }
   }
 
   const isInsideModalOrScrollable = (target) => {
     if (!target || typeof target.closest !== "function") return false;
-    return !!target.closest("#tcCockpit, #tcAuthModal, #tcDetailModal, #tcConfirmModal, #tcProjectorModal, #teacher-question-projector, #teacher-island-details-modal, #teacher-dashboard-modal, #aetherCitadelModal, [data-scrollable='true']");
+    return !!target.closest("#tcCockpit, #tcAuthModal, #tcDetailModal, #tcConfirmModal, #tcProjectorModal, #teacher-question-projector, #teacher-island-details-modal, #teacher-dashboard-modal, #aetherCitadelModal, #loginModal, [data-scrollable='true']");
   };
   const guardCanvasScroll = (e) => {
     if (isInsideModalOrScrollable(e.target) || (window.isTeacherCockpitOpen && window.isTeacherCockpitOpen())) {
@@ -15527,16 +15597,30 @@
   });
   document.addEventListener("ii:quizclosed", resumeMainMapControls);
   document.addEventListener("ii:modalclosed", resumeMainMapControls);
+  document.addEventListener("ii:login", () => {
+    lastRenderTimestamp = 0;
+    resumeSceneLoop();
+  });
+  document.addEventListener("ii:logout", () => {
+    resumeSceneLoop();
+  });
   document.addEventListener("ii:cockpit-toggle", (e) => {
     if (e && e.detail && typeof e.detail.open === "boolean") {
-      controls.enabled = !e.detail.open && !isAnyBlockingModalOpen();
+      controls.enabled = !e.detail.open && !isAnyBlockingModalOpen() && !isLoginModalOpen();
     }
     resumeSceneLoop();
   });
 
+  let attachSceneModalObservers = null;
   const observeBlockingModals = () => {
     if (typeof MutationObserver === "undefined") return;
-    const modalObserver = new MutationObserver(() => {
+    const modalObserver = new MutationObserver((mutations) => {
+      const onlyLoginChanged = mutations.every((m) => m.target && (m.target.id === "loginModal" || m.target.id === "tcAuthModal"));
+      if (onlyLoginChanged) {
+        if (!isLoginModalOpen()) lastRenderTimestamp = 0;
+        resumeSceneLoop();
+        return;
+      }
       if (!isScenePaused()) {
         resumeMainMapControls();
       } else {
@@ -15550,7 +15634,14 @@
           modalObserver.observe(m, { attributes: true, attributeFilter: ["class"] });
         }
       });
+      document.querySelectorAll("#loginModal, #tcAuthModal").forEach((m) => {
+        if (!m.dataset.sceneObserved) {
+          m.dataset.sceneObserved = "1";
+          modalObserver.observe(m, { attributes: true, attributeFilter: ["class", "hidden"] });
+        }
+      });
     };
+    attachSceneModalObservers = attach;
     attach();
     if (document.readyState === "loading") {
       document.addEventListener("DOMContentLoaded", attach, { once: true });
@@ -15562,7 +15653,7 @@
   // 確保視口尺寸、相機座標與第一幀完全渲染完畢後，再平滑淡入顯示 Canvas
   handleResize();
   controls.update();
-  renderSceneFrame();
+  renderSceneFrame({ ecoMode: false });
   requestAnimationFrame(() => {
     stage.classList.add("is-ready");
     resumeSceneLoop();

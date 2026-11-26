@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>資訊課程島</title>
+  <link rel="preconnect" href="https://script.google.com" crossorigin />
+  <link rel="preconnect" href="https://script.googleusercontent.com" crossorigin />
   <link rel="stylesheet" href="./style.css" />
   <link rel="stylesheet" href="./css/print.css" />
 </head>
@@ -123,7 +125,7 @@
           <label class="login-teacher-picker" id="loginTeacherPickerWrap" hidden>
             <span class="lbl-ico">🏫 選擇所屬學校與老師</span>
             <select id="loginTeacherSelect" name="teacherIdSelect">
-              <option value="">⏳ 正在載入學校與教師名單…</option>
+              <option value="">🏫 請選擇所屬學校與老師（背景同步中…）</option>
             </select>
           </label>
         </div>
@@ -183,13 +185,13 @@
   </div>
 
   <!-- Chart.js(CDN;若 CDN 無法連線則改用本機備份 vendor/chart.umd.min.js) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+  <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
           onerror="this.onerror=null;var s=document.createElement('script');s.src='./vendor/chart.umd.min.js';document.head.appendChild(s);"></script>
   <!-- Three.js (r128), OrbitControls, html2canvas & canvas-confetti (CDN) -->
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4/dist/confetti.browser.min.js"></script>
   <script type="module" src="./main.js"></script>
 </body>
 </html>

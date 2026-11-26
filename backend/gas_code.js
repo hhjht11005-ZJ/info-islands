@@ -42,23 +42,48 @@ var GLOBAL_LB_HEADER = [
 function doGet(e) {
   try {
     var masterSs = masterSs_();
-    var teacherId = (e && e.parameter && e.parameter.teacherId) ? String(e.parameter.teacherId).trim() : "";
-    var teachersList = getPublicTeachersList_(masterSs);
-    var currentTeacher = null;
-    var targetSs = masterSs;
+    var params = (e && e.parameter) ? e.parameter : {};
+    var mode = params.mode ? String(params.mode).trim().toLowerCase() : "";
+    var teacherId = String(params.teacherId || params.t || "").trim();
 
+    var allTeachers = listTeacherRecords_(masterSs);
+    var teachersList = allTeachers.map(function (t) {
+      return {
+        teacherId: t.teacherId,
+        schoolName: t.schoolName,
+        teacherName: t.teacherName
+      };
+    });
+
+    var currentTeacher = null;
+    var found = null;
     if (teacherId) {
-      var found = findTeacherById_(masterSs, teacherId);
-      if (found) {
-        currentTeacher = {
-          teacherId: found.teacherId,
-          schoolName: found.schoolName,
-          teacherName: found.teacherName
-        };
-        targetSs = openTeacherSpreadsheet_(found, masterSs);
-      } else {
-        targetSs = null;
+      for (var i = 0; i < allTeachers.length; i++) {
+        if (allTeachers[i].teacherId === teacherId) {
+          found = allTeachers[i];
+          currentTeacher = {
+            teacherId: found.teacherId,
+            schoolName: found.schoolName,
+            teacherName: found.teacherName
+          };
+          break;
+        }
       }
+    }
+
+    // 輕量啟動預熱端點（?mode=boot&t=...）：僅回傳學校／教師目錄與目前教師資訊，秒速回應並預熱容器
+    if (mode === "boot") {
+      return jsonOut_({
+        status: "ok",
+        mode: "boot",
+        teachersList: teachersList,
+        currentTeacher: currentTeacher
+      });
+    }
+
+    var targetSs = masterSs;
+    if (teacherId) {
+      targetSs = found ? openTeacherSpreadsheet_(found, masterSs) : null;
     }
 
     var data = targetSs ? getLeaderboardPublicData_(targetSs) : { "7": [], "8": [], "9": [] };

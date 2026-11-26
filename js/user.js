@@ -108,7 +108,12 @@
 
   let pendingSetup = false;
   let isSwitchingTeacher = false;
+  let isSubmitting = false;
+  const LOGIN_TIMEOUT_MS = 8000;
   let directoryLoaded = false;
+  let directorySyncState = "idle"; // "idle" | "syncing" | "ok" | "error"
+  let lastTeacherOptionsSig = "";
+  let bootSyncPromise = null;
 
   const hasLbSync = typeof Store.hasLeaderboardSync === "function" && Store.hasLeaderboardSync();
   $("#loginMode").textContent = Store.online()
@@ -125,19 +130,34 @@
       || list.find((t) => t && t.teacherId === tid)
       || null;
 
-    // 渲染學校與教師下拉選單
-    if (!directoryLoaded && list.length === 0) {
-      teacherSelect.innerHTML = `<option value="">⏳ 正在載入學校與教師名單…</option>`;
-    } else if (list.length === 0) {
-      teacherSelect.innerHTML = `<option value="">（尚無已開通教師，請點右下角教師入口註冊）</option>`;
-    } else {
-      teacherSelect.innerHTML = [
+    // 渲染學校與教師下拉選單（SWR：有快取立即完整呈現；僅在清單或狀態變更時更新 DOM，不打斷打字與點選）
+    let nextSig = "";
+    let nextHtml = "";
+    if (list.length > 0) {
+      nextSig = `list:${tid}:${list.map((t) => `${t.teacherId}|${t.schoolName}|${t.teacherName}`).join(";")}`;
+      nextHtml = [
         `<option value="">-- 請選擇所屬學校與老師 --</option>`,
         ...list.map((t) => {
           const label = `${t.schoolName || "未命名學校"} — ${t.teacherName || ""}老師`;
           return `<option value="${esc(t.teacherId)}"${t.teacherId === tid ? " selected" : ""}>${esc(label)}</option>`;
         })
       ].join("");
+    } else if (!directoryLoaded && directorySyncState === "syncing") {
+      nextSig = "syncing";
+      nextHtml = `<option value="">⏳ 背景同步學校與教師名單中（可直接填寫下方資料）…</option>`;
+    } else if (directorySyncState === "error") {
+      nextSig = "error";
+      nextHtml = `<option value="">（名單背景更新失敗，可直接登入或稍後重試）</option>`;
+    } else {
+      nextSig = "empty";
+      nextHtml = `<option value="">（尚無已開通教師，請點右下角教師入口註冊）</option>`;
+    }
+
+    if (nextSig !== lastTeacherOptionsSig) {
+      teacherSelect.innerHTML = nextHtml;
+      lastTeacherOptionsSig = nextSig;
+    } else if (list.length > 0 && teacherSelect.value !== tid) {
+      teacherSelect.value = tid;
     }
 
     if (tid && !isSwitchingTeacher) {
@@ -154,7 +174,7 @@
           schoolSubEl.textContent = `${cur.schoolName}（${cur.teacherName}老師）· 請先辦理探險護照，測驗成績才會記到你的名下`;
         }
       } else {
-        teacherBadgeEl.textContent = `⏳ 正在連線至教師課程島（${tid}）…`;
+        teacherBadgeEl.textContent = `🏫 已鎖定教師代碼：${tid}（背景確認學校名稱中…）`;
         teacherPickerWrap.hidden = true;
       }
       if (switchTeacherBtn) switchTeacherBtn.textContent = "切換";
@@ -200,31 +220,57 @@
       if (typeof Store.setTeacherId === "function") {
         Store.setTeacherId(picked, found);
       }
-      if (typeof Store.fetchGasSnapshot === "function") {
-        void Store.fetchGasSnapshot(picked, { force: true });
-      }
       renderTeacherConnectionUI();
     });
   }
 
+  document.addEventListener("ii:gas-boot", () => {
+    directoryLoaded = true;
+    directorySyncState = "ok";
+    renderTeacherConnectionUI();
+  });
   document.addEventListener("ii:gas-snapshot", () => {
     directoryLoaded = true;
+    directorySyncState = "ok";
     renderTeacherConnectionUI();
   });
   document.addEventListener("ii:teacher-changed", () => {
     renderTeacherConnectionUI();
   });
 
-  if (typeof Store.fetchGasSnapshot === "function" && hasLbSync) {
-    void Store.fetchGasSnapshot().then(() => {
-      directoryLoaded = true;
-      renderTeacherConnectionUI();
-    }).catch(() => {
-      directoryLoaded = true;
-      renderTeacherConnectionUI();
-    });
+  // 兩階段非阻塞背景同步：
+  // 1) 立即從 SWR 快取在 0ms 渲染登入介面
+  // 2) 背景發送輕量 ?mode=boot&t=... 預熱 GAS 容器並秒速更新學校清單
+  // 3) 同時背景靜默拉取完整排行榜與公告更新 localStorage 快取
+  if (hasLbSync) {
+    directorySyncState = "syncing";
+    if (typeof Store.fetchGasBoot === "function") {
+      bootSyncPromise = Store.fetchGasBoot().then(() => {
+        directoryLoaded = true;
+        directorySyncState = "ok";
+        renderTeacherConnectionUI();
+      }).catch(() => {
+        if (!directoryLoaded) directorySyncState = "error";
+        directoryLoaded = true;
+        renderTeacherConnectionUI();
+      });
+    }
+    if (typeof Store.fetchGasSnapshot === "function") {
+      void Store.fetchGasSnapshot().then(() => {
+        directoryLoaded = true;
+        directorySyncState = "ok";
+        renderTeacherConnectionUI();
+      }).catch(() => {
+        if (!directoryLoaded && !bootSyncPromise) {
+          directorySyncState = "error";
+          directoryLoaded = true;
+          renderTeacherConnectionUI();
+        }
+      });
+    }
   } else {
     directoryLoaded = true;
+    directorySyncState = "ok";
   }
   renderTeacherConnectionUI();
 
@@ -284,14 +330,15 @@
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
     err.textContent = "";
     const v = Object.fromEntries(new FormData(form));
     v.name = String(v.name ?? "").trim();
     v.pinCode = String(v.pinCode ?? "").trim();
     v.pinConfirm = String(v.pinConfirm ?? "").trim();
 
-    const boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
-    const knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
+    let boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
+    let knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
     if (hasLbSync && knownTeachers.length > 0 && !boundTid) {
       err.textContent = "請先選擇所屬學校與老師";
       if (teacherPickerWrap) teacherPickerWrap.hidden = false;
@@ -329,64 +376,105 @@
       }
     }
 
+    isSubmitting = true;
     btn.classList.add("is-pressing");
     setTimeout(() => btn.classList.remove("is-pressing"), 240);
     btn.disabled = true;
-    btn.textContent = pendingSetup ? "🔐 正在設定專屬驗證碼…" : "✈️ 驗證身分與載入雲端紀錄…";
+    btn.textContent = "⏳ 驗證連線中...";
 
-    const r = await Store.login({
-      grade: v.grade,
-      room: v.room,
-      seat: v.seat,
-      name: v.name,
-      pinCode: v.pinCode,
-      isConfirmSetup: pendingSetup
-    });
-
-    btn.disabled = false;
-
-    if (r && r.status === "need_pin_setup") {
-      pendingSetup = true;
-      if (setupTip) {
-        setupTip.textContent = (r.hasRosterMatch && r.maskedName)
-          ? `🌟 歡迎 ${r.maskedName} 同學首次登入！請設定您的專屬個人驗證碼（下次登入需輸入此碼）`
-          : "🌟 歡迎首次登入！請設定您的專屬個人驗證碼（下次登入需輸入此碼）";
+    let loginGuardTimer = null;
+    const submitStartAt = Date.now();
+    try {
+      // 若瀏覽器尚無本地教師名單快取且 boot 同步仍在進行中，短暫等候最多 3 秒以確保不會漏選學校
+      if (hasLbSync && !boundTid && knownTeachers.length === 0 && !directoryLoaded && bootSyncPromise) {
+        await Promise.race([
+          bootSyncPromise.catch(() => {}),
+          new Promise((resolve) => setTimeout(resolve, 3000))
+        ]);
+        boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
+        knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
+        if (knownTeachers.length > 0 && !boundTid) {
+          err.textContent = "請先選擇所屬學校與老師";
+          if (teacherPickerWrap) teacherPickerWrap.hidden = false;
+          if (teacherSelect) teacherSelect.focus();
+          btn.textContent = pendingSetup ? "✅ 確認設定並登入" : "🎒 領取裝備，即刻登島！";
+          return;
+        }
       }
-      if (setupBox) setupBox.hidden = false;
-      btn.textContent = "✅ 確認設定並登入";
-      if (pinConfirmInput) {
-        pinConfirmInput.value = "";
-        setTimeout(() => pinConfirmInput.focus(), 40);
-      }
-      return;
-    }
 
-    if (!r || !r.ok) {
+      const remainingTimeoutMs = Math.max(1500, LOGIN_TIMEOUT_MS - (Date.now() - submitStartAt));
+      const timeoutPromise = new Promise((resolve) => {
+        loginGuardTimer = setTimeout(() => {
+          resolve({
+            ok: false,
+            status: "timeout",
+            msg: "⏳ 雲端伺服器回應逾時（超過 8 秒），請確認網路連線後再點擊一次重試！"
+          });
+        }, remainingTimeoutMs);
+      });
+
+      const r = await Promise.race([
+        Store.login({
+          grade: v.grade,
+          room: v.room,
+          seat: v.seat,
+          name: v.name,
+          pinCode: v.pinCode,
+          isConfirmSetup: pendingSetup
+        }),
+        timeoutPromise
+      ]);
+
+      if (r && r.status === "need_pin_setup") {
+        pendingSetup = true;
+        if (setupTip) {
+          setupTip.textContent = (r.hasRosterMatch && r.maskedName)
+            ? `🌟 歡迎 ${r.maskedName} 同學首次登入！請設定您的專屬個人驗證碼（下次登入需輸入此碼）`
+            : "🌟 歡迎首次登入！請設定您的專屬個人驗證碼（下次登入需輸入此碼）";
+        }
+        if (setupBox) setupBox.hidden = false;
+        btn.textContent = "✅ 確認設定並登入";
+        if (pinConfirmInput) {
+          pinConfirmInput.value = "";
+          setTimeout(() => pinConfirmInput.focus(), 40);
+        }
+        return;
+      }
+
+      if (!r || !r.ok) {
+        btn.textContent = pendingSetup ? "✅ 確認設定並登入" : "🎒 領取裝備，即刻登島！";
+        err.textContent = (r && r.msg) || "登入失敗，請稍後再試";
+        if (r && r.status === "invalid_pin" && pinInput) {
+          pinInput.focus();
+          pinInput.select();
+        }
+        return;
+      }
+
+      resetPinSetupState();
+      if (pinInput) pinInput.value = "";
+      hide();
+      renderChip();
+      if (window.AudioManager && typeof window.AudioManager.startBGM === "function") {
+        window.AudioManager.startBGM();
+      }
+      document.dispatchEvent(new CustomEvent("ii:login"));
+      if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+        window.AvatarSystem.toast(
+          r.isNewPin
+            ? "🔑 專屬驗證碼設定成功！歡迎登島冒險！"
+            : "☁️ 驗證成功！已同步載入你的角色外觀與學習進度。",
+          "ok",
+          3000
+        );
+      }
+    } catch (submitErr) {
       btn.textContent = pendingSetup ? "✅ 確認設定並登入" : "🎒 領取裝備，即刻登島！";
-      err.textContent = (r && r.msg) || "登入失敗，請稍後再試";
-      if (r && r.status === "invalid_pin" && pinInput) {
-        pinInput.focus();
-        pinInput.select();
-      }
-      return;
-    }
-
-    resetPinSetupState();
-    if (pinInput) pinInput.value = "";
-    hide();
-    renderChip();
-    if (window.AudioManager && typeof window.AudioManager.startBGM === "function") {
-      window.AudioManager.startBGM();
-    }
-    document.dispatchEvent(new CustomEvent("ii:login"));
-    if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
-      window.AvatarSystem.toast(
-        r.isNewPin
-          ? "🔑 專屬驗證碼設定成功！歡迎登島冒險！"
-          : "☁️ 驗證成功！已同步載入你的角色外觀與學習進度。",
-        "ok",
-        3000
-      );
+      err.textContent = (submitErr && submitErr.message) || "登入連線異常，請稍後再點擊一次重試！";
+    } finally {
+      if (loginGuardTimer) clearTimeout(loginGuardTimer);
+      isSubmitting = false;
+      btn.disabled = false;
     }
   });
 

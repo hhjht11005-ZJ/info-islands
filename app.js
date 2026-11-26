@@ -108,7 +108,79 @@
   $("#routeToggle").onchange = (e) => { $("#routePath").style.display = e.target.checked ? "" : "none"; };
 
   /* ---------- list & term views ---------- */
-  const isMicroLabDone = (id) => !!(window.IslandMicroLabs && typeof window.IslandMicroLabs.isLabCompleted === "function" && window.IslandMicroLabs.isLabCompleted(id));
+  const isMicroLabDone = (id) => {
+    if (window.IslandMicroLabs && typeof window.IslandMicroLabs.isLabCompleted === "function") {
+      return window.IslandMicroLabs.isLabCompleted(id);
+    }
+    if (window.AvatarSystem && typeof window.AvatarSystem.isMicroLabCompleted === "function") {
+      return window.AvatarSystem.isMicroLabCompleted(id);
+    }
+    return false;
+  };
+  let microLabsLoadPromise = null;
+  let microLabMountSeq = 0;
+
+  function loadIslandMicroLabs() {
+    if (window.IslandMicroLabs && typeof window.IslandMicroLabs.mount === "function") {
+      return Promise.resolve(window.IslandMicroLabs);
+    }
+    if (!microLabsLoadPromise) {
+      microLabsLoadPromise = import("./js/islandMicroLabs.js").then(() => window.IslandMicroLabs);
+    }
+    return microLabsLoadPromise;
+  }
+
+  async function mountMicroLabLazy(mountEl, islandId) {
+    if (!mountEl) return;
+    const seq = ++microLabMountSeq;
+    if (window.IslandMicroLabs && typeof window.IslandMicroLabs.mount === "function") {
+      window.IslandMicroLabs.mount(mountEl, islandId);
+      return;
+    }
+    const islName = byId[islandId] ? byId[islandId].name : "";
+    mountEl.innerHTML = `<div class="mlab-loading-card">⏳ 正在載入「${esc(islName)}」微實作實驗室…</div>`;
+    try {
+      const mod = await loadIslandMicroLabs();
+      const curMount = $("#islandMicroLabMount");
+      if (
+        seq !== microLabMountSeq ||
+        !state.island ||
+        state.island.id !== islandId ||
+        state.tab !== "延伸" ||
+        state.unit ||
+        !curMount
+      ) {
+        return;
+      }
+      if (mod && typeof mod.mount === "function") {
+        mod.mount(curMount, islandId);
+      }
+    } catch (err) {
+      microLabsLoadPromise = null;
+      const curMount = $("#islandMicroLabMount");
+      if (
+        seq !== microLabMountSeq ||
+        !state.island ||
+        state.island.id !== islandId ||
+        state.tab !== "延伸" ||
+        state.unit ||
+        !curMount
+      ) {
+        return;
+      }
+      console.error("[app] 動態載入微實作實驗室失敗:", err);
+      curMount.innerHTML = `<div class="mlab-loading-card is-error">
+        <p>⚠️ 微實作實驗室模組載入失敗，請檢查網路連線後重試。</p>
+        <button type="button" class="btn-doc" id="mlabRetryLoadBtn">🔄 重新載入</button>
+      </div>`;
+      const retryBtn = curMount.querySelector("#mlabRetryLoadBtn");
+      if (retryBtn) {
+        retryBtn.addEventListener("click", () => {
+          void mountMicroLabLazy($("#islandMicroLabMount"), islandId);
+        });
+      }
+    }
+  }
   const getProgressState = () => (window.Store && window.Store.profile ? window.Store.events() : []);
   const getCompletion = (id) => {
     if (typeof window.calculateIslandCompletion === "function") {
@@ -250,6 +322,7 @@
   }
   window.openIsland = openIsland;
   function closeDrawer() {
+    microLabMountSeq++;
     if (window.IslandMicroLabs && typeof window.IslandMicroLabs.unmount === "function") {
       window.IslandMicroLabs.unmount();
     }
@@ -358,14 +431,15 @@
 
   function renderTab() {
     const i = state.island; if (!i) return;
+    microLabMountSeq++;
     if (window.IslandMicroLabs && typeof window.IslandMicroLabs.unmount === "function") {
       window.IslandMicroLabs.unmount();
     }
     drawer.classList.toggle("is-lab-wide", state.tab === "延伸" && !state.unit);
     document.querySelectorAll(".tab").forEach(b => { const on = b.dataset.t === state.tab; b.classList.toggle("active", on); b.setAttribute("aria-selected", on); });
     $("#tabBody").innerHTML = state.unit && state.tab === "順序" ? renderUnit(i) : R[state.tab](i); $("#tabBody").scrollTop = 0;
-    if (state.tab === "延伸" && !state.unit && window.IslandMicroLabs && typeof window.IslandMicroLabs.mount === "function") {
-      window.IslandMicroLabs.mount($("#islandMicroLabMount"), i.id);
+    if (state.tab === "延伸" && !state.unit) {
+      void mountMicroLabLazy($("#islandMicroLabMount"), i.id);
     }
   }
 

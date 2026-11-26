@@ -15,6 +15,29 @@
 
   let activeHall = "dojo"; // "dojo" | "capstone"
   let tempCeremonyShown = false;
+  let dojoLoadPromise = null;
+  let capstoneLoadPromise = null;
+  let hallMountSeq = 0;
+
+  function loadComputationalDojo() {
+    if (window.ComputationalDojo && typeof window.ComputationalDojo.mount === "function") {
+      return Promise.resolve(window.ComputationalDojo);
+    }
+    if (!dojoLoadPromise) {
+      dojoLoadPromise = import("./computationalDojo.js").then(() => window.ComputationalDojo);
+    }
+    return dojoLoadPromise;
+  }
+
+  function loadCapstoneCases() {
+    if (window.CapstoneCases && typeof window.CapstoneCases.mount === "function") {
+      return Promise.resolve(window.CapstoneCases);
+    }
+    if (!capstoneLoadPromise) {
+      capstoneLoadPromise = import("./capstoneCases.js").then(() => window.CapstoneCases);
+    }
+    return capstoneLoadPromise;
+  }
 
   function computePct(passed, total) {
     if (window.CompletionCenter && typeof window.CompletionCenter.computeCompletionPercentage === "function") {
@@ -120,6 +143,7 @@
   }
 
   function close() {
+    hallMountSeq++;
     if (window.ComputationalDojo && typeof window.ComputationalDojo.unmount === "function") {
       window.ComputationalDojo.unmount();
     }
@@ -295,17 +319,38 @@
       }
     };
 
-    const mountActiveHall = () => {
+    const mountActiveHall = async () => {
+      const seq = ++hallMountSeq;
       if (window.ComputationalDojo && typeof window.ComputationalDojo.unmount === "function") {
         window.ComputationalDojo.unmount();
       }
       if (window.CapstoneCases && typeof window.CapstoneCases.unmount === "function") {
         window.CapstoneCases.unmount();
       }
-      if (activeHall === "dojo" && window.ComputationalDojo) {
-        window.ComputationalDojo.mount(hallMount, { onProgress: syncStatsHeader });
-      } else if (activeHall === "capstone" && window.CapstoneCases) {
-        window.CapstoneCases.mount(hallMount, { onProgress: syncStatsHeader });
+      const hall = activeHall;
+      const readyObj = hall === "dojo" ? window.ComputationalDojo : window.CapstoneCases;
+      if (readyObj && typeof readyObj.mount === "function") {
+        readyObj.mount(hallMount, { onProgress: syncStatsHeader });
+        return;
+      }
+      hallMount.innerHTML = `<div class="citadel-loading-box">⏳ 正在載入${hall === "dojo" ? "運算思維互動道場（4 大演算法盤面）" : "跨島綜合解謎檔案室（2 大實戰案件）"}…</div>`;
+      try {
+        const mod = hall === "dojo" ? await loadComputationalDojo() : await loadCapstoneCases();
+        if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
+        if (mod && typeof mod.mount === "function") {
+          mod.mount(hallMount, { onProgress: syncStatsHeader });
+        }
+      } catch (err) {
+        if (hall === "dojo") dojoLoadPromise = null;
+        else capstoneLoadPromise = null;
+        if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
+        console.error("[aetherCitadel] 動態載入殿堂模組失敗:", err);
+        hallMount.innerHTML = `<div class="citadel-loading-box is-error">
+          <p>⚠️ 模組載入失敗，請檢查網路連線後重試。</p>
+          <button type="button" class="citadel-sprint-btn" id="citadelHallRetryBtn">🔄 重新載入</button>
+        </div>`;
+        const retryBtn = hallMount.querySelector("#citadelHallRetryBtn");
+        if (retryBtn) retryBtn.addEventListener("click", () => { void mountActiveHall(); });
       }
     };
 

@@ -108,10 +108,10 @@
     document.dispatchEvent(new CustomEvent("ii:config-updated", { detail: { ...currentConfig } }));
   }
 
-  async function fetchNow() {
+  async function fetchNow({ force = false } = {}) {
     if (window.Store && typeof window.Store.fetchGasSnapshot === "function") {
       try {
-        const json = await window.Store.fetchGasSnapshot(undefined, { force: true });
+        const json = await window.Store.fetchGasSnapshot(undefined, { force });
         if (json && json.status === "ok" && json.config) {
           setConfig(json.config);
         }
@@ -148,18 +148,31 @@
     }
   });
   document.addEventListener("ii:teacher-changed", () => {
-    void fetchNow();
+    const cached = window.Store && typeof window.Store.getCachedConfig === "function"
+      ? window.Store.getCachedConfig()
+      : null;
+    if (cached) {
+      setConfig(cached);
+    } else {
+      setConfig({});
+    }
+    void fetchNow({ force: false });
   });
 
   window.CloudConfig = {
     get: () => ({ ...currentConfig }),
     set: setConfig,
-    fetchNow,
+    fetchNow: () => fetchNow({ force: true }),
     sanitizeUrl,
     getLocalCitadelOverride,
     setLocalCitadelOverride,
     isCitadelTempUnlocked: () => !!(currentConfig.unlockCitadel || getLocalCitadelOverride())
   };
 
-  fetchNow();
+  // SWR：先秒讀 localStorage 快取公告，同時背景靜默拉取完整快照更新
+  if (window.Store && typeof window.Store.getCachedConfig === "function") {
+    const initialCached = window.Store.getCachedConfig();
+    if (initialCached) setConfig(initialCached);
+  }
+  void fetchNow({ force: false });
 })();

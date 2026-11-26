@@ -6419,3 +6419,25 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   .citadel-guard-banner { flex-direction: column; text-align: center; }
   .dojo-gantt-row { grid-template-columns: 1fr; }
 }
+
+.mlab-loading-card,
+.citadel-loading-box {
+  padding: 28px 20px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px dashed rgba(125, 211, 252, 0.45);
+  color: #e0f2fe;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.96rem;
+  font-weight: 700;
+  text-align: center;
+}
+.mlab-loading-card.is-error,
+.citadel-loading-box.is-error {
+  border-color: rgba(248, 113, 113, 0.65);
+  color: #fecaca;
+}
+.mlab-loading-card.is-error p,
+.citadel-loading-box.is-error p {
+  margin: 0 0 12px;
+}

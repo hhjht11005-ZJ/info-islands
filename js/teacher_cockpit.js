@@ -739,15 +739,29 @@ import QRCode from "qrcode";
     }
   }
 
-  async function postGasAction(payload) {
+  async function postGasAction(payload, timeoutMs = 15000) {
     const url = getGasUrl();
     if (!url) throw new Error("尚未設定 GAS_LEADERBOARD_URL");
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(payload)
-    });
-    return await parseJsonResponse(res);
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller && timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload),
+        signal: controller ? controller.signal : undefined
+      });
+      return await parseJsonResponse(res);
+    } catch (err) {
+      if (err && err.name === "AbortError") {
+        const timeoutErr = new Error(`雲端伺服器回應逾時（超過 ${Math.round(timeoutMs / 1000)} 秒），請稍候再點擊一次重試！`);
+        timeoutErr.isTimeout = true;
+        throw timeoutErr;
+      }
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async function fetchTeacherDashboard(password, explicitSession = null) {
@@ -766,7 +780,7 @@ import QRCode from "qrcode";
       action: "teacher_login",
       account: String(account ?? "").trim(),
       password: String(password ?? "").trim()
-    });
+    }, 8000);
   }
 
   async function registerTeacherApi({ schoolName, teacherName, account, password }) {
@@ -776,7 +790,7 @@ import QRCode from "qrcode";
       teacherName: String(teacherName ?? "").trim(),
       account: String(account ?? "").trim(),
       password: String(password ?? "").trim()
-    });
+    }, 25000);
   }
 
   function normalizeRosterList(list) {
@@ -3316,8 +3330,12 @@ import QRCode from "qrcode";
     });
   });
 
+  let isTeacherAuthSubmitting = false;
+  let isTeacherRegSubmitting = false;
+
   authWrap.querySelector("#tcAuthForm").onsubmit = async (e) => {
     e.preventDefault();
+    if (isTeacherAuthSubmitting) return;
     const accInput = authWrap.querySelector("#tcLoginAccount");
     const pwdInput = authWrap.querySelector("#tcPasswordInput");
     const errEl = authWrap.querySelector("#tcAuthErr");
@@ -3334,11 +3352,22 @@ import QRCode from "qrcode";
       if (pwdInput) pwdInput.focus();
       return;
     }
+    isTeacherAuthSubmitting = true;
     errEl.textContent = "";
     submitBtn.disabled = true;
-    submitBtn.textContent = "⏳ 驗證中…";
+    submitBtn.textContent = "⏳ 驗證連線中...";
+    let timeoutGuard = null;
     try {
-      const res = await teacherLoginApi(account, pwd);
+      const res = await Promise.race([
+        teacherLoginApi(account, pwd),
+        new Promise((_, reject) => {
+          timeoutGuard = setTimeout(() => {
+            const err = new Error("雲端伺服器回應逾時（超過 8 秒），請確認網路後再點擊一次重試！");
+            err.isTimeout = true;
+            reject(err);
+          }, 8000);
+        })
+      ]);
       if (res && res.status === "ok") {
         // 第一時間寫入統一憑證物件（含 4 小時有效期與相容舊版密碼變數）
         setTeacherSession(res.teacher || { account }, pwd, account);
@@ -3360,8 +3389,14 @@ import QRCode from "qrcode";
         errEl.textContent = (res && res.message) || "驗證失敗，請稍後再試";
       }
     } catch (err) {
-      errEl.textContent = `連線失敗：${err.message || "請檢查網路或 GAS 部署"}`;
+      if (err && err.isTimeout) {
+        errEl.textContent = `⏳ ${err.message}`;
+      } else {
+        errEl.textContent = `連線失敗：${err.message || "請檢查網路或 GAS 部署"}`;
+      }
     } finally {
+      if (timeoutGuard) clearTimeout(timeoutGuard);
+      isTeacherAuthSubmitting = false;
       submitBtn.disabled = false;
       submitBtn.textContent = "🔓 驗證並開啟戰情室";
     }
@@ -3369,6 +3404,7 @@ import QRCode from "qrcode";
 
   authWrap.querySelector("#tcRegForm").onsubmit = async (e) => {
     e.preventDefault();
+    if (isTeacherRegSubmitting) return;
     const schoolEl = authWrap.querySelector("#tcRegSchool");
     const nameEl = authWrap.querySelector("#tcRegName");
     const accEl = authWrap.querySelector("#tcRegAccount");
@@ -3412,6 +3448,7 @@ import QRCode from "qrcode";
       return;
     }
 
+    isTeacherRegSubmitting = true;
     errEl.textContent = "";
     submitBtn.disabled = true;
     submitBtn.textContent = "⏳ 正在建立專屬試算表…";
@@ -3427,6 +3464,9 @@ import QRCode from "qrcode";
         const welcomeMsg = `🎉 歡迎 ${res.teacher.teacherName} 老師！已為「${res.teacher.schoolName}」自動建立專屬試算表（教師代碼：${tid}）`;
         setGlobalStatus(welcomeMsg, "ok");
         showToast(welcomeMsg, "ok", 4500);
+        if (window.Store && typeof window.Store.fetchGasBoot === "function") {
+          void window.Store.fetchGasBoot(undefined, { force: true }).catch(() => {});
+        }
         if (window.Store && typeof window.Store.fetchGasSnapshot === "function") {
           void window.Store.fetchGasSnapshot(undefined, { force: true }).catch(() => {});
         }
@@ -3436,6 +3476,7 @@ import QRCode from "qrcode";
     } catch (err) {
       errEl.textContent = `連線失敗：${err.message || "請檢查網路或 GAS 部署"}`;
     } finally {
+      isTeacherRegSubmitting = false;
       submitBtn.disabled = false;
       submitBtn.textContent = "✨ 建立獨立試算表並開通戰情室";
     }

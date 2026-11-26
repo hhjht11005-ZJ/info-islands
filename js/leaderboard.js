@@ -787,6 +787,30 @@
     }
   }
 
+  document.addEventListener("ii:gas-snapshot", (e) => {
+    const snap = e && e.detail && e.detail.snapshot;
+    const tid = e && e.detail ? String(e.detail.teacherId || "").trim() : "";
+    if (!snap || snap.status !== "ok" || !snap.data || typeof snap.data !== "object") return;
+    if (tid !== getBoundTeacherId()) return;
+    remoteCache = {
+      7: Array.isArray(snap.data["7"]) ? snap.data["7"] : [],
+      8: Array.isArray(snap.data["8"]) ? snap.data["8"] : [],
+      9: Array.isArray(snap.data["9"]) ? snap.data["9"] : []
+    };
+    if (snap.globalData && typeof snap.globalData === "object") {
+      globalCache = {
+        7: Array.isArray(snap.globalData["7"]) ? snap.globalData["7"] : [],
+        8: Array.isArray(snap.globalData["8"]) ? snap.globalData["8"] : [],
+        9: Array.isArray(snap.globalData["9"]) ? snap.globalData["9"] : []
+      };
+      hasGlobalSnapshot = true;
+    }
+    hasRemoteSnapshot = true;
+    remoteStatus = "ok";
+    saveGasCache(remoteCache, globalCache, tid);
+    if (wrap.classList.contains("show")) render();
+  });
+
   document.addEventListener("ii:teacher-changed", () => {
     remoteCache = { 7: [], 8: [], 9: [] };
     hasRemoteSnapshot = false;

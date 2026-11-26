@@ -2,8 +2,11 @@
 (() => {
   const CFG = window.APP_CONFIG;
   const PROFILE = "ii:profile", QUEUE = "ii:queue", POOL = "ii:leaderboard:pool", LB_PENDING = "ii:leaderboard:pending", LB_SYNCED = "ii:leaderboard:synced_v1", ACTIVE_ISLAND = "ii:activeIslandId";
-  const TEACHER_ID_KEY = "island_teacher_id", TEACHER_META_KEY = "ii:teacher_meta_v1", TEACHERS_LIST_KEY = "ii:teachers_list_v1";
+  const TEACHER_ID_KEY = "island_teacher_id", TEACHER_META_KEY = "island_cached_teacher_info_v2", TEACHERS_LIST_KEY = "island_cached_teachers_v2", CONFIG_CACHE_KEY = "island_cached_config_v2";
+  const LEGACY_TEACHER_META_KEY = "ii:teacher_meta_v1", LEGACY_TEACHERS_LIST_KEY = "ii:teachers_list_v1";
   const GAS_TIMEOUT_MS = 10000;
+  const GAS_BOOT_TIMEOUT_MS = 8000;
+  const GAS_LOGIN_TIMEOUT_MS = 8000;
   const ls = {
     get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { console.warn(e); } }
@@ -12,20 +15,87 @@
   function getTeacherId() {
     try { return String(localStorage.getItem(TEACHER_ID_KEY) || "").trim(); } catch { return ""; }
   }
+  function normalizeTeacherMeta(m) {
+    if (!m || typeof m !== "object" || !m.teacherId) return null;
+    return {
+      teacherId: String(m.teacherId || "").trim(),
+      schoolName: String(m.schoolName || "").trim(),
+      teacherName: String(m.teacherName || "").trim()
+    };
+  }
   function getStoredTeacherMeta() {
-    const m = ls.get(TEACHER_META_KEY, null);
-    return (m && typeof m === "object") ? m : null;
+    const m = ls.get(TEACHER_META_KEY, null) || ls.get(LEGACY_TEACHER_META_KEY, null);
+    return normalizeTeacherMeta(m);
   }
   function getStoredTeachersList() {
-    const list = ls.get(TEACHERS_LIST_KEY, []);
-    return Array.isArray(list) ? list : [];
+    const raw = ls.get(TEACHERS_LIST_KEY, null) || ls.get(LEGACY_TEACHERS_LIST_KEY, []);
+    const arr = Array.isArray(raw) ? raw : (raw && Array.isArray(raw.teachersList) ? raw.teachersList : []);
+    return arr
+      .map((t) => normalizeTeacherMeta(t))
+      .filter(Boolean);
+  }
+  function persistTeacherMeta(meta) {
+    if (meta) {
+      ls.set(TEACHER_META_KEY, meta);
+    } else {
+      try {
+        localStorage.removeItem(TEACHER_META_KEY);
+        localStorage.removeItem(LEGACY_TEACHER_META_KEY);
+      } catch {}
+    }
+  }
+  function persistTeachersList(list) {
+    ls.set(TEACHERS_LIST_KEY, list);
+  }
+  function getCachedConfig(explicitTeacherId) {
+    const tid = explicitTeacherId !== undefined ? String(explicitTeacherId || "").trim() : getTeacherId();
+    const cached = ls.get(CONFIG_CACHE_KEY, null);
+    if (!cached || typeof cached !== "object" || !cached.config) return null;
+    if (String(cached.teacherId || "").trim() !== tid) return null;
+    return cached.config;
+  }
+  function saveCachedConfig(teacherId, config) {
+    if (!config || typeof config !== "object") return;
+    ls.set(CONFIG_CACHE_KEY, {
+      teacherId: String(teacherId || "").trim(),
+      savedAt: Date.now(),
+      config
+    });
   }
 
   let cachedTeachersList = getStoredTeachersList();
   let cachedCurrentTeacher = getStoredTeacherMeta();
   let lastGasSnapshot = null;
+  let lastSnapshotTeacherKey = null;
   let inflightSnapshot = null;
   let inflightTeacherKey = null;
+  let lastGasBoot = null;
+  let lastBootTeacherKey = null;
+  let inflightBoot = null;
+  let inflightBootTeacherKey = null;
+
+  function applyTeacherDirectoryUpdate(teachersList, serverTeacher, tid) {
+    if (Array.isArray(teachersList)) {
+      cachedTeachersList = teachersList.map((t) => normalizeTeacherMeta(t)).filter(Boolean);
+      persistTeachersList(cachedTeachersList);
+    }
+    if (tid === getTeacherId()) {
+      const normalizedServer = normalizeTeacherMeta(serverTeacher);
+      if (normalizedServer) {
+        cachedCurrentTeacher = {
+          ...normalizedServer,
+          teacherId: normalizedServer.teacherId || tid
+        };
+        persistTeacherMeta(cachedCurrentTeacher);
+      } else if (tid) {
+        const matched = cachedTeachersList.find((t) => t && t.teacherId === tid);
+        if (matched) {
+          cachedCurrentTeacher = { ...matched };
+          persistTeacherMeta(cachedCurrentTeacher);
+        }
+      }
+    }
+  }
 
   function setTeacherId(teacherId, metaObj = null) {
     const cleanId = String(teacherId || "").trim();
@@ -36,32 +106,27 @@
     } catch (e) { console.warn(e); }
 
     if (metaObj && typeof metaObj === "object" && metaObj.teacherId === cleanId) {
-      cachedCurrentTeacher = {
-        teacherId: cleanId,
-        schoolName: String(metaObj.schoolName || "").trim(),
-        teacherName: String(metaObj.teacherName || "").trim()
-      };
-      ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+      cachedCurrentTeacher = normalizeTeacherMeta(metaObj);
+      persistTeacherMeta(cachedCurrentTeacher);
     } else if (cleanId) {
       const matched = cachedTeachersList.find((t) => t && t.teacherId === cleanId);
       if (matched) {
-        cachedCurrentTeacher = {
-          teacherId: cleanId,
-          schoolName: String(matched.schoolName || "").trim(),
-          teacherName: String(matched.teacherName || "").trim()
-        };
-        ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
+        cachedCurrentTeacher = { ...matched };
+        persistTeacherMeta(cachedCurrentTeacher);
       } else if (prevId !== cleanId) {
         cachedCurrentTeacher = null;
-        try { localStorage.removeItem(TEACHER_META_KEY); } catch {}
+        persistTeacherMeta(null);
       }
     } else {
       cachedCurrentTeacher = null;
-      try { localStorage.removeItem(TEACHER_META_KEY); } catch {}
+      persistTeacherMeta(null);
     }
 
     if (prevId !== cleanId) {
       lastGasSnapshot = null;
+      lastSnapshotTeacherKey = null;
+      lastGasBoot = null;
+      lastBootTeacherKey = null;
     }
     document.dispatchEvent(new CustomEvent("ii:teacher-changed", {
       detail: { teacherId: cleanId, teacher: cachedCurrentTeacher }
@@ -76,9 +141,15 @@
     if (urlTeacherId) {
       const prevId = getTeacherId();
       localStorage.setItem(TEACHER_ID_KEY, urlTeacherId);
-      if (prevId !== urlTeacherId) {
-        cachedCurrentTeacher = null;
-        localStorage.removeItem(TEACHER_META_KEY);
+      if (prevId !== urlTeacherId || !cachedCurrentTeacher || cachedCurrentTeacher.teacherId !== urlTeacherId) {
+        const matched = cachedTeachersList.find((t) => t && t.teacherId === urlTeacherId);
+        if (matched) {
+          cachedCurrentTeacher = { ...matched };
+          persistTeacherMeta(cachedCurrentTeacher);
+        } else {
+          cachedCurrentTeacher = null;
+          persistTeacherMeta(null);
+        }
       }
     }
   } catch (e) { console.warn(e); }
@@ -663,21 +734,72 @@
     return data;
   }
 
-  async function postGasJson(url, payload) {
+  async function postGasJson(url, payload, timeoutMs = GAS_TIMEOUT_MS) {
     const r = await fetchWithTimeout(url, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
-    }, GAS_TIMEOUT_MS);
+    }, timeoutMs);
     if (!r.ok) throw new Error("伺服器回應 " + r.status);
     return await r.json();
+  }
+
+  async function fetchGasBoot(explicitTeacherId, { force = false } = {}) {
+    const lbUrl = getLeaderboardUrl();
+    if (!lbUrl) return null;
+    const tid = explicitTeacherId !== undefined ? String(explicitTeacherId || "").trim() : getTeacherId();
+    if (!force && lastGasBoot && lastBootTeacherKey === tid) {
+      return lastGasBoot;
+    }
+    if (!force && inflightBoot && inflightBootTeacherKey === tid) {
+      return inflightBoot;
+    }
+
+    const qs = new URLSearchParams();
+    qs.set("mode", "boot");
+    qs.set("t", tid);
+    qs.set("cb", String(Date.now()));
+    const reqUrl = `${lbUrl}?${qs.toString()}`;
+
+    inflightBootTeacherKey = tid;
+    const run = (async () => {
+      try {
+        const res = await fetchWithTimeout(reqUrl, { cache: "no-store" }, GAS_BOOT_TIMEOUT_MS);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+        if (!json || json.status !== "ok") {
+          throw new Error((json && json.message) || "GAS Boot 回應格式錯誤");
+        }
+        const serverTeacher = (json.currentTeacher && typeof json.currentTeacher === "object")
+          ? json.currentTeacher
+          : ((json.teacherInfo && typeof json.teacherInfo === "object") ? json.teacherInfo : null);
+        applyTeacherDirectoryUpdate(json.teachersList, serverTeacher, tid);
+        if (tid === getTeacherId()) {
+          lastGasBoot = json;
+          lastBootTeacherKey = tid;
+        }
+        document.dispatchEvent(new CustomEvent("ii:gas-boot", {
+          detail: {
+            teacherId: tid,
+            teachersList: cachedTeachersList.slice(),
+            currentTeacher: cachedCurrentTeacher
+          }
+        }));
+        return json;
+      } finally {
+        if (inflightBoot === run) inflightBoot = null;
+      }
+    })();
+
+    inflightBoot = run;
+    return run;
   }
 
   async function fetchGasSnapshot(explicitTeacherId, { force = false } = {}) {
     const lbUrl = getLeaderboardUrl();
     if (!lbUrl) return null;
     const tid = explicitTeacherId !== undefined ? String(explicitTeacherId || "").trim() : getTeacherId();
-    if (!force && lastGasSnapshot && inflightTeacherKey === tid) {
+    if (!force && lastGasSnapshot && lastSnapshotTeacherKey === tid) {
       return lastGasSnapshot;
     }
     if (!force && inflightSnapshot && inflightTeacherKey === tid) {
@@ -698,33 +820,16 @@
         if (!json || json.status !== "ok") {
           throw new Error((json && json.message) || "GAS 回應格式錯誤");
         }
-        if (Array.isArray(json.teachersList)) {
-          cachedTeachersList = json.teachersList;
-          ls.set(TEACHERS_LIST_KEY, cachedTeachersList);
+        const serverTeacher = (json.currentTeacher && typeof json.currentTeacher === "object")
+          ? json.currentTeacher
+          : ((json.teacherInfo && typeof json.teacherInfo === "object") ? json.teacherInfo : null);
+        applyTeacherDirectoryUpdate(json.teachersList, serverTeacher, tid);
+        if (json.config && typeof json.config === "object") {
+          saveCachedConfig(tid, json.config);
         }
         if (tid === getTeacherId()) {
-          const serverTeacher = (json.currentTeacher && typeof json.currentTeacher === "object")
-            ? json.currentTeacher
-            : ((json.teacherInfo && typeof json.teacherInfo === "object") ? json.teacherInfo : null);
-          if (serverTeacher) {
-            cachedCurrentTeacher = {
-              teacherId: String(serverTeacher.teacherId || tid).trim(),
-              schoolName: String(serverTeacher.schoolName || "").trim(),
-              teacherName: String(serverTeacher.teacherName || "").trim()
-            };
-            ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
-          } else if (tid) {
-            const matched = cachedTeachersList.find((t) => t && t.teacherId === tid);
-            if (matched) {
-              cachedCurrentTeacher = {
-                teacherId: tid,
-                schoolName: String(matched.schoolName || "").trim(),
-                teacherName: String(matched.teacherName || "").trim()
-              };
-              ls.set(TEACHER_META_KEY, cachedCurrentTeacher);
-            }
-          }
           lastGasSnapshot = json;
+          lastSnapshotTeacherKey = tid;
         }
         document.dispatchEvent(new CustomEvent("ii:gas-snapshot", { detail: { teacherId: tid, snapshot: json } }));
         return json;
@@ -983,9 +1088,9 @@
     }
   }
 
-  async function post(payload) {
+  async function post(payload, timeoutMs = GAS_TIMEOUT_MS) {
     // text/plain 可避免瀏覽器 CORS 預檢,Apps Script 才收得到
-    const r = await fetch(CFG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
+    const r = await fetchWithTimeout(CFG.API_URL, { method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }, timeoutMs);
     if (!r.ok) throw new Error("伺服器回應 " + r.status);
     return r.json();
   }
@@ -1003,6 +1108,9 @@
       return cachedTeachersList.find((t) => t && t.teacherId === tid) || null;
     },
     getTeachersList: () => cachedTeachersList.slice(),
+    getCachedConfig,
+    saveCachedConfig,
+    fetchGasBoot,
     fetchGasSnapshot,
     profile: ls.get(PROFILE, null),
 
@@ -1029,8 +1137,15 @@
             isConfirmSetup: !!isConfirmSetup
           };
           if (tid) loginPayload.teacherId = tid;
-          loginRes = await postGasJson(lbUrl, loginPayload);
+          loginRes = await postGasJson(lbUrl, loginPayload, GAS_LOGIN_TIMEOUT_MS);
         } catch (e) {
+          if (e && e.name === "AbortError") {
+            return {
+              ok: false,
+              status: "timeout",
+              msg: "⏳ 雲端伺服器回應逾時（超過 8 秒），請確認網路連線後再點擊一次重試！"
+            };
+          }
           return { ok: false, status: "network_error", msg: "無法連線至雲端驗證伺服器：" + e.message };
         }
 
@@ -1062,9 +1177,14 @@
 
       if (Store.online()) {
         try {
-          const r = await post({ action: "login", ...p, ...(tid ? { teacherId: tid } : {}) });
+          const r = await post({ action: "login", ...p, ...(tid ? { teacherId: tid } : {}) }, GAS_LOGIN_TIMEOUT_MS);
           if (!r.ok) return { ok: false, msg: r.error || "登入失敗" };
-        } catch (e) { return { ok: false, msg: "無法連線到成績伺服器:" + e.message }; }
+        } catch (e) {
+          if (e && e.name === "AbortError") {
+            return { ok: false, status: "timeout", msg: "⏳ 成績伺服器回應逾時（超過 8 秒），請稍候重試！" };
+          }
+          return { ok: false, msg: "無法連線到成績伺服器:" + e.message };
+        }
       }
 
       const prevProfile = Store.profile;
