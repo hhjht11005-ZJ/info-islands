@@ -342,7 +342,7 @@
         <div class="citadel-ceremony-crest">✨🏛️✨</div>
         <h2 id="citadelModalTitle">天穹結界解除儀式！</h2>
         <p>${access.allSevenAt80
-          ? "七大知識領域智慧結晶已全部匯聚完畢！全息機關守衛．阿爾法已降下能量護盾，彩虹星光天橋為你正式敞開！"
+          ? "七大知識領域智慧結晶已全部匯聚完畢！全息機關守衛．阿爾法已降下能量護盾，島下垂直傳送光束與懸空星階已為你正式啟動！"
           : "教師已啟動「課堂演示／競賽培訓模式」，全息機關守衛．阿爾法已臨時敞開天穹傳送拱門！"}</p>
         <button type="button" class="citadel-enter-btn" id="citadelEnterHallsBtn">🚀 踏入天穹試煉雙殿堂</button>
       </div>

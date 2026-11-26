@@ -6697,28 +6697,28 @@
   const barrierInnerMesh = new THREE.Mesh(new THREE.IcosahedronGeometry(10.35, 1), barrierInnerMat);
   citadelBarrierGroup.add(barrierInnerMesh);
 
-  // 6) 解封狀態：彩虹星光天橋（從中央海域水面斜向延伸至浮島入口，無 PointLight）
-  const skybridgeGroup = new THREE.Group();
-  skybridgeGroup.name = "citadelSkybridge";
-  skybridgeGroup.visible = false;
-  scene.add(skybridgeGroup);
+  // 6) 解封狀態：島下垂直傳送光束 ＋ 環繞懸空星階（完全位於浮島正下方垂直軸線，與中央迷霧神秘礁岩零重疊，無 PointLight）
+  const citadelAscensionGroup = new THREE.Group();
+  citadelAscensionGroup.name = "citadelAscensionGroup";
+  citadelAscensionGroup.position.set(CITADEL_BASE_POS.x, 0, CITADEL_BASE_POS.z);
+  citadelAscensionGroup.userData = { isAetherCitadel: true };
+  citadelAscensionGroup.visible = false;
+  scene.add(citadelAscensionGroup);
 
-  function createRainbowBridgeTexture() {
+  function createVerticalBeamTexture(topRgba, midRgba, botRgba) {
     const cv = document.createElement("canvas");
-    cv.width = 256;
-    cv.height = 64;
+    cv.width = 64;
+    cv.height = 256;
     const ctx = cv.getContext("2d");
-    const g = ctx.createLinearGradient(0, 0, 256, 0);
-    g.addColorStop(0.0, "rgba(56, 189, 248, 0.9)");
-    g.addColorStop(0.32, "rgba(103, 232, 249, 0.95)");
-    g.addColorStop(0.65, "rgba(253, 224, 71, 0.95)");
-    g.addColorStop(1.0, "rgba(244, 114, 182, 0.9)");
+    const g = ctx.createLinearGradient(0, 0, 0, 256);
+    g.addColorStop(0.0, topRgba);
+    g.addColorStop(0.45, midRgba);
+    g.addColorStop(1.0, botRgba);
     ctx.fillStyle = g;
-    ctx.fillRect(0, 0, 256, 64);
-    // 細緻星塵橫紋增強流動光帶感
-    ctx.fillStyle = "rgba(255, 255, 255, 0.35)";
-    for (let sx = 10; sx < 256; sx += 24) {
-      ctx.fillRect(sx, 6, 8, 52);
+    ctx.fillRect(0, 0, 64, 256);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
+    for (let sx = 6; sx < 64; sx += 16) {
+      ctx.fillRect(sx, 0, 3, 256);
     }
     const tex = new THREE.CanvasTexture(cv);
     tex.wrapS = THREE.RepeatWrapping;
@@ -6726,79 +6726,147 @@
     tex.minFilter = THREE.LinearFilter;
     return tex;
   }
-  const skybridgeTex = createRainbowBridgeTexture();
-  const bridgeCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(-10.5, 0.48, -21.0),
-    new THREE.Vector3(-3.5, 5.6, -20.2),
-    new THREE.Vector3(5.5, 13.5, -19.2),
-    new THREE.Vector3(CITADEL_BASE_POS.x, CITADEL_BASE_POS.y + 0.55, CITADEL_BASE_POS.z + 6.9)
-  ]);
 
-  // 建置斜向半透明緞帶曲面（沿曲線左右展寬）
-  function buildBridgeRibbonGeo(curve, segments = 28, halfWidth = 1.45) {
-    const pts = curve.getPoints(segments);
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-    for (let i = 0; i <= segments; i++) {
-      const p = pts[i];
-      const tan = curve.getTangent(i / segments).normalize();
-      const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize().multiplyScalar(halfWidth);
-      positions.push(p.x - side.x, p.y - side.y, p.z - side.z);
-      positions.push(p.x + side.x, p.y + side.y, p.z + side.z);
-      const u = i / segments;
-      uvs.push(u, 0, u, 1);
-      if (i < segments) {
-        const a = i * 2, b = i * 2 + 1, c = i * 2 + 2, d = i * 2 + 3;
-        indices.push(a, b, c, b, d, c);
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-    g.setIndex(indices);
-    g.computeVertexNormals();
-    return g;
-  }
-
-  const skybridgeDeckMat = new THREE.MeshBasicMaterial({
-    map: skybridgeTex,
+  // 內層核心光束：較細、亮度較高的金青色半透明光柱（y: 0.1 ~ 17.6，貫穿至浮島底部水晶簇）
+  const citadelBeamHeight = 17.5;
+  const citadelInnerBeamTex = createVerticalBeamTexture(
+    "rgba(253, 224, 71, 0.92)",
+    "rgba(103, 232, 249, 0.95)",
+    "rgba(56, 189, 248, 0.45)"
+  );
+  const citadelInnerBeamMat = new THREE.MeshBasicMaterial({
+    map: citadelInnerBeamTex,
     transparent: true,
-    opacity: 0.76,
+    opacity: 0.35,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
     fog: false
   });
-  const skybridgeDeck = new THREE.Mesh(buildBridgeRibbonGeo(bridgeCurve, 28, 1.45), skybridgeDeckMat);
-  skybridgeDeck.renderOrder = 4;
-  skybridgeGroup.add(skybridgeDeck);
+  const citadelInnerBeamMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.18, 1.88, citadelBeamHeight, 24, 1, true),
+    citadelInnerBeamMat
+  );
+  citadelInnerBeamMesh.position.y = 0.1 + citadelBeamHeight / 2;
+  citadelInnerBeamMesh.renderOrder = 4;
+  citadelAscensionGroup.add(citadelInnerBeamMesh);
 
-  const skybridgeRailMat = new THREE.MeshBasicMaterial({
-    color: 0xffe066,
+  // 外層柔光光暈：略寬的淡青紫色光幕
+  const citadelOuterBeamTex = createVerticalBeamTexture(
+    "rgba(167, 139, 250, 0.72)",
+    "rgba(56, 189, 248, 0.85)",
+    "rgba(129, 140, 248, 0.25)"
+  );
+  const citadelOuterBeamMat = new THREE.MeshBasicMaterial({
+    map: citadelOuterBeamTex,
     transparent: true,
-    opacity: 0.82,
+    opacity: 0.16,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
+    side: THREE.DoubleSide,
     fog: false
   });
-  const skybridgeSpine = new THREE.Mesh(new THREE.TubeGeometry(bridgeCurve, 28, 0.11, 6, false), skybridgeRailMat);
-  skybridgeGroup.add(skybridgeSpine);
+  const citadelOuterBeamMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(2.35, 3.25, citadelBeamHeight, 24, 1, true),
+    citadelOuterBeamMat
+  );
+  citadelOuterBeamMesh.position.y = 0.1 + citadelBeamHeight / 2;
+  citadelOuterBeamMesh.renderOrder = 3;
+  citadelAscensionGroup.add(citadelOuterBeamMesh);
 
-  const bridgeAnchorRing = new THREE.Mesh(
-    new THREE.RingGeometry(1.8, 2.7, 24),
-    new THREE.MeshBasicMaterial({
-      color: 0x67e8f9,
+  // 海面光波擴散環（位於光束接觸海面的 y=0.15 處）
+  const citadelRippleRings = [];
+  const citadelRippleSpecs = [
+    { inner: 2.0, outer: 2.55, color: 0x67e8f9, y: 0.15, phase: 0.0 },
+    { inner: 2.8, outer: 3.35, color: 0xfde047, y: 0.16, phase: 0.5 }
+  ];
+  citadelRippleSpecs.forEach((sp) => {
+    const rMat = new THREE.MeshBasicMaterial({
+      color: sp.color,
       transparent: true,
-      opacity: 0.75,
+      opacity: 0.65,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
-      side: THREE.DoubleSide
-    })
-  );
-  bridgeAnchorRing.rotation.x = -Math.PI / 2;
-  bridgeAnchorRing.position.set(-10.5, 0.42, -21.0);
-  skybridgeGroup.add(bridgeAnchorRing);
+      side: THREE.DoubleSide,
+      fog: false
+    });
+    const rMesh = new THREE.Mesh(new THREE.RingGeometry(sp.inner, sp.outer, 32), rMat);
+    rMesh.rotation.x = -Math.PI / 2;
+    rMesh.position.y = sp.y;
+    rMesh.userData.phase = sp.phase;
+    citadelAscensionGroup.add(rMesh);
+    citadelRippleRings.push(rMesh);
+  });
+
+  // 光束內 2 個水平能量環（由 y=1 循環攀升至 y=17 後重置）
+  const citadelAscendRings = [];
+  const citadelAscendRingGeo = new THREE.TorusGeometry(1.75, 0.085, 8, 32);
+  [0.0, 0.5].forEach((phase, idx) => {
+    const aMat = new THREE.MeshBasicMaterial({
+      color: idx === 0 ? 0xfde047 : 0x67e8f9,
+      transparent: true,
+      opacity: 0.78,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const aRing = new THREE.Mesh(citadelAscendRingGeo, aMat);
+    aRing.rotation.x = Math.PI / 2;
+    aRing.position.y = 1 + phase * 16;
+    aRing.userData.phase = phase;
+    citadelAscensionGroup.add(aRing);
+    citadelAscendRings.push(aRing);
+  });
+
+  // 環繞懸空星階（7 階發光晶石台階，沿光束外圍螺旋上升至浮島神殿入口）
+  const citadelSpiralSteps = [];
+  const sharedCitadelStepCoreGeo = new THREE.CylinderGeometry(1.12, 0.94, 0.34, 6);
+  const sharedCitadelStepTrimGeo = new THREE.CylinderGeometry(1.24, 1.06, 0.16, 6);
+  const sharedCitadelStepPadGeo = new THREE.CylinderGeometry(0.76, 0.76, 0.05, 6);
+  const citadelStepCoreMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    emissive: 0x0e7490,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
+    metalness: 0.55
+  });
+  const citadelStepTrimMat = new THREE.MeshStandardMaterial({
+    color: 0xfde047,
+    emissive: 0x38bdf8,
+    emissiveIntensity: 1.2,
+    roughness: 0.25,
+    metalness: 0.3
+  });
+  const citadelStepPadMat = new THREE.MeshStandardMaterial({
+    color: 0x67e8f9,
+    emissive: 0xfacc15,
+    emissiveIntensity: 0.85,
+    roughness: 0.2,
+    transparent: true,
+    opacity: 0.9
+  });
+
+  for (let i = 0; i < 7; i++) {
+    const u = i / 6;
+    const stepAng = -Math.PI * 0.6 + u * (Math.PI * 1.1);
+    const stepRadius = 4.4 + u * 2.55;
+    const stepBaseY = 1.6 + i * 2.55;
+
+    const stepGroup = new THREE.Group();
+    stepGroup.position.set(Math.cos(stepAng) * stepRadius, stepBaseY, Math.sin(stepAng) * stepRadius);
+    stepGroup.rotation.y = -stepAng + Math.PI / 2;
+    stepGroup.userData = { baseY: stepBaseY, index: i, isAetherCitadel: true };
+
+    const core = new THREE.Mesh(sharedCitadelStepCoreGeo, citadelStepCoreMat);
+    const trim = new THREE.Mesh(sharedCitadelStepTrimGeo, citadelStepTrimMat);
+    trim.position.y = 0.04;
+    const pad = new THREE.Mesh(sharedCitadelStepPadGeo, citadelStepPadMat);
+    pad.position.y = 0.18;
+    stepGroup.add(core, trim, pad);
+
+    citadelAscensionGroup.add(stepGroup);
+    citadelSpiralSteps.push(stepGroup);
+  }
 
   // 7) 射線碰撞體與懸浮名牌
   const citadelHitMesh = new THREE.Mesh(
@@ -6832,7 +6900,7 @@
     citadelState.metCount = Number(access.metCount) || 0;
 
     citadelBarrierGroup.visible = !citadelState.unlocked;
-    skybridgeGroup.visible = citadelState.unlocked;
+    citadelAscensionGroup.visible = citadelState.unlocked;
     citadelPortalMesh.visible = citadelState.unlocked;
 
     if (citadelState.unlocked) {
@@ -12575,7 +12643,7 @@
   function isAetherCitadelHit(object3d) {
     let cur = object3d;
     while (cur) {
-      if (cur === aetherCitadelGroup || (cur.userData && cur.userData.isAetherCitadel)) {
+      if (cur === aetherCitadelGroup || cur === citadelAscensionGroup || (cur.userData && cur.userData.isAetherCitadel)) {
         return true;
       }
       cur = cur.parent;
@@ -12604,11 +12672,11 @@
       }
     }
 
-    // 2. 偵測天穹試煉浮島、7 大主課程島嶼、中央聖殿島與 7 座主題 NPC 島
-    const hits = raycaster.intersectObjects(
-      [aetherCitadelGroup, ...islandsGroup.children, mysteryReefGroup, ...npcIsletGroup.children],
-      true
-    );
+    // 2. 偵測天穹試煉浮島（含解封後之島下光束與懸空星階）、7 大主課程島嶼、中央聖殿島與 7 座主題 NPC 島
+    const pickRoots = citadelAscensionGroup.visible
+      ? [aetherCitadelGroup, citadelAscensionGroup, ...islandsGroup.children, mysteryReefGroup, ...npcIsletGroup.children]
+      : [aetherCitadelGroup, ...islandsGroup.children, mysteryReefGroup, ...npcIsletGroup.children];
+    const hits = raycaster.intersectObjects(pickRoots, true);
     const hasCitadelHit = hits.some((h) => isAetherCitadelHit(h.object));
     for (let i = 0; i < hits.length; i++) {
       const obj = hits[i].object;
@@ -14131,7 +14199,7 @@
     updateTargetIslandBeacon(t);
     updatePlayerCursor(t, dt);
 
-    // 更新【天穹試煉浮島】輕量級漂浮律動、星軌反向自轉、護罩／傳送門／彩虹天橋流動
+    // 更新【天穹試煉浮島】輕量級漂浮律動、星軌反向自轉、護罩／傳送門／島下光束與懸空星階
     if (aetherCitadelGroup) {
       aetherCitadelGroup.position.y = CITADEL_BASE_POS.y + Math.sin(t * 1.2) * 0.45;
       const targetCitScale = hoveredAetherCitadel ? 1.04 : 1.0;
@@ -14154,9 +14222,34 @@
         citadelPortalMesh.rotation.z = t * 0.8;
         portalMat.opacity = 0.72 + Math.sin(t * 3.0) * 0.16;
       }
-      if (skybridgeGroup.visible) {
-        skybridgeTex.offset.x = -(t * 0.28) % 1;
-        bridgeAnchorRing.rotation.z = t * 0.6;
+      if (citadelAscensionGroup.visible) {
+        citadelInnerBeamTex.offset.x = (t * 0.16) % 1;
+        citadelOuterBeamTex.offset.x = -(t * 0.1) % 1;
+        citadelInnerBeamMesh.rotation.y = t * 0.35;
+        citadelOuterBeamMesh.rotation.y = -t * 0.2;
+
+        for (let rIdx = 0; rIdx < citadelRippleRings.length; rIdx++) {
+          const rMesh = citadelRippleRings[rIdx];
+          const p = (t * 0.42 + rMesh.userData.phase) % 1;
+          const sc = 0.85 + p * 0.72;
+          rMesh.scale.set(sc, sc, 1);
+          rMesh.material.opacity = (1 - p) * 0.68;
+        }
+
+        for (let aIdx = 0; aIdx < citadelAscendRings.length; aIdx++) {
+          const aRing = citadelAscendRings[aIdx];
+          const p = (t * 0.32 + aRing.userData.phase) % 1;
+          aRing.position.y = 1 + p * 16;
+          const rScale = 1.08 - p * 0.36;
+          aRing.scale.set(rScale, rScale, 1);
+          const edgeFade = Math.sin(p * Math.PI);
+          aRing.material.opacity = 0.25 + edgeFade * 0.65;
+        }
+
+        for (let sIdx = 0; sIdx < citadelSpiralSteps.length; sIdx++) {
+          const st = citadelSpiralSteps[sIdx];
+          st.position.y = st.userData.baseY + Math.sin(t * 2.0 + st.userData.index * 0.8) * 0.25;
+        }
       }
     }
 
@@ -15308,6 +15401,7 @@
     flyToIsland,
     syncCitadelState: syncCitadelVisualState,
     aetherCitadelGroup,
+    citadelAscensionGroup,
     citadelState,
     scene,
     camera,
