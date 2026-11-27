@@ -6655,6 +6655,165 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   border-color: rgba(248, 113, 113, 0.65);
   color: #fecaca;
 }
+
+/* 手機操作：讓彈窗可隨視窗與鍵盤捲動，保留清楚的表單對比 */
+#loginModal .passport-ticket label {
+  color: #334155;
+}
+#loginModal .passport-ticket select,
+#loginModal .passport-ticket input[type="text"],
+#loginModal .passport-ticket input[type="password"] {
+  background: #fff;
+  color: #0f172a;
+  border-color: #b8aa91;
+}
+#loginModal .passport-ticket select:disabled {
+  color: #475569;
+  background: #e2e8f0;
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  .tc-cockpit.show {
+    padding: 0;
+    align-items: stretch;
+    justify-content: flex-start;
+  }
+  .tc-shell {
+    width: 100%;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: max(8px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+  .tc-topbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    flex: 0 1 auto;
+    max-height: 31dvh;
+    overflow-y: auto;
+    padding: 8px;
+    gap: 8px;
+  }
+  .tc-top-left,
+  .tc-top-right { gap: 6px; }
+  .tc-stage-remote {
+    width: 100%;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tc-stage-remote > * { flex: 0 0 auto; }
+  .tc-stage-remote .tc-citadel-toggle { max-width: 240px; white-space: normal; }
+  .tc-share-bar { max-height: 19dvh; overflow-y: auto; }
+  .tc-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tc-tab { flex: 0 0 auto; white-space: nowrap; padding: 8px 10px; font-size: 0.82rem; }
+  .tc-main,
+  .tc-main.tc-main-comp { flex: 1 1 auto; min-height: 120px; overflow-y: auto; }
+
+  #loginModal.show {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: max(10px, env(safe-area-inset-top)) 10px max(18px, env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
+  #loginModal .modal.login.passport-ticket {
+    width: 100%;
+    max-height: none;
+    overflow: visible;
+    margin: auto 0;
+    border-radius: 20px;
+  }
+  #loginModal .passport-stub { padding: 14px 16px 10px; gap: 5px; }
+  #loginModal .stub-emblem,
+  #loginModal .vintage-stamp,
+  #loginModal .stub-barcode { display: none; }
+  #loginModal .passport-stub h2 { margin: 3px 0; font-size: 1.25rem; }
+  #loginModal .passport-stub .sub { margin: 0; }
+  #loginModal .passport-body { padding: 14px 16px 18px; }
+  #loginModal .passport-body-head { margin-bottom: 10px; }
+  #loginModal select,
+  #loginModal input,
+  #tcAuthModal input,
+  #tcAuthModal select { font-size: 16px; }
+
+  #quizModal.show { align-items: flex-start; }
+  #quizModal .modal.quiz {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100dvh - 20px);
+  }
+  #quizModal #quizBody { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  #quizModal .q-head { flex: 0 0 auto; }
+  #quizModal .q-pad { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; }
+
+  .modal.lb-modal { max-height: calc(100dvh - 24px); }
+  .lb-banner { padding: 10px 42px 10px 12px; }
+  .lb-kicker { font-size: 0.63rem; margin-bottom: 2px; }
+  .lb-title-group h2 { font-size: 1.05rem; }
+  .lb-title-group p { display: none; }
+  .lb-banner-row { gap: 4px; }
+  .lb-to-result-btn { padding: 4px 10px; font-size: 0.75rem; }
+  .lb-scope-bar { padding: 6px 10px 4px; gap: 6px; }
+  .lb-scope-tab { padding: 6px 4px; font-size: 0.78rem; }
+  .lb-toolbar { display: block; padding: 5px 10px; }
+  .lb-tabs { display: flex; justify-content: space-around; }
+  .lb-tab { padding: 5px 7px; font-size: 0.78rem; }
+  .lb-rule-pill { display: none; }
+  .lb-chase-banner { padding: 7px 10px; gap: 2px; }
+  .lb-chase-top { font-size: 0.72rem; gap: 2px; }
+  .lb-chase-slogan { font-size: 0.78rem; }
+  .lb-chase-slogan b { font-size: 0.82rem; }
+  .lb-list-wrap { min-height: 150px; }
+  .lb-col-head,
+  .lb-row { grid-template-columns: 46px minmax(0, 1fr) 42px 52px; gap: 4px; }
+  .lb-col-head { padding: 0 4px 6px; font-size: 0.64rem; }
+  .lb-row { padding: 8px 5px; }
+  .lb-rank { padding: 3px 4px; font-size: 0.68rem; }
+  .lb-cell-who { gap: 4px; }
+  .lb-avatar { width: 26px; height: 26px; flex-basis: 26px; }
+  .lb-who-meta { gap: 2px; }
+  .lb-who-text { font-size: 0.76rem; overflow-wrap: anywhere; }
+  .lb-crown-pill { padding: 2px 3px; font-size: 0.7rem; }
+  .lb-cell-score b { font-size: 0.78rem; }
+  .lb-cell-score small { font-size: 0.6rem; }
+
+  #viewMap .map-wrap.fallback-2d {
+    overflow: auto;
+    padding: 48px 0 76px;
+    box-sizing: border-box;
+    pointer-events: auto;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
+  }
+  #viewMap .map-wrap.fallback-2d #map {
+    display: block;
+    width: 900px;
+    min-width: 900px;
+    height: 675px;
+    pointer-events: auto;
+  }
+  #viewMap .map-wrap.fallback-2d .route-toggle { top: 50px; left: 10px; }
+}
+
+@media (max-width: 359px) {
+  .top .brand { padding: 6px 8px; }
+  .top .brand h1 { font-size: 0.75rem; }
+  .mobile-top-actions .leaderboard-btn { font-size: 0; padding: 7px 8px; }
+  .mobile-top-actions .leaderboard-btn::after { content: "🏅 榜單"; font-size: 0.75rem; }
+  .mobile-tools-toggle { font-size: 0 !important; padding: 6px 9px !important; }
+  .mobile-tools-toggle::after { content: "☰"; font-size: 1rem; }
+}
 .mlab-loading-card.is-error p,
 .citadel-loading-box.is-error p {
   margin: 0 0 12px;
