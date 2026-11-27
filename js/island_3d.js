@@ -646,16 +646,16 @@
     foundLine: new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.75 }),
     signPost: SM(0x784a25),
     signBoards: [
-      ["🚧 基礎建置", "完成度 0%～33%", "第 1 階段主建築"],
+      ["🚧 基礎建置", "完成度達 1%", "解鎖第 1 階段主建築"],
       ["🚧 擴建準備中", "完成度達 34%", "解鎖第 2 階段雙翼"],
       ["🚧 即將竣工", "完成度達 67%", "解鎖第 3 階段榮耀"]
     ].map((lines) => stageCanvasMat((x, w, h) => {
       x.fillStyle = "#f3d9a4"; x.fillRect(0, 0, w, h);
       x.strokeStyle = "#8b5a2b"; x.lineWidth = 8; x.strokeRect(4, 4, w - 8, h - 8);
       x.fillStyle = "#5a3a14"; x.textAlign = "center"; x.textBaseline = "middle";
-      x.font = "bold 40px sans-serif"; x.fillText(lines[0], w / 2, 52);
-      x.font = "bold 30px sans-serif"; x.fillText(lines[1], w / 2, 112);
-      x.font = "26px sans-serif"; x.fillText(lines[2], w / 2, 160);
+      x.font = "bold 40px 'Noto Sans TC', sans-serif"; x.fillText(lines[0], w / 2, 52);
+      x.font = "bold 30px 'Noto Sans TC', sans-serif"; x.fillText(lines[1], w / 2, 112);
+      x.font = "26px 'Noto Sans TC', sans-serif"; x.fillText(lines[2], w / 2, 160);
     }, 384, 200))
   };
 
@@ -2845,11 +2845,11 @@
     const yardGlow = makeGroundGlowPlane(4.8, 4.2, 0xffcf6b, 0.035);
     yard.add(yardGlow.mesh);
 
-    // ---- 組裝三個階段群組（皆位於草皮頂面 y = STAGE_BASE_Y；預設僅顯示第一階段，tier2/tier3 預設隱藏）----
+    // ---- 組裝三個階段群組（皆位於草皮頂面 y = STAGE_BASE_Y；初始化預設皆為隱藏 visible = false，完成度 >= 1% 才顯示第一階段）----
     const stage1Group = grp(null, 0, STAGE_BASE_Y, 0); stage1Group.name = "tier1Group"; stage1Group.add(s1);
     const stage2Group = grp(null, 0, STAGE_BASE_Y, 0); stage2Group.name = "tier2Group"; stage2Group.add(wingL, wingR);
     const stage3Group = grp(null, 0, STAGE_BASE_Y, 0); stage3Group.name = "tier3Group"; stage3Group.add(crown, yard);
-    stage1Group.visible = true;
+    stage1Group.visible = false;
     stage2Group.visible = false;
     stage3Group.visible = false;
 
@@ -2984,7 +2984,7 @@
       tier2Group: stage2Group,
       tier3Group: stage3Group,
       stage1Group, stage2Group, stage3Group, foundation, stageAuraGroup,
-      stage: 1,
+      stage: 0,
       setStage(n, animate) {
         n = Math.max(0, Math.min(3, n | 0));
         const prev = api.stage;
@@ -2998,15 +2998,16 @@
             if (isNew) { c.scale.setScalar(0.001); bounces.push({ obj: c, start: performance.now() + i * 120, dur: 900 }); }
           });
         });
+        foundation.visible = n >= 1;
         fMain.visible = n < 1;
-        fWings.forEach((f) => { f.visible = n < 2; });
-        fYard.visible = n < 3;
-        sign.visible = n < 3;
+        fWings.forEach((f) => { f.visible = n >= 1 && n < 2; });
+        fYard.visible = n >= 1 && n < 3;
+        sign.visible = n >= 1 && n < 3;
         board.material = M.signBoards[Math.min(2, n)];
         api.stage = n;
       }
     };
-    api.setStage(1, false);
+    api.setStage(0, false);
     return api;
   }
 
@@ -14412,12 +14413,13 @@
   }
 
   /* ============================================================
-   * 8. 島嶼建築三階段顯示控制與升級彈跳動畫 (Scale Bounce)
+   * 8. 島嶼建築四階段顯示控制與升級彈跳動畫 (Scale Bounce)
    * ------------------------------------------------------------
    * 統一呼叫全站權威 window.calculateIslandCompletion(islandId, progress)：
-   * - 第一階段（0%  ～ 33%） -> Lv.1 (tier1Group=true, tier2Group=false, tier3Group=false)
-   * - 第二階段（34% ～ 66%） -> Lv.2 (tier1Group=true, tier2Group=true,  tier3Group=false)
-   * - 第三階段（67% ～100%） -> Lv.3 (tier1Group=true, tier2Group=true,  tier3Group=true)
+   * - 原始自然島（0%）        -> Lv.0 (tier1Group=false, tier2Group=false, tier3Group=false)
+   * - 第一階段（1%  ～ 33%）  -> Lv.1 (tier1Group=true,  tier2Group=false, tier3Group=false)
+   * - 第二階段（34% ～ 66%）  -> Lv.2 (tier1Group=true,  tier2Group=true,  tier3Group=false)
+   * - 第三階段（67% ～ 100%） -> Lv.3 (tier1Group=true,  tier2Group=true,  tier3Group=true)
    * ============================================================ */
   const activeBounceAnims = [];
   const pendingUpgradeReplays = [];
@@ -14430,7 +14432,8 @@
     const p = Math.max(0, Math.min(100, Number(pct) || 0));
     if (p >= 67) return 3;
     if (p >= 34) return 2;
-    return 1;
+    if (p >= 1) return 1;
+    return 0;
   }
 
   function triggerIslandScaleBounce(rec, fromLevel = 0, toLevel = rec.currentLevel || 1) {
@@ -14568,10 +14571,11 @@
 
   /**
    * 統一透過全站權威函式 window.calculateIslandCompletion(islandId, progress)
-   * 計算七大島嶼完成度百分比並嚴格套用三階段建築顯示規則：
-   * - 第一階段（0%  ～ 33%）：tier1Group=true,  tier2Group=false, tier3Group=false
-   * - 第二階段（34% ～ 66%）：tier1Group=true,  tier2Group=true,  tier3Group=false
-   * - 第三階段（67% ～100%）：tier1Group=true,  tier2Group=true,  tier3Group=true
+   * 計算七大島嶼完成度百分比並嚴格套用四段式建築顯示規則：
+   * - 0%（原始地形）：tier1Group=false, tier2Group=false, tier3Group=false
+   * - 1% ～ 33%    ：tier1Group=true,  tier2Group=false, tier3Group=false
+   * - 34% ～ 66%   ：tier1Group=true,  tier2Group=true,  tier3Group=false
+   * - 67% ～ 100%  ：tier1Group=true,  tier2Group=true,  tier3Group=true
    * 同步更新中央聖殿島 7 根封印石柱光芒、懸浮名牌與天穹結界狀態。
    */
   let grandFinalePreview = false;
@@ -14789,7 +14793,7 @@
   };
 
   function computeIslandStage(rec) {
-    if (!rec) return 1;
+    if (!rec) return 0;
     if (stageDebug.override !== null) return Math.max(0, Math.min(3, Math.floor(stageDebug.override)));
     if (grandFinalePreview) return 3;
     const sourceState = (window.Store && window.Store.profile && typeof window.Store.events === "function")
@@ -14806,7 +14810,7 @@
     const summary = updateAllIslandArchitectures({ animateUpgrade: animate });
     const result = {};
     islandRecords.forEach((rec) => {
-      result[rec.id] = summary[rec.id] ? summary[rec.id].level : (rec.stageLevel ?? 1);
+      result[rec.id] = summary[rec.id] ? summary[rec.id].level : (rec.stageLevel ?? 0);
     });
     return result;
   };
