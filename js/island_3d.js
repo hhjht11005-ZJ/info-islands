@@ -646,9 +646,9 @@
     foundLine: new THREE.LineBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 0.75 }),
     signPost: SM(0x784a25),
     signBoards: [
-      ["🚧 建造中", "「易」測驗 100 分", "解鎖 1/3 主建築"],
-      ["🚧 擴建中", "「中」測驗 100 分", "解鎖 2/3 左右雙翼"],
-      ["🚧 即將竣工", "「難」測驗 100 分", "解鎖 3/3 榮耀冠冕"]
+      ["🚧 基礎建置", "完成度 0%～33%", "第 1 階段主建築"],
+      ["🚧 擴建準備中", "完成度達 34%", "解鎖第 2 階段雙翼"],
+      ["🚧 即將竣工", "完成度達 67%", "解鎖第 3 階段榮耀"]
     ].map((lines) => stageCanvasMat((x, w, h) => {
       x.fillStyle = "#f3d9a4"; x.fillRect(0, 0, w, h);
       x.strokeStyle = "#8b5a2b"; x.lineWidth = 8; x.strokeRect(4, 4, w - 8, h - 8);
@@ -2845,11 +2845,13 @@
     const yardGlow = makeGroundGlowPlane(4.8, 4.2, 0xffcf6b, 0.035);
     yard.add(yardGlow.mesh);
 
-    // ---- 組裝三個階段群組（皆位於草皮頂面 y = STAGE_BASE_Y，初始隱藏）----
-    const stage1Group = grp(null, 0, STAGE_BASE_Y, 0); stage1Group.name = "stage1Group"; stage1Group.add(s1);
-    const stage2Group = grp(null, 0, STAGE_BASE_Y, 0); stage2Group.name = "stage2Group"; stage2Group.add(wingL, wingR);
-    const stage3Group = grp(null, 0, STAGE_BASE_Y, 0); stage3Group.name = "stage3Group"; stage3Group.add(crown, yard);
-    [stage1Group, stage2Group, stage3Group].forEach((g) => { g.visible = false; });
+    // ---- 組裝三個階段群組（皆位於草皮頂面 y = STAGE_BASE_Y；預設僅顯示第一階段，tier2/tier3 預設隱藏）----
+    const stage1Group = grp(null, 0, STAGE_BASE_Y, 0); stage1Group.name = "tier1Group"; stage1Group.add(s1);
+    const stage2Group = grp(null, 0, STAGE_BASE_Y, 0); stage2Group.name = "tier2Group"; stage2Group.add(wingL, wingR);
+    const stage3Group = grp(null, 0, STAGE_BASE_Y, 0); stage3Group.name = "tier3Group"; stage3Group.add(crown, yard);
+    stage1Group.visible = true;
+    stage2Group.visible = false;
+    stage3Group.visible = false;
 
     // ---- 2/3 & 3/3 高階段解鎖夜間能量流光環與向上微光光束 ----
     const stageAuraGroup = grp(null, 0, STAGE_BASE_Y, -3.5);
@@ -2908,10 +2910,10 @@
     nightGlowUpdaters.push((nb, t) => {
       const df = stageAuraGroup.userData.dimFactor ?? 1;
       const showBase = nb > 0.01;
-      s1GroundGlow.mesh.visible = showBase;
-      wingLGlow.mesh.visible = showBase;
-      wingRGlow.mesh.visible = showBase;
-      yardGlow.mesh.visible = showBase;
+      s1GroundGlow.mesh.visible = showBase && stage1Group.visible;
+      wingLGlow.mesh.visible = showBase && stage2Group.visible;
+      wingRGlow.mesh.visible = showBase && stage2Group.visible;
+      yardGlow.mesh.visible = showBase && stage3Group.visible;
       if (showBase) {
         const op = 0.44 * nb * df;
         s1GroundGlow.mat.opacity = op;
@@ -2920,7 +2922,7 @@
         yardGlow.mat.opacity = op * 0.9;
       }
 
-      const effStage = Math.max(api.stage || 0, stageAuraGroup.userData.effectiveStage || 0);
+      const effStage = Number(stageAuraGroup.userData.effectiveStage ?? api.stage ?? 0);
       const showAura = nb > 0.01 && effStage >= 2;
       stageAuraGroup.visible = showAura;
       if (showAura) {
@@ -2978,8 +2980,11 @@
     });
 
     const api = {
+      tier1Group: stage1Group,
+      tier2Group: stage2Group,
+      tier3Group: stage3Group,
       stage1Group, stage2Group, stage3Group, foundation, stageAuraGroup,
-      stage: 0,
+      stage: 1,
       setStage(n, animate) {
         n = Math.max(0, Math.min(3, n | 0));
         const prev = api.stage;
@@ -3001,7 +3006,7 @@
         api.stage = n;
       }
     };
-    api.setStage(0, false);
+    api.setStage(1, false);
     return api;
   }
 
@@ -5209,11 +5214,14 @@
     // 舊四階段繁榮度小道具（帳篷、小石碑等）不再加入場景，避免與新三階段建築群重疊
     const stageSys = createIslandStageSystem(isl.id);
     islandRoot.add(stageSys.foundation);
-    islandRoot.add(stageSys.stage1Group);
-    islandRoot.add(stageSys.stage2Group);
-    islandRoot.add(stageSys.stage3Group);
+    islandRoot.add(stageSys.tier1Group);
+    islandRoot.add(stageSys.tier2Group);
+    islandRoot.add(stageSys.tier3Group);
     islandRoot.add(stageSys.stageAuraGroup);
     islandRoot.userData.stageSys = stageSys;
+    islandRoot.userData.tier1Group = stageSys.tier1Group;
+    islandRoot.userData.tier2Group = stageSys.tier2Group;
+    islandRoot.userData.tier3Group = stageSys.tier3Group;
     islandRoot.userData.level1Props = level1Props;
     islandRoot.userData.level2Props = level2Props;
     islandRoot.userData.level3Props = level3Props;
@@ -5524,6 +5532,9 @@
       level1Props,
       level2Props,
       level3Props,
+      tier1Group: stageSys.tier1Group,
+      tier2Group: stageSys.tier2Group,
+      tier3Group: stageSys.tier3Group,
       animRefs: islandAnimRefs,
       stageSys,
       stageLevel: null,
@@ -14401,12 +14412,12 @@
   }
 
   /* ============================================================
-   * 8. 島嶼建築繁榮度進度計算與升級彈跳動畫 (Scale Bounce)
+   * 8. 島嶼建築三階段顯示控制與升級彈跳動畫 (Scale Bounce)
    * ------------------------------------------------------------
-   * - 完成度 0%      -> Lv.0 (level1/2/3 皆隱藏)
-   * - 完成度 1~49%   -> Lv.1 (顯示 level1Props)
-   * - 完成度 50~99%  -> Lv.2 (顯示 level1Props, level2Props)
-   * - 完成度 100%    -> Lv.3 (顯示 level1Props, level2Props, level3Props)
+   * 統一呼叫全站權威 window.calculateIslandCompletion(islandId, progress)：
+   * - 第一階段（0%  ～ 33%） -> Lv.1 (tier1Group=true, tier2Group=false, tier3Group=false)
+   * - 第二階段（34% ～ 66%） -> Lv.2 (tier1Group=true, tier2Group=true,  tier3Group=false)
+   * - 第三階段（67% ～100%） -> Lv.3 (tier1Group=true, tier2Group=true,  tier3Group=true)
    * ============================================================ */
   const activeBounceAnims = [];
   const pendingUpgradeReplays = [];
@@ -14416,10 +14427,10 @@
   burstRingGeo.rotateX(-Math.PI / 2);
 
   function computeCompletionLevel(pct) {
-    if (pct >= 100) return 3;
-    if (pct >= 50) return 2;
-    if (pct >= 1) return 1;
-    return 0;
+    const p = Math.max(0, Math.min(100, Number(pct) || 0));
+    if (p >= 67) return 3;
+    if (p >= 34) return 2;
+    return 1;
   }
 
   function triggerIslandScaleBounce(rec, fromLevel = 0, toLevel = rec.currentLevel || 1) {
@@ -14485,7 +14496,9 @@
 
     // 支援直接傳入 { sys: 80, citizen: 100 } 形式供快速預覽或測試
     const isPlainObj = customInput && typeof customInput === "object" && !Array.isArray(customInput)
-      && !(customInput instanceof Event) && !(customInput instanceof Set) && !("animateUpgrade" in customInput);
+      && !(customInput instanceof Event) && !(customInput instanceof Set)
+      && !("animateUpgrade" in customInput) && !("animate" in customInput)
+      && !("records" in customInput) && !("progress" in customInput);
     const objKeys = isPlainObj ? Object.keys(customInput) : [];
     const isNumericOverride = objKeys.length > 0 && objKeys.every((k) => knownIds.has(k) && typeof customInput[k] === "number");
 
@@ -14554,23 +14567,31 @@
   window.triggerSanctuaryAwakening = triggerSanctuaryAwakening;
 
   /**
-   * 讀取學生的作答紀錄，計算各島完成度（0%, 1~49%, 50~99%, 100%），
-   * 動態切換各群組（level1Props, level2Props, level3Props）的 visible 屬性；
-   * 若分數使島嶼升級，觸發平滑彈跳縮放動畫（Scale Bounce）展示建築落成；
-   * 同步更新中央聖殿島 7 根封印石柱光芒，若 7 島全數 100% 則觸發終極解鎖演出。
+   * 統一透過全站權威函式 window.calculateIslandCompletion(islandId, progress)
+   * 計算七大島嶼完成度百分比並嚴格套用三階段建築顯示規則：
+   * - 第一階段（0%  ～ 33%）：tier1Group=true,  tier2Group=false, tier3Group=false
+   * - 第二階段（34% ～ 66%）：tier1Group=true,  tier2Group=true,  tier3Group=false
+   * - 第三階段（67% ～100%）：tier1Group=true,  tier2Group=true,  tier3Group=true
+   * 同步更新中央聖殿島 7 根封印石柱光芒、懸浮名牌與天穹結界狀態。
    */
   let grandFinalePreview = false;
+  const stageDebug = { override: null };
 
-  function updateIslandsProgress(optionsOrRecords) {
+  function updateAllIslandArchitectures(optionsOrRecords) {
     const isOptionsObj =
       optionsOrRecords &&
       typeof optionsOrRecords === "object" &&
       !Array.isArray(optionsOrRecords) &&
       !(optionsOrRecords instanceof Event) &&
-      ("animateUpgrade" in optionsOrRecords || "records" in optionsOrRecords);
+      !(optionsOrRecords instanceof Set) &&
+      ("animateUpgrade" in optionsOrRecords || "animate" in optionsOrRecords || "records" in optionsOrRecords || "progress" in optionsOrRecords);
 
-    const animateUpgrade = isOptionsObj ? Boolean(optionsOrRecords.animateUpgrade) : true;
-    const customRecords = isOptionsObj ? optionsOrRecords.records : optionsOrRecords;
+    const animateUpgrade = isOptionsObj
+      ? (optionsOrRecords.animate !== undefined ? Boolean(optionsOrRecords.animate) : Boolean(optionsOrRecords.animateUpgrade))
+      : true;
+    const customRecords = isOptionsObj
+      ? (optionsOrRecords.records !== undefined ? optionsOrRecords.records : optionsOrRecords.progress)
+      : optionsOrRecords;
     const previewFullMap = grandFinalePreview
       ? Object.fromEntries(islandRecords.map((r) => [r.id, 100]))
       : null;
@@ -14578,19 +14599,30 @@
 
     const summary = {};
     let fullCount = 0;
+    const hasTeacherPreviewOverride = stageDebug.override !== null && customRecords === undefined && !grandFinalePreview;
 
     islandRecords.forEach((rec, idx) => {
       const comp = completionMap[rec.id] || { percentage: 0, passedStages: 0, totalStages: (rec.sequenceLen || 0) * 3 };
       const pct = comp.percentage ?? 0;
-      const newLevel = computeCompletionLevel(pct);
+      const newLevel = hasTeacherPreviewOverride
+        ? Math.max(0, Math.min(3, Math.floor(stageDebug.override)))
+        : computeCompletionLevel(pct);
       const prevLevel = rec.currentLevel;
+      const prevStage = rec.stageLevel;
+      const shouldAnimateStage = animateUpgrade && prevStage !== null && newLevel > prevStage;
 
-      // 依完成度動態切換三個子群組 visible 屬性
+      // 依三階段門檻切換真正渲染於場景之 tier1Group / tier2Group / tier3Group
+      if (rec.stageSys && typeof rec.stageSys.setStage === "function") {
+        rec.stageSys.setStage(newLevel, shouldAnimateStage);
+      }
+      if (rec.tier1Group) rec.tier1Group.visible = newLevel >= 1;
+      if (rec.tier2Group) rec.tier2Group.visible = newLevel >= 2;
+      if (rec.tier3Group) rec.tier3Group.visible = newLevel >= 3;
+
+      // 同步舊版屬性參照以維持外部相容性
       rec.level1Props.visible = newLevel >= 1;
       rec.level2Props.visible = newLevel >= 2;
       rec.level3Props.visible = newLevel >= 3;
-
-      // 確保已顯示的群組預設縮放為 1（若接下來觸發升級動畫則會由動畫接手）
       if (newLevel >= 1 && (prevLevel === null || newLevel <= prevLevel)) {
         rec.level1Props.scale.setScalar(1);
       }
@@ -14601,17 +14633,16 @@
         rec.level3Props.scale.setScalar(1);
       }
 
-      // 更新島嶼懸浮名牌副標題（顯示繁榮度等級與唯一權威完成度）
+      // 更新島嶼懸浮名牌副標題（顯示建築階段與唯一權威完成度）
       if (rec.labelSprite && rec.labelSprite.userData && rec.labelSprite.userData.updateSubtitle) {
         rec.labelSprite.userData.updateSubtitle(`${rec.tag} · Lv.${newLevel} (${pct}% · ${comp.passedStages}/${comp.totalStages})`);
       }
 
-      // 當完成測驗、分數使島嶼升級時，觸發 Scale Bounce 彈跳縮放動畫
+      // 當完成測驗使島嶼升級時，觸發 Scale Bounce 彈跳縮放動畫
       const leveledUp = prevLevel !== null && newLevel > prevLevel;
       if (animateUpgrade && leveledUp) {
         triggerIslandScaleBounce(rec, prevLevel, newLevel);
 
-        // 若測驗彈窗或課程抽屜正開啟遮擋畫面，記錄待彈窗關閉時再次重播落成彈跳動畫
         const quizModal = document.getElementById("quizModal");
         const drawer = document.getElementById("drawer");
         const isModalOpen =
@@ -14648,11 +14679,12 @@
       }
 
       rec.currentLevel = newLevel;
+      rec.stageLevel = newLevel;
       rec.progressPct = pct;
       rec.passedStages = comp.passedStages;
       rec.totalStages = comp.totalStages;
       if (rec.stageSys && rec.stageSys.stageAuraGroup) {
-        rec.stageSys.stageAuraGroup.userData.effectiveStage = Math.max(rec.stageSys.stage || 0, newLevel || 0);
+        rec.stageSys.stageAuraGroup.userData.effectiveStage = newLevel;
       }
       summary[rec.id] = { pct, passedStages: comp.passedStages, totalStages: comp.totalStages, level: newLevel, leveledUp };
     });
@@ -14691,7 +14723,6 @@
             sanctuaryState.pendingAwakeningReplay = true;
           }
         } else {
-          // 初始載入即已全滿分：直接呈現解鎖後聖殿、散去迷霧並施放慶祝彩帶
           sanctuaryState.awakeningActive = false;
           sanctuaryState.mistDispersion = 1;
           mistGroup.visible = false;
@@ -14734,56 +14765,52 @@
     return summary;
   }
 
-  window.updateIslandsProgress = updateIslandsProgress;
+  const updateIslandsProgress = updateAllIslandArchitectures;
+  window.updateAllIslandArchitectures = updateAllIslandArchitectures;
+  window.updateIslandsProgress = updateAllIslandArchitectures;
   window.triggerIslandScaleBounce = (islandId, level) => {
     const rec = islandRecords.find((r) => r.id === islandId);
     if (!rec) return;
     if (typeof level === "number") {
       const lv = Math.max(0, Math.min(3, Math.floor(level)));
+      if (rec.stageSys && typeof rec.stageSys.setStage === "function") {
+        rec.stageSys.setStage(lv, true);
+      }
+      if (rec.tier1Group) rec.tier1Group.visible = lv >= 1;
+      if (rec.tier2Group) rec.tier2Group.visible = lv >= 2;
+      if (rec.tier3Group) rec.tier3Group.visible = lv >= 3;
       rec.level1Props.visible = lv >= 1;
       rec.level2Props.visible = lv >= 2;
       rec.level3Props.visible = lv >= 3;
       rec.currentLevel = lv;
+      rec.stageLevel = lv;
     }
     triggerIslandScaleBounce(rec, 0, rec.currentLevel || 1);
   };
 
-  // 初次載入時同步學生既有作答紀錄（不觸發升級動畫）
-  updateIslandsProgress({ animateUpgrade: false });
-
-  /* ============================================================
-   * 【易/中/難 100 分】三階段建築解鎖
-   *   易(easy)  100 → Stage 1；再加 中(medium) 100 → Stage 2；再加 難(hard) 100 → Stage 3
-   *   資料來源：Store.events()（localStorage ii:ev:*）中 type=quiz 且帶 difficulty 的紀錄（相容既有結構）
-   * ============================================================ */
-  const stageDebug = { override: null };
   function computeIslandStage(rec) {
-    const evs = window.Store && typeof window.Store.events === "function" ? window.Store.events() : [];
-    const full = { easy: false, medium: false, hard: false };
-    (Array.isArray(evs) ? evs : []).forEach((e) => {
-      if (!e || (e.type && e.type !== "quiz") || !e.difficulty || !(e.difficulty in full)) return;
-      const belongs = e.island === rec.id || (e.unit && String(e.unit).split("-")[0] === rec.id);
-      if (belongs && Number(e.score) >= 100) full[e.difficulty] = true;
-    });
-    if (!full.easy) return 0;
-    if (!full.medium) return 1;
-    return full.hard ? 3 : 2;
+    if (!rec) return 1;
+    if (stageDebug.override !== null) return Math.max(0, Math.min(3, Math.floor(stageDebug.override)));
+    if (grandFinalePreview) return 3;
+    const sourceState = (window.Store && window.Store.profile && typeof window.Store.events === "function")
+      ? window.Store.events()
+      : [];
+    const comp = typeof window.calculateIslandCompletion === "function"
+      ? window.calculateIslandCompletion(rec.id, sourceState)
+      : { percentage: 0 };
+    return computeCompletionLevel(comp ? comp.percentage : 0);
   }
+
   window.refreshIslandBuildings = function refreshIslandBuildings(opts) {
     const animate = !(opts && opts.animate === false);
+    const summary = updateAllIslandArchitectures({ animateUpgrade: animate });
     const result = {};
     islandRecords.forEach((rec) => {
-      const target = stageDebug.override !== null ? stageDebug.override : computeIslandStage(rec);
-      const prev = rec.stageLevel;
-      rec.stageSys.setStage(target, animate && prev !== null && target > prev);
-      rec.stageLevel = target;
-      if (rec.stageSys && rec.stageSys.stageAuraGroup) {
-        rec.stageSys.stageAuraGroup.userData.effectiveStage = Math.max(target || 0, rec.currentLevel || 0);
-      }
-      result[rec.id] = target;
+      result[rec.id] = summary[rec.id] ? summary[rec.id].level : (rec.stageLevel ?? 1);
     });
     return result;
   };
+
   /**
    * 老師 / 開發者 Console 預覽指令（同時支援單數 previewAllStage 與複數 previewAllStages）：
    *   previewAllStage(0|1|2|3) → 七大島嶼切換至 Stage 0~3，中央神殿維持常態（關閉終極特效）
@@ -14796,7 +14823,6 @@
       stageDebug.override = null;
       grandFinalePreview = false;
       const buildingSummary = window.refreshIslandBuildings({ animate: true });
-      updateIslandsProgress({ animateUpgrade: false });
       if (prevWasFinale) resetCameraToPanorama();
       console.log("[previewAllStage] 已還原為實際測驗成績");
       return { mode: "auto", grandFinale: false, stages: buildingSummary };
@@ -14813,7 +14839,6 @@
       stageDebug.override = 3;
       grandFinalePreview = true;
       const buildingSummary = window.refreshIslandBuildings({ animate: true });
-      updateIslandsProgress({ animateUpgrade: true });
       focusOnGrandFinale();
       console.log("[previewAllStage] Stage 4 終極滿分大通關已啟動（全島 3/3 ＋ 中央神殿榮耀狀態，previewAllStage() 還原）");
       return { mode: 4, grandFinale: true, stages: buildingSummary };
@@ -14822,7 +14847,6 @@
     stageDebug.override = stageInt;
     grandFinalePreview = false;
     const buildingSummary = window.refreshIslandBuildings({ animate: true });
-    updateIslandsProgress({ animateUpgrade: false });
     // Stage 0~3 預覽時強制中央神殿維持常態並關閉終極特效
     finaleEffectsGroup.visible = false;
     confettiGroup.visible = false;
@@ -14831,7 +14855,6 @@
     return { mode: stageInt, grandFinale: false, stages: buildingSummary };
   };
   window.previewAllStage = window.previewAllStages;
-  window.refreshIslandBuildings({ animate: false });
 
   window.toggleGrandFinalePreview = function toggleGrandFinalePreview(forceState) {
     const next = typeof forceState === "boolean" ? forceState : !grandFinalePreview;
@@ -14839,45 +14862,48 @@
     return next;
   };
 
+  // 初次載入時立即同步學生既有作答紀錄（不觸發升級動畫）
+  updateAllIslandArchitectures({ animateUpgrade: false });
+
   let pendingQuizUpgradeSync = false;
-  function syncBuildingsAfterQuiz() {
-    window.refreshIslandBuildings({ animate: true });
-    updateIslandsProgress({ animateUpgrade: true });
-  }
   document.addEventListener("ii:quizdone", (e) => {
     const completedIslandId =
       (e && e.detail && (e.detail.island || (e.detail.key ? String(e.detail.key).split("-")[0] : ""))) || "";
     const qm = document.getElementById("quizModal");
     if (qm && qm.classList.contains("show")) {
-      // 測驗視窗仍開啟時，先標記待同步，待學生關閉測驗視窗瞬間立即播放建築升級與慶祝動畫
+      // 測驗視窗仍開啟時先更新建築階段並記錄重播，待關閉視窗瞬間重播升級慶祝動畫
       pendingQuizUpgradeSync = true;
+      updateAllIslandArchitectures({ animateUpgrade: true });
     } else {
-      syncBuildingsAfterQuiz();
+      pendingQuizUpgradeSync = false;
+      updateAllIslandArchitectures({ animateUpgrade: true });
     }
     if (completedIslandId && typeof advanceCursorAfterQuiz === "function") {
       advanceCursorAfterQuiz(completedIslandId);
     }
   });
   document.addEventListener("ii:quizclosed", () => {
-    if (pendingQuizUpgradeSync) {
-      pendingQuizUpgradeSync = false;
-      syncBuildingsAfterQuiz();
-    }
-  });
-  document.addEventListener("ii:login", () => {
+    const hadPending = pendingQuizUpgradeSync;
     pendingQuizUpgradeSync = false;
-    islandRecords.forEach((r) => { r.stageLevel = null; });
-    window.refreshIslandBuildings({ animate: false });
-  });
-  document.addEventListener("ii:logout", () => {
-    pendingQuizUpgradeSync = false;
-    islandRecords.forEach((r) => { r.stageLevel = null; });
-    window.refreshIslandBuildings({ animate: false });
-  });
-  window.addEventListener("storage", () => {
-    window.refreshIslandBuildings({ animate: true });
-    if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
-      syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
+    updateAllIslandArchitectures({ animateUpgrade: hadPending });
+
+    if (pendingUpgradeReplays.length || sanctuaryState.pendingAwakeningReplay) {
+      const closeDrawerBtn = document.getElementById("closeBtn");
+      if (closeDrawerBtn) closeDrawerBtn.click();
+      const replays = pendingUpgradeReplays.splice(0, pendingUpgradeReplays.length);
+      const shouldReplaySanctuary = sanctuaryState.pendingAwakeningReplay;
+      sanctuaryState.pendingAwakeningReplay = false;
+      setTimeout(() => {
+        replays.forEach(({ rec, fromLevel, toLevel }) => {
+          if (rec && rec.stageSys && typeof rec.stageSys.setStage === "function") {
+            rec.stageSys.setStage(toLevel, true);
+          }
+          triggerIslandScaleBounce(rec, fromLevel, toLevel);
+        });
+        if (shouldReplaySanctuary && sanctuaryState.unlocked) {
+          triggerSanctuaryAwakening();
+        }
+      }, 180);
     }
   });
 
@@ -14912,17 +14938,19 @@
   }
   window.triggerBoardingCameraTransition = triggerBoardingCameraTransition;
 
-  // 監聽登入、登出與跨分頁儲存事件（ii:quizdone 已統一於上方處理並與關閉測驗視窗同步）
+  // 監聽登入、登出與跨分頁儲存事件：立即重繪 3D 島嶼建築階段，確保與帳號完成度 100% 同步
   document.addEventListener("ii:login", () => {
-    // 切換學生帳號時重置基準等級並依新帳號紀錄設定顯示
+    pendingQuizUpgradeSync = false;
+    pendingUpgradeReplays.length = 0;
     islandRecords.forEach((r) => {
       r.currentLevel = null;
+      r.stageLevel = null;
     });
     sanctuaryState.unlocked = false;
     citadelState.archLevel = null;
     citadelState.archOverride = null;
     pendingCitadelArchSync = false;
-    updateIslandsProgress({ animateUpgrade: false });
+    updateAllIslandArchitectures({ animateUpgrade: false });
     if (typeof updateAetherCitadelArchitecture === "function") {
       updateAetherCitadelArchitecture({ animate: false });
     }
@@ -14932,6 +14960,7 @@
     triggerBoardingCameraTransition();
   });
   document.addEventListener("ii:logout", () => {
+    pendingQuizUpgradeSync = false;
     grandFinalePreview = false;
     stageDebug.override = null;
     pendingUpgradeReplays.length = 0;
@@ -14940,12 +14969,13 @@
     if (sealToastEl) sealToastEl.classList.remove("show");
     islandRecords.forEach((r) => {
       r.currentLevel = null;
+      r.stageLevel = null;
     });
     sanctuaryState.unlocked = false;
     citadelState.archLevel = null;
     citadelState.archOverride = null;
     pendingCitadelArchSync = false;
-    updateIslandsProgress({ animateUpgrade: false });
+    updateAllIslandArchitectures({ animateUpgrade: false });
     if (typeof updateAetherCitadelArchitecture === "function") {
       updateAetherCitadelArchitecture({ animate: false });
     }
@@ -14954,36 +14984,12 @@
     }
   });
   window.addEventListener("storage", () => {
-    updateIslandsProgress({ animateUpgrade: true });
+    updateAllIslandArchitectures({ animateUpgrade: true });
     if (typeof updateAetherCitadelArchitecture === "function") {
       updateAetherCitadelArchitecture({ animate: true });
     }
     if (typeof syncPlayerCursorFromStorageOrSmart === "function") {
       syncPlayerCursorFromStorageOrSmart(currentGradeFilter, { snap: false });
-    }
-  });
-
-  // 當學生在測驗升級後關閉測驗視窗時，自動收起抽屜並重播建築落成 Scale Bounce 或聖殿甦醒動畫以利觀賞
-  document.addEventListener("click", (e) => {
-    if (!pendingUpgradeReplays.length && !sanctuaryState.pendingAwakeningReplay) return;
-    const isQuizClose =
-      e.target.closest("#qDone") ||
-      e.target.closest("#quizClose") ||
-      (e.target.id === "quizModal" && !e.target.classList.contains("show"));
-    if (isQuizClose) {
-      const closeDrawerBtn = document.getElementById("closeBtn");
-      if (closeDrawerBtn) closeDrawerBtn.click();
-      const replays = pendingUpgradeReplays.splice(0, pendingUpgradeReplays.length);
-      const shouldReplaySanctuary = sanctuaryState.pendingAwakeningReplay;
-      sanctuaryState.pendingAwakeningReplay = false;
-      setTimeout(() => {
-        replays.forEach(({ rec, fromLevel, toLevel }) => {
-          triggerIslandScaleBounce(rec, fromLevel, toLevel);
-        });
-        if (shouldReplaySanctuary && sanctuaryState.unlocked) {
-          triggerSanctuaryAwakening();
-        }
-      }, 180);
     }
   });
 
@@ -15251,7 +15257,7 @@
     const candidates = g
       ? ordered.filter((r) => Array.isArray(r.grades) && r.grades.includes(g))
       : ordered;
-    const firstUnfinished = candidates.find((r) => computeIslandStage(r) < 3);
+    const firstUnfinished = candidates.find((r) => (r.progressPct || 0) < 100);
     if (firstUnfinished) return firstUnfinished.id;
     if (isAllIslandsCompleted()) return "sanctuary";
     if (candidates.length > 0) return candidates[0].id;
@@ -15268,7 +15274,11 @@
     if (!cid) return;
     const completedRec = islandRecords.find((r) => r.id === cid);
     if (!completedRec) return;
-    if (computeIslandStage(completedRec) < 3) {
+    const completedComp = typeof window.calculateIslandCompletion === "function"
+      ? window.calculateIslandCompletion(completedRec.id)
+      : null;
+    const completedPct = completedComp ? completedComp.percentage : (completedRec.progressPct || 0);
+    if (completedPct < 100) {
       setPlayerCursorTarget(cid, { persist: true });
       return;
     }
@@ -15277,7 +15287,7 @@
     let nextTarget = "";
     for (let offset = 1; offset < ordered.length; offset++) {
       const cand = ordered[(Math.max(0, startIdx) + offset) % ordered.length];
-      if (cand && computeIslandStage(cand) < 3) {
+      if (cand && (cand.progressPct || 0) < 100) {
         nextTarget = cand.id;
         break;
       }
@@ -16788,6 +16798,7 @@
     showNpcSpeechBubble,
     hideNpcSpeechBubble,
     triggerDockGreeting,
+    updateAllIslandArchitectures,
     updateIslandsProgress,
     triggerSanctuaryAwakening,
     launchCelebrationConfetti,

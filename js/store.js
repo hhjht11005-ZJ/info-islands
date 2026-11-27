@@ -504,14 +504,17 @@
     cur.add(clean);
     const nextList = Array.from(cur).sort();
 
+    let grantedRes = null;
     if (window.AvatarSystem && typeof window.AvatarSystem.grantCitadelToken === "function") {
-      window.AvatarSystem.grantCitadelToken(clean, { syncCloud: false });
+      grantedRes = window.AvatarSystem.grantCitadelToken(clean, { syncCloud: false });
     }
     ls.set(citadelKey(p), nextList);
 
-    const gained = isNew
-      ? (clean.startsWith("dojo:") ? 30 : (clean.startsWith("capstone:") ? 50 : 0))
-      : 0;
+    const isAvatarLocked = !!(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+    const gained = grantedRes
+      ? (Number(grantedRes.gained) || 0)
+      : (isNew && isAvatarLocked ? (clean.startsWith("dojo:") ? 30 : (clean.startsWith("capstone:") ? 50 : 0)) : 0);
+    const lockedRequired = grantedRes ? Boolean(grantedRes.lockedRequired) : !isAvatarLocked;
 
     if (p && sync) {
       const avState = (window.AvatarSystem && typeof window.AvatarSystem.getState === "function")
@@ -535,8 +538,8 @@
       syncLeaderboardPool(p);
     }
 
-    document.dispatchEvent(new CustomEvent("ii:citadel-updated", { detail: { token: clean, isNew, gained, tokens: nextList } }));
-    return { ok: true, isNew, gained, token: clean, tokens: nextList };
+    document.dispatchEvent(new CustomEvent("ii:citadel-updated", { detail: { token: clean, isNew, gained, lockedRequired, tokens: nextList } }));
+    return { ok: true, isNew, gained, lockedRequired, token: clean, tokens: nextList };
   }
 
   function clearStudentLocalData(targetProfile, { includeActiveIsland = true } = {}) {
@@ -633,10 +636,19 @@
       citadelTokens
     };
     if (avatarState && typeof avatarState === "object") {
+      const baseAvatar = (window.AvatarSystem && typeof window.AvatarSystem.sanitizeState === "function")
+        ? window.AvatarSystem.sanitizeState(avatarState)
+        : avatarState;
       const clonedAvatar = {
-        ...avatarState,
-        citadelTokens: Array.from(new Set([...(Array.isArray(avatarState.citadelTokens) ? avatarState.citadelTokens : []), ...citadelTokens])).sort()
+        ...baseAvatar,
+        citadelTokens: Array.from(new Set([...(Array.isArray(baseAvatar.citadelTokens) ? baseAvatar.citadelTokens : []), ...citadelTokens])).sort()
       };
+      if (clonedAvatar.presetLocked !== true) {
+        clonedAvatar.presetLocked = false;
+        clonedAvatar.presetId = "";
+        clonedAvatar.starCoins = 0;
+        clonedAvatar.vouchers = { easy: 0, medium: 0, hard: 0 };
+      }
       if (clonedAvatar.look && typeof clonedAvatar.look === "object") {
         clonedAvatar.look = { ...clonedAvatar.look };
         if (honorTokens.length > 0) clonedAvatar.look.citadelHonors = honorTokens;
@@ -645,6 +657,10 @@
       payload.avatar = clonedAvatar;
     } else if (honorTokens.length > 0) {
       payload.avatar = {
+        presetLocked: false,
+        presetId: "",
+        starCoins: 0,
+        vouchers: { easy: 0, medium: 0, hard: 0 },
         look: { hair: "male_gojo", hairColor: "silver", face: "calm", citadelHonors: honorTokens },
         citadelTokens
       };
@@ -1032,22 +1048,48 @@
     ls.set(badgeKey, restoredBadges);
 
     // 嚴格以雲端回傳的 student.avatar 作為該生基準外觀還原（無則重置為初始空白外觀）
+    // 若雲端 presetLocked 不為 true，強制清零任何星幣與兌換券餘額，避免本機誤存未鎖定前餘額
     const rawCloudAvatar = (student.avatar && typeof student.avatar === "object") ? student.avatar : null;
-    const cloudAvatar = rawCloudAvatar
+    const isCloudLocked = Boolean(rawCloudAvatar && rawCloudAvatar.presetLocked === true);
+    const sanitizedCloudInput = rawCloudAvatar
       ? {
           ...rawCloudAvatar,
+          presetLocked: isCloudLocked,
+          ...(isCloudLocked
+            ? {}
+            : {
+                presetId: "",
+                starCoins: 0,
+                vouchers: { easy: 0, medium: 0, hard: 0 },
+                labRewarded: [],
+                citadelRewarded: [],
+                npcRewarded: [],
+                rewardedStages: []
+              }),
           citadelTokens: Array.from(new Set([
             ...(Array.isArray(rawCloudAvatar.citadelTokens) ? rawCloudAvatar.citadelTokens : []),
             ...cloudCitadelTokens
           ])).sort()
         }
-      : (cloudCitadelTokens.length > 0 ? { citadelTokens: cloudCitadelTokens } : null);
+      : (cloudCitadelTokens.length > 0
+          ? {
+              presetLocked: false,
+              presetId: "",
+              starCoins: 0,
+              vouchers: { easy: 0, medium: 0, hard: 0 },
+              citadelTokens: cloudCitadelTokens
+            }
+          : null);
     if (window.AvatarSystem && typeof window.AvatarSystem.restoreCloudAvatar === "function") {
-      window.AvatarSystem.restoreCloudAvatar(cloudAvatar, profile, { replace: true });
-    } else if (cloudAvatar) {
-      ls.set(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`, cloudAvatar);
+      window.AvatarSystem.restoreCloudAvatar(sanitizedCloudInput, profile, { replace: true });
+    } else if (sanitizedCloudInput) {
+      ls.set(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`, sanitizedCloudInput);
     } else {
       try { localStorage.removeItem(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`); } catch {}
+    }
+
+    if (typeof window.updateAllIslandArchitectures === "function") {
+      window.updateAllIslandArchitectures({ animateUpgrade: false });
     }
 
     const gradeNum = parseGradeFromCls(profile);
@@ -1208,6 +1250,9 @@
       } catch {}
       syncLeaderboardPool(p);
       document.dispatchEvent(new CustomEvent("ii:avatar-changed"));
+      if (typeof window.updateAllIslandArchitectures === "function") {
+        window.updateAllIslandArchitectures({ animateUpgrade: false });
+      }
       Store.flush();
       flushLeaderboardPending();
       if (lbUrl && (syncInfo.needsBackgroundSync || (loginRes && !loginRes.student && collectAllPassedProgress(p).length > 0))) {
@@ -1223,6 +1268,9 @@
       clearStudentLocalData(prevProfile);
       if (window.AvatarSystem && typeof window.AvatarSystem.resetGuestState === "function") {
         window.AvatarSystem.resetGuestState({ silent: true });
+      }
+      if (typeof window.updateAllIslandArchitectures === "function") {
+        window.updateAllIslandArchitectures({ animateUpgrade: false });
       }
     },
 

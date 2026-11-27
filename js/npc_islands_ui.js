@@ -605,16 +605,18 @@
         const diff = e.difficulty || (e.detail && e.detail.difficulty) || "";
         if (diff in full && sc >= 100) full[diff] = true;
       });
-      let stages = 0;
-      if (full.easy) {
-        stages = full.medium ? (full.hard ? 3 : 2) : 1;
-      }
+      const comp = typeof window.calculateIslandCompletion === "function"
+        ? window.calculateIslandCompletion(isl.id, events)
+        : { percentage: 0 };
+      const pct = comp ? Number(comp.percentage) || 0 : 0;
+      const stages = pct >= 67 ? 3 : (pct >= 34 ? 2 : 1);
       return {
         id: isl.id,
         name: isl.name,
         emoji: isl.emoji,
         color: isl.color,
         bestScore,
+        percentage: pct,
         attempts: mine.length,
         stages,
         full
@@ -657,24 +659,34 @@
       };
     }
 
-    // 3. 若 7 島皆有 100 分紀錄，檢查是否還有未達 3/3 階段建築的島嶼
+    // 3. 若 7 島皆有作答，檢查是否還有未達 3/3 階段建築或未達 100% 的島嶼
     const partialStage = statsList.find((s) => s.stages < 3);
     if (partialStage) {
-      const nextDiff = !partialStage.full.easy ? "易" : !partialStage.full.medium ? "中" : "難";
+      const nextPctTarget = partialStage.stages <= 1 ? "34%" : "67%";
       return {
         statsList,
         target: partialStage,
-        headline: `🧭 燈塔領航員建議：你目前在【${partialStage.name}】已經解鎖 ${partialStage.stages}/3 階段建築了，再挑戰「${nextDiff}」難度達 100 分就能升級喔！`,
-        subHint: "集齊「易 / 中 / 難」三個 100 分，讓島嶼建築迎來最華麗的竣工狀態！"
+        headline: `🧭 燈塔領航員建議：你目前在【${partialStage.name}】完成度為 ${partialStage.percentage}%（建築 ${partialStage.stages}/3），只要達 ${nextPctTarget} 以上就能解鎖下一階段建築喔！`,
+        subHint: "完成度達 34% 解鎖第二階段雙翼，達 67% 以上解鎖第三階段榮耀冠冕，全島 100% 喚醒中央聖殿！"
       };
     }
 
-    // 4. 全部 7 島皆 3/3 滿分！
+    const notFull = statsList.find((s) => s.percentage < 100);
+    if (notFull) {
+      return {
+        statsList,
+        target: notFull,
+        headline: `🧭 燈塔領航員建議：你在【${notFull.name}】的建築已全部落成（${notFull.percentage}%），再把剩餘難度通關衝刺到 100% 吧！`,
+        subHint: "7 座主島全數達成 100% 完成度時，海中央的神秘聖殿就會甦醒喔！"
+      };
+    }
+
+    // 4. 全部 7 島皆 100% 滿分！
     return {
       statsList,
       target: statsList[0],
       allDone: true,
-      headline: "🌟 燈塔領航員讚嘆：太強了！你已經在 7 座主課程島嶼全數達成 3/3 滿分竣工，快點擊海中央的【中央資訊聖殿】領取全域領航證書吧！",
+      headline: "🌟 燈塔領航員讚嘆：太強了！你已經在 7 座主課程島嶼全數達成 100% 滿分竣工，快點擊海中央的【中央資訊聖殿】領取全域領航證書吧！",
       subHint: "你也可以繼續在各座 NPC 島收集冷知識與故事彩蛋。"
     };
   }

@@ -39,6 +39,14 @@
     }
   }
 
+  function isAvatarLocked() {
+    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+  }
+
+  function isTokenRewarded(token) {
+    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isCitadelTokenRewarded === "function" && window.AvatarSystem.isCitadelTokenRewarded(token));
+  }
+
   function completeDojoLevel(token, label, onUpdate) {
     const wasAll = DOJO_LEVELS.every((lv) => isCompleted(lv.id));
     let res = { ok: true, isNew: false, gained: 0 };
@@ -55,6 +63,8 @@
           window.confetti({ particleCount: 70, spread: 70, origin: { y: 0.56 }, colors: ["#38bdf8", "#ffd166", "#34d399", "#a78bfa"] });
         } catch {}
       }
+    } else if (res && res.isNew && res.lockedRequired) {
+      notify(`🎉 通過「${label}」！已記錄進度（🔒 尚未鎖定專屬角色，星幣維持 0）`, "info", 3800);
     }
     if (!wasAll && nowAll) {
       setTimeout(() => {
@@ -978,7 +988,9 @@
               <h4>${curLv.icon} ${esc(curLv.title)}</h4>
             </div>
             <span class="dojo-coin-tag ${isCompleted(curLv.id) ? "is-done" : ""}">
-              ${isCompleted(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "⭐ 過關獎勵 +30"}
+              ${isCompleted(curLv.id)
+                ? (isTokenRewarded(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）")
+                : (isAvatarLocked() ? "⭐ 過關獎勵 +30" : "🔒 鎖定角色後過關可得 +30 ⭐")}
             </span>
           </div>
           <div id="dojoBoardBody" class="dojo-board-body"></div>
@@ -1006,7 +1018,7 @@
             const tag = container.querySelector(".dojo-coin-tag");
             if (tag) {
               tag.classList.add("is-done");
-              tag.textContent = "✔ 已通關 · +30 ⭐ 已入帳";
+              tag.textContent = isTokenRewarded(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）";
             }
             const tabBtn = container.querySelector(`.dojo-tab[data-lv="${curLv.id}"]`);
             if (tabBtn) {

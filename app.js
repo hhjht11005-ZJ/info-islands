@@ -263,8 +263,10 @@
     const done = isMicroLabDone(i.id);
     const extTab = document.querySelector('.tab[data-t="延伸"]');
     if (extTab) {
+      const labRewarded = !!(window.AvatarSystem && typeof window.AvatarSystem.isMicroLabRewarded === "function" && window.AvatarSystem.isMicroLabRewarded(i.id));
+      const labTitle = labRewarded ? "微實作實驗室已通關 (+20 ⭐)" : "微實作實驗室已通關";
       extTab.innerHTML = done
-        ? `${TAB_LABEL["延伸"]} <span class="mlab-tab-badge" title="微實作實驗室已通關 (+20 ⭐)">✔</span>`
+        ? `${TAB_LABEL["延伸"]} <span class="mlab-tab-badge" title="${labTitle}">✔</span>`
         : TAB_LABEL["延伸"];
     }
     const badgeRow = $("#drawerHead .d-badges");

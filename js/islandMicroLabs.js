@@ -78,6 +78,19 @@
     }
   }
 
+  function isAvatarLocked() {
+    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+  }
+
+  function isLabRewarded(id) {
+    const cid = resolveIslandId(id);
+    if (!cid) return false;
+    if (window.AvatarSystem && typeof window.AvatarSystem.isMicroLabRewarded === "function") {
+      return window.AvatarSystem.isMicroLabRewarded(cid);
+    }
+    return false;
+  }
+
   function awardLabCompletion(islandId, labTitle) {
     const cid = resolveIslandId(islandId);
     if (!cid) return { ok: false, gained: 0 };
@@ -90,6 +103,8 @@
             window.confetti({ particleCount: 75, spread: 72, origin: { y: 0.58 }, colors: ["#ffd166", "#34d399", "#38bdf8", "#f472b6"] });
           } catch {}
         }
+      } else if (res && res.lockedRequired && !res.already) {
+        notify(`🎉 完成「${labTitle}」！已獲得 🔬 微實作大師徽章（🔒 尚未鎖定專屬角色，星幣維持 0）`, "info", 4200);
       }
       return res;
     }
@@ -2397,9 +2412,21 @@
 
     const renderShell = () => {
       const doneAll = isLabCompleted(cid);
+      const locked = isAvatarLocked();
+      const rewarded = isLabRewarded(cid);
       const stg = lab.stages[currentStage];
       const stagePassed = passedSet.has(currentStage);
       const hasNext = currentStage < totalStages - 1;
+      const pillText = doneAll
+        ? (rewarded
+            ? "🔬 微實作大師徽章 · 已領取 +20 ⭐"
+            : (locked ? "🔬 微實作大師徽章 · 鎖定前已完成（無星幣）" : "🔬 微實作大師徽章 · 僅獲得徽章（未鎖定角色無星幣）"))
+        : (locked ? "⭐ 完成全部關卡可領取 +20 探索星幣" : "🔒 鎖定角色後完成可領取 +20 ⭐（目前僅累計徽章）");
+      const bannerSubText = rewarded
+        ? "已發放 +20 ⭐ 探索星幣至你的冒險者錢包，快去更衣室逛逛吧！"
+        : (!locked
+            ? "已獲得 🔬 微實作大師徽章！🔒 尚未選定專屬角色，星幣維持 0（先至「角色更衣室」鎖定角色即可開啟後續星幣累積）。"
+            : "已獲得 🔬 微實作大師徽章（此關卡於鎖定角色前完成，依規則不補發星幣）。");
 
       container.innerHTML = `
         <section class="mlab-shell" style="--mlab-c:${lab.accent}" data-scrollable="true">
@@ -2410,7 +2437,7 @@
                 <h3 class="mlab-title">${esc(lab.title)}</h3>
               </div>
               <div class="mlab-reward-pill ${doneAll ? "is-done" : ""}">
-                ${doneAll ? "🔬 微實作大師徽章 · 已領取 +20 ⭐" : "⭐ 完成全部關卡可領取 +20 探索星幣"}
+                ${pillText}
               </div>
             </div>
             <p class="mlab-obj"><b>🎯 核心學習目標：</b>${esc(lab.objective)}</p>
@@ -2420,7 +2447,7 @@
                 <span class="mlab-master-badge">🔬 微實作大師徽章</span>
                 <div>
                   <b>🎉 恭喜完成【${esc(lab.islandName)}】微實作實驗室！</b>
-                  <small>${getProfile() ? "已發放 +20 ⭐ 探索星幣至你的冒險者錢包，快去更衣室逛逛吧！" : "已點亮本島徽章並暫存 +20 ⭐（登入探險護照後可永久同步雲端）。"}</small>
+                  <small>${bannerSubText}</small>
                 </div>
               </div>
             ` : ""}
@@ -2519,18 +2546,27 @@
             saveStageProgress(cid, totalStages - 1);
             const res = awardLabCompletion(cid, lab.islandName);
             if (res && res.gained > 0) justAwarded = true;
+            const lockedNow = isAvatarLocked();
+            const rewardedNow = isLabRewarded(cid);
             // Re-render header/banner without wiping workspace result if possible, or update header slots cleanly:
             const pill = container.querySelector(".mlab-reward-pill");
             if (pill) {
               pill.classList.add("is-done");
-              pill.textContent = "🔬 微實作大師徽章 · 已領取 +20 ⭐";
+              pill.textContent = rewardedNow
+                ? "🔬 微實作大師徽章 · 已領取 +20 ⭐"
+                : (lockedNow ? "🔬 微實作大師徽章 · 鎖定前已完成（無星幣）" : "🔬 微實作大師徽章 · 僅獲得徽章（未鎖定角色無星幣）");
             }
             const head = container.querySelector(".mlab-head");
             if (head && !head.querySelector(".mlab-congrats-banner")) {
               const bar = head.querySelector(".mlab-stage-bar");
               const banner = document.createElement("div");
               banner.className = "mlab-congrats-banner is-pop";
-              banner.innerHTML = `<span class="mlab-master-badge">🔬 微實作大師徽章</span><div><b>🎉 恭喜完成【${esc(lab.islandName)}】微實作實驗室！</b><small>${getProfile() ? "已發放 +20 ⭐ 探索星幣至你的冒險者錢包，快去更衣室逛逛吧！" : "已點亮本島徽章並暫存 +20 ⭐（登入探險護照後可永久同步雲端）。"}</small></div>`;
+              const msgSub = rewardedNow
+                ? "已發放 +20 ⭐ 探索星幣至你的冒險者錢包，快去更衣室逛逛吧！"
+                : (!lockedNow
+                    ? "已獲得 🔬 微實作大師徽章！🔒 尚未選定專屬角色，星幣維持 0（先至「角色更衣室」鎖定角色即可開啟後續星幣累積）。"
+                    : "已獲得 🔬 微實作大師徽章（此關卡於鎖定角色前完成，依規則不補發星幣）。");
+              banner.innerHTML = `<span class="mlab-master-badge">🔬 微實作大師徽章</span><div><b>🎉 恭喜完成【${esc(lab.islandName)}】微實作實驗室！</b><small>${msgSub}</small></div>`;
               head.insertBefore(banner, bar);
             }
           } else {

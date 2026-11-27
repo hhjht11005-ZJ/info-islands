@@ -1346,6 +1346,11 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .dc-best { font-size: .8rem; font-weight: 700; }
 .badge-award { display: flex; align-items: center; gap: 12px; font-size: 2.6rem; background: linear-gradient(135deg, rgba(255,209,102,.3), rgba(255,255,255,.06)); border: 2px solid var(--accent); border-radius: 16px; padding: 10px 16px; margin: 10px 0; }
 .badge-award b { font-size: 1rem; } .badge-award small { font-size: .78rem; color: var(--muted); }
+.q-reward-award { display: flex; align-items: center; gap: 12px; font-size: 2rem; background: linear-gradient(135deg, rgba(16,185,129,.22), rgba(255,255,255,.06)); border: 2px solid #34d399; border-radius: 16px; padding: 10px 16px; margin: 10px 0; font-family: "Noto Sans TC", sans-serif; }
+.q-reward-award b { font-size: 0.98rem; color: #d1fae5; } .q-reward-award small { font-size: .78rem; color: var(--muted); }
+.q-avatar-lock-card { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: linear-gradient(135deg, rgba(245,158,11,.22), rgba(30,41,59,.78)); border: 2px solid #fbbf24; border-radius: 16px; padding: 12px 16px; margin: 12px 0; font-family: "Noto Sans TC", sans-serif; }
+.q-alc-msg { flex: 1 1 240px; font-size: 0.9rem; font-weight: 700; line-height: 1.5; color: #fef3c7; }
+.q-alc-btn { flex-shrink: 0; font-family: "Noto Sans TC", sans-serif; font-weight: 800; padding: 8px 16px; border-radius: 12px; }
 .res-badges { display: grid; gap: 8px; margin: 8px 0; }
 .res-badge { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-radius: 14px; border: 2px solid; background: var(--panel); }
 .res-badge.b-silver { border-color: #cbd5e1; } .res-badge.b-gold { border-color: #ffd166; background: rgba(255,209,102,.12); }
@@ -3713,6 +3718,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   font-weight: 800;
 }
 .npcq-reward { background: #fef3c7; color: #b45309; }
+.npcq-reward.is-locked { background: #e2e8f0; color: #475569; border: 1px solid #cbd5e1; }
 .npcq-done { background: #d1fae5; color: #065f46; }
 .npcq-opts {
   display: grid;
@@ -6465,4 +6471,69 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .mlab-loading-card.is-error p,
 .citadel-loading-box.is-error p {
   margin: 0 0 12px;
+}
+
+/* 未鎖定專屬角色前：更衣室與學習成果鎖定提示橫幅 */
+.av-lock-status-banner[hidden] { display: none !important; }
+.av-lock-status-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  margin: 0 0 12px;
+  border-radius: 14px;
+  border: 1.5px solid rgba(251, 191, 36, 0.58);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(15, 23, 42, 0.78));
+  color: #f8fafc;
+  font-family: "Noto Sans TC", sans-serif;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.24);
+}
+.av-lsb-body {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.av-lsb-title {
+  font-size: 0.94rem;
+  font-weight: 800;
+  color: #fde68a;
+  margin-bottom: 4px;
+}
+.av-lsb-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+.av-lsb-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.av-lsb-btn {
+  padding: 8px 14px;
+  border-radius: 11px;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.84rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease;
+}
+.av-lsb-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: translateY(-1px);
+}
+.av-lsb-btn.is-primary {
+  border: 0;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #1f1400;
+}
+.av-lsb-btn.is-primary:hover {
+  background: linear-gradient(135deg, #fcd34d, #fbbf24);
 }

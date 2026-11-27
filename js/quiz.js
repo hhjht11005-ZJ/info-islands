@@ -218,14 +218,43 @@
       }
     };
     if (C.diff) ev.difficulty = C.diff;      // 送往 GAS 的 payload 追加 difficulty 欄位
-    // 徽章:通過中等 → 銀色羅盤;通過困難 → 金色大師(同時存入 localStorage)
+    // 徽章:通過中等 → 銀色羅盤;通過困難 → 金色大師(同時存入 localStorage，不受選角鎖定影響)
     let newBadge = null;
     if (pass && C.lv && C.lv.badge) newBadge = Store.awardBadge({ unit: key, island: info.isl.id, unitName: info.s.unit, type: C.lv.badge, ts: ev.ts });
     const badgeInfo = pass && C.lv && C.lv.badge ? BADGES[C.lv.badge] : null;
+
+    // 角色鎖定守衛：僅在已選定並鎖定專屬角色後，首次通過該關卡才發放對應難度兌換券
+    const AV = window.AvatarSystem;
+    const avatarLocked = !!(AV && typeof AV.isAvatarLocked === "function" && AV.isAvatarLocked());
+    const cc = window.CompletionCenter;
+    const canonUnit = cc && typeof cc.canonicalizeUnitId === "function" ? cc.canonicalizeUnitId(key) : key;
+    const normDiff = quizDiff === "single" ? "easy" : quizDiff;
+    const stageToken = `${canonUnit}:${normDiff}`;
+    const prevPassed = cc && typeof cc.extractPassedStageSet === "function"
+      ? cc.extractPassedStageSet(Store.events()).has(stageToken)
+      : false;
+    let voucherRes = null;
+    if (pass && avatarLocked && !prevPassed && AV && typeof AV.recordQuizVoucher === "function") {
+      voucherRes = AV.recordQuizVoucher(stageToken);
+    }
+
+    const addEventPromise = Store.addEvent(ev);
+    const rewardNoticeHtml = pass
+      ? (!avatarLocked
+          ? `<div class="q-avatar-lock-card" id="qAvatarLockCard" role="status">
+               <div class="q-alc-msg">🔒 尚未選定專屬角色：本次已獲得徽章與進度，先至「角色更衣室」鎖定角色即可開啟星幣與兌換券累積</div>
+               <button type="button" class="btn-primary q-alc-btn" id="qGoAvatarBtn">🧙 前往選角</button>
+             </div>`
+          : (voucherRes && voucherRes.gained
+              ? `<div class="q-reward-award">🎟️<div><b>獲得 +1 🎟️「${esc(voucherRes.ticket)}」</b><br><small>可至「📈 學習成果 → 角色更衣室」兌換專屬裝備！</small></div></div>`
+              : ""))
+      : "";
+
     body.innerHTML = head(info, C.diff) + `<div class="q-pad"><div class="result ${pass ? "pass" : "fail"}">
         <div class="score">${score}<small>分</small></div>
         <div>${pass ? "🎉 通過!" : "💪 再接再厲!"} 答對 ${correctCount} / ${questions.length} 題 · 用時 ${sec} 秒${pass && C.diff ? "<br>本單元已累計通過,島嶼繁榮度會跟著提升!" : ""}</div></div>
       ${badgeInfo ? `<div class="badge-award">${badgeInfo.icon}<div><b>${newBadge ? "獲得" : "已擁有"}「${badgeInfo.name}」</b><br><small>可在「📈 學習成果」查看你的徽章牆</small></div></div>` : ""}
+      ${rewardNoticeHtml}
       <p class="sync" id="qSync">⏳ 正在記錄成績…</p>
       ${questions.map((q, i) => `<div class="review ${marks[i] ? "ok" : "no"}"><b>${marks[i] ? "✔" : "✘"} 第 ${i + 1} / ${questions.length} 題</b> ${esc(q.q).replace(/\n/g, "<br>")}
         <div class="ans">你的答案:${esc(showMine(q, answers[i]))}${marks[i] ? "" : `<br>正確答案:<b>${esc(showAns(q))}</b>`}</div>
@@ -234,7 +263,19 @@
     body.querySelector("#qAgain").onclick = () => run(key, info, C.diff);
     const lvBtn = body.querySelector("#qLevel"); if (lvBtn) lvBtn.onclick = () => intro(key, info);
     body.querySelector("#qDone").onclick = close;
-    const r = await Store.addEvent(ev), el = body.querySelector("#qSync");
+    const goAvatarBtn = body.querySelector("#qGoAvatarBtn");
+    if (goAvatarBtn) {
+      goAvatarBtn.onclick = () => {
+        close();
+        if (window.Results && typeof window.Results.open === "function") {
+          window.Results.open("look");
+        } else {
+          const rb = document.getElementById("resultBtn");
+          if (rb) rb.click();
+        }
+      };
+    }
+    const r = await addEventPromise, el = body.querySelector("#qSync");
     const hasLb = !!(r && r.leaderboardSyncPromise);
     if (el) {
       if (r.synced) {

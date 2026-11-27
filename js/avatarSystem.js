@@ -1174,7 +1174,26 @@
       return sanitizeLabList(raw);
     } catch { return []; }
   }
-  const blankState = () => ({ v: 1, look: Object.assign({}, DEFAULT_LOOK), unlocked: [], equipped: {}, npcSolved: [], labCompleted: [], citadelTokens: [], presetLocked: false });
+  const blankState = () => ({
+    v: 1,
+    lockPolicyVersion: 2,
+    look: Object.assign({}, DEFAULT_LOOK),
+    unlocked: [],
+    equipped: {},
+    npcSolved: [],
+    labCompleted: [],
+    citadelTokens: [],
+    presetLocked: false,
+    presetId: "",
+    lockedAt: null,
+    starCoins: 0,
+    vouchers: { easy: 0, medium: 0, hard: 0 },
+    preLockStages: [],
+    rewardedStages: [],
+    labRewarded: [],
+    citadelRewarded: [],
+    npcRewarded: []
+  });
   let guestState = (() => {
     const st = blankState();
     st.labCompleted = readGuestLabCompleted();
@@ -1182,11 +1201,38 @@
   })();
   let cloudSyncTimer = null;
 
+  function sanitizeStageList(raw) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    raw.forEach((tok) => {
+      const s = String(tok || "").trim().toLowerCase();
+      if (/^[a-z]+-\d+:(easy|medium|hard)$/.test(s) && !out.includes(s)) out.push(s);
+    });
+    return out;
+  }
+
+  function isAvatarLocked(targetSt) {
+    const st = targetSt !== undefined ? targetSt : getState();
+    return Boolean(st && st.presetLocked === true && Boolean(String(st.presetId || "").trim()));
+  }
+
   function sanitizeState(raw) {
     const st = blankState();
     if (raw && typeof raw === "object") {
       st.look = normalizeLook(raw.look);
-      st.presetLocked = Boolean(raw.presetLocked);
+      const rawLocked = raw.presetLocked === true;
+      let rawPresetId = "";
+      if (raw.presetId !== undefined && raw.presetId !== null) {
+        rawPresetId = String(raw.presetId).trim();
+      } else if (rawLocked && st.look && st.look.hair) {
+        // 相容舊版雲端資料（尚未儲存 presetId 欄位前已鎖定角色者）
+        rawPresetId = String(st.look.hair).trim();
+      }
+      const locked = rawLocked && Boolean(rawPresetId);
+      st.presetLocked = locked;
+      st.presetId = locked ? rawPresetId : "";
+      st.lockedAt = locked && Number.isFinite(Number(raw.lockedAt)) ? Number(raw.lockedAt) : null;
+
       st.unlocked = Array.isArray(raw.unlocked) ? Array.from(new Set(raw.unlocked.filter((id) => ITEM_MAP[id]))) : [];
       st.npcSolved = Array.isArray(raw.npcSolved) ? Array.from(new Set(raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)))) : [];
       st.labCompleted = sanitizeLabList(raw.labCompleted);
@@ -1196,7 +1242,50 @@
         const item = ITEM_MAP[eq[slot]];
         if (item && item.slot === slot && st.unlocked.includes(item.id)) st.equipped[slot] = item.id;
       });
+
+      if (!locked) {
+        // 尚未鎖定專屬角色前：嚴格清除星幣、兌換券與計酬紀錄，避免誤存未鎖定前餘額
+        st.lockPolicyVersion = 2;
+        st.starCoins = 0;
+        st.vouchers = { easy: 0, medium: 0, hard: 0 };
+        st.preLockStages = [];
+        st.rewardedStages = [];
+        st.labRewarded = [];
+        st.citadelRewarded = [];
+        st.npcRewarded = [];
+      } else {
+        const isLegacyLocked = raw.presetId === undefined && raw.lockPolicyVersion !== 2;
+        st.lockPolicyVersion = isLegacyLocked ? 1 : 2;
+        if (isLegacyLocked) {
+          st.preLockStages = [];
+          st.rewardedStages = [];
+          st.labRewarded = st.labCompleted.slice();
+          st.citadelRewarded = st.citadelTokens.filter((t) => CITADEL_HONOR_KEYS.has(t));
+          st.npcRewarded = st.npcSolved.slice();
+        } else {
+          st.preLockStages = sanitizeStageList(raw.preLockStages);
+          st.rewardedStages = sanitizeStageList(raw.rewardedStages);
+          st.labRewarded = sanitizeLabList(raw.labRewarded);
+          st.citadelRewarded = sanitizeCitadelTokens(raw.citadelRewarded).filter((t) => CITADEL_HONOR_KEYS.has(t));
+          st.npcRewarded = Array.isArray(raw.npcRewarded) ? Array.from(new Set(raw.npcRewarded.filter((id) => NPC_Q_IDS.has(id)))) : [];
+        }
+      }
     }
+    return st;
+  }
+
+  function syncStateBalanceFields(st, qs) {
+    if (!st || typeof st !== "object") return st;
+    if (!isAvatarLocked(st)) {
+      st.presetLocked = false;
+      st.presetId = "";
+      st.starCoins = 0;
+      st.vouchers = { easy: 0, medium: 0, hard: 0 };
+      return st;
+    }
+    const w = computeWallet(st, qs);
+    st.starCoins = w.coins;
+    st.vouchers = { easy: w.avail.easy, medium: w.avail.medium, hard: w.avail.hard };
     return st;
   }
 
@@ -1206,7 +1295,7 @@
       if (window.Store && typeof window.Store.getCitadelTokens === "function") {
         guestState.citadelTokens = sanitizeCitadelTokens([...guestState.citadelTokens, ...window.Store.getCitadelTokens(null)]);
       }
-      return guestState;
+      return syncStateBalanceFields(guestState);
     }
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem(stateKey(p)) || "null"); } catch { raw = null; }
@@ -1219,15 +1308,21 @@
       const storeTokens = window.Store.getCitadelTokens(p);
       if (storeTokens.length) st.citadelTokens = sanitizeCitadelTokens([...st.citadelTokens, ...storeTokens]);
     }
-    return st;
+    if (st.lockPolicyVersion === 1 && isAvatarLocked(st)) {
+      st.labRewarded = st.labCompleted.slice();
+      st.citadelRewarded = st.citadelTokens.filter((t) => CITADEL_HONOR_KEYS.has(t));
+    }
+    return syncStateBalanceFields(st);
   }
   function buildCloudAvatarPayload(st) {
     const honorList = (st.citadelTokens || []).filter((t) => CITADEL_HONOR_KEYS.has(t));
     const nextLook = { ...st.look };
     if (honorList.length > 0) nextLook.citadelHonors = honorList;
-    return { ...st, look: nextLook };
+    const synced = syncStateBalanceFields({ ...st, look: nextLook });
+    return synced;
   }
   function saveState(st, opt = {}) {
+    syncStateBalanceFields(st);
     const p = profile();
     if (!p) {
       guestState = st;
@@ -1272,6 +1367,7 @@
 
     if (opts && opts.replace) {
       const nextState = (cloudAv && typeof cloudAv === "object") ? sanitizeState(cloudAv) : blankState();
+      syncStateBalanceFields(nextState);
       try {
         localStorage.setItem(stateKey(p), JSON.stringify(nextState));
         localStorage.setItem(labKey(p), JSON.stringify(nextState.labCompleted || []));
@@ -1291,7 +1387,10 @@
     const mergedLabs = Array.from(new Set([...localSt.labCompleted, ...cloudSt.labCompleted]));
     const mergedCitadel = Array.from(new Set([...localSt.citadelTokens, ...cloudSt.citadelTokens])).sort();
     const hasCloudLocked = cloudAv.presetLocked !== undefined;
-    const presetLocked = hasCloudLocked ? Boolean(cloudAv.presetLocked) : localSt.presetLocked;
+    const presetLocked = hasCloudLocked ? (cloudAv.presetLocked === true) : localSt.presetLocked;
+    const presetId = presetLocked
+      ? (cloudSt.presetId || localSt.presetId || (cloudSt.look && cloudSt.look.hair) || (localSt.look && localSt.look.hair) || "")
+      : "";
     const useCloudLook = Boolean(cloudAv.look && (cloudSt.presetLocked || !localRaw || !localRaw.look));
     const look = useCloudLook ? cloudSt.look : localSt.look;
     const eqSource = (Object.keys(cloudSt.equipped).length > 0 && (!localRaw || Object.keys(localSt.equipped).length === 0 || cloudSt.presetLocked))
@@ -1299,14 +1398,23 @@
       : localSt.equipped;
     const merged = sanitizeState({
       v: 1,
+      lockPolicyVersion: presetLocked ? Math.max(localSt.lockPolicyVersion || 2, cloudSt.lockPolicyVersion || 2) : 2,
       look,
       presetLocked,
+      presetId,
+      lockedAt: presetLocked ? (cloudSt.lockedAt || localSt.lockedAt || null) : null,
       unlocked: mergedUnlocked,
       npcSolved: mergedNpcSolved,
       labCompleted: mergedLabs,
       citadelTokens: mergedCitadel,
-      equipped: eqSource
+      equipped: eqSource,
+      preLockStages: presetLocked ? Array.from(new Set([...(localSt.preLockStages || []), ...(cloudSt.preLockStages || [])])) : [],
+      rewardedStages: presetLocked ? Array.from(new Set([...(localSt.rewardedStages || []), ...(cloudSt.rewardedStages || [])])) : [],
+      labRewarded: presetLocked ? Array.from(new Set([...(localSt.labRewarded || []), ...(cloudSt.labRewarded || [])])) : [],
+      citadelRewarded: presetLocked ? Array.from(new Set([...(localSt.citadelRewarded || []), ...(cloudSt.citadelRewarded || [])])) : [],
+      npcRewarded: presetLocked ? Array.from(new Set([...(localSt.npcRewarded || []), ...(cloudSt.npcRewarded || [])])) : []
     });
+    syncStateBalanceFields(merged);
     try {
       localStorage.setItem(stateKey(p), JSON.stringify(merged));
       localStorage.setItem(labKey(p), JSON.stringify(merged.labCompleted || []));
@@ -1324,40 +1432,83 @@
     const cid = resolveLabIslandId(islandId);
     return cid ? getCompletedMicroLabs().includes(cid) : false;
   }
+  function isMicroLabRewarded(islandId) {
+    const cid = resolveLabIslandId(islandId);
+    if (!cid) return false;
+    const st = getState();
+    if (!isAvatarLocked(st)) return false;
+    if (st.lockPolicyVersion === 1) return (st.labCompleted || []).includes(cid);
+    return Array.isArray(st.labRewarded) && st.labRewarded.includes(cid);
+  }
   function completeMicroLab(islandId) {
     const cid = resolveLabIslandId(islandId);
     if (!cid) return { ok: false, gained: 0, coins: wallet().coins };
     const st = getState();
     const isGuest = !profile();
+    const locked = isAvatarLocked(st);
     const already = st.labCompleted.includes(cid);
+    const alreadyRewarded = Array.isArray(st.labRewarded) && st.labRewarded.includes(cid);
     let gained = 0;
+    let changed = false;
     if (!already) {
       st.labCompleted = [...st.labCompleted, cid];
+      changed = true;
+    }
+    if (locked && !already && !alreadyRewarded) {
+      st.labRewarded = [...(st.labRewarded || []), cid];
       gained = LAB_COIN_REWARD;
+      changed = true;
+    }
+    if (changed) {
       saveState(st, { immediate: true });
       emit();
-      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { islandId: cid, completed: true, gained } }));
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { islandId: cid, completed: true, gained, lockedRequired: !locked } }));
     }
     return {
       ok: true,
       islandId: cid,
       gained,
       already,
+      lockedRequired: !locked,
       guest: isGuest,
       coins: wallet(st).coins
     };
+  }
+
+  function isCitadelTokenRewarded(token) {
+    const clean = String(token || "").trim().toLowerCase();
+    if (!clean) return false;
+    const st = getState();
+    if (!isAvatarLocked(st)) return false;
+    if (st.lockPolicyVersion === 1) return (st.citadelTokens || []).includes(clean);
+    return Array.isArray(st.citadelRewarded) && st.citadelRewarded.includes(clean);
   }
 
   function grantCitadelToken(token, opt = {}) {
     const clean = String(token || "").trim().toLowerCase();
     if (!CITADEL_ALL_KEYS.has(clean)) return { ok: false, gained: 0, coins: wallet().coins };
     const st = getState();
+    const locked = isAvatarLocked(st);
     const already = (st.citadelTokens || []).includes(clean);
+    const alreadyRewarded = Array.isArray(st.citadelRewarded) && st.citadelRewarded.includes(clean);
     let gained = 0;
+    let changed = false;
     if (!already) {
       st.citadelTokens = sanitizeCitadelTokens([...(st.citadelTokens || []), clean]);
-      if (CITADEL_DOJO_KEYS.includes(clean)) gained = DOJO_COIN_REWARD;
-      else if (CITADEL_CAPSTONE_KEYS.includes(clean)) gained = CAPSTONE_COIN_REWARD;
+      changed = true;
+    }
+    if (locked && !already && !alreadyRewarded) {
+      if (CITADEL_DOJO_KEYS.includes(clean)) {
+        st.citadelRewarded = [...(st.citadelRewarded || []), clean];
+        gained = DOJO_COIN_REWARD;
+        changed = true;
+      } else if (CITADEL_CAPSTONE_KEYS.includes(clean)) {
+        st.citadelRewarded = [...(st.citadelRewarded || []), clean];
+        gained = CAPSTONE_COIN_REWARD;
+        changed = true;
+      }
+    }
+    if (changed) {
       saveState(st, { syncCloud: opt.syncCloud !== false, immediate: true });
       emit();
     }
@@ -1365,6 +1516,7 @@
       ok: true,
       token: clean,
       already,
+      lockedRequired: !locked,
       gained,
       tokens: st.citadelTokens.slice(),
       coins: wallet(st).coins
@@ -1418,11 +1570,35 @@
     };
   }
 
-  function wallet(st = getState(), qs = quizStats()) {
-    const earned = { easy: qs.passed.easy.size, medium: qs.passed.medium.size, hard: qs.passed.hard.size };
+  function computeWallet(st, qs = quizStats()) {
+    const locked = isAvatarLocked(st);
+    if (!locked) {
+      return {
+        locked: false,
+        earned: { easy: 0, medium: 0, hard: 0 },
+        used: { easy: 0, medium: 0, hard: 0 },
+        avail: { easy: 0, medium: 0, hard: 0 },
+        vouchers: { easy: 0, medium: 0, hard: 0 },
+        coinsEarned: 0,
+        labCoinsEarned: 0,
+        dojoCoinsEarned: 0,
+        capstoneCoinsEarned: 0,
+        citadelCoinsEarned: 0,
+        spent: 0,
+        coins: 0,
+        starCoins: 0
+      };
+    }
+
+    const preLockSet = new Set(Array.isArray(st.preLockStages) ? st.preLockStages : []);
+    const earned = {
+      easy: Array.from(qs.passed.easy).filter((u) => !preLockSet.has(`${u}:easy`)).length,
+      medium: Array.from(qs.passed.medium).filter((u) => !preLockSet.has(`${u}:medium`)).length,
+      hard: Array.from(qs.passed.hard).filter((u) => !preLockSet.has(`${u}:hard`)).length
+    };
     const used = { easy: 0, medium: 0, hard: 0 };
     let spent = 0;
-    st.unlocked.forEach((id) => {
+    (st.unlocked || []).forEach((id) => {
       const item = ITEM_MAP[id];
       if (!item) return;
       if (item.tier === "star") spent += item.price;
@@ -1430,16 +1606,66 @@
     });
     const avail = {};
     Object.keys(earned).forEach((k) => { avail[k] = Math.max(0, earned[k] - used[k]); });
-    const labCount = Array.isArray(st.labCompleted) ? st.labCompleted.length : 0;
+
+    const isLegacy = st.lockPolicyVersion === 1;
+    const labList = isLegacy ? (st.labCompleted || []) : (st.labRewarded || []);
+    const ctList = isLegacy ? (st.citadelTokens || []) : (st.citadelRewarded || []);
+    const npcList = isLegacy ? (st.npcSolved || []) : (st.npcRewarded || []);
+
+    const labCount = Array.isArray(labList) ? labList.length : 0;
     const labCoinsEarned = labCount * LAB_COIN_REWARD;
-    const ctSet = new Set(Array.isArray(st.citadelTokens) ? st.citadelTokens : []);
+    const ctSet = new Set(Array.isArray(ctList) ? ctList : []);
     const dojoCount = CITADEL_DOJO_KEYS.filter((k) => ctSet.has(k)).length;
     const capstoneCount = CITADEL_CAPSTONE_KEYS.filter((k) => ctSet.has(k)).length;
     const dojoCoinsEarned = dojoCount * DOJO_COIN_REWARD;
     const capstoneCoinsEarned = capstoneCount * CAPSTONE_COIN_REWARD;
     const citadelCoinsEarned = dojoCoinsEarned + capstoneCoinsEarned;
-    const coinsEarned = st.npcSolved.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned;
-    return { earned, used, avail, coinsEarned, labCoinsEarned, dojoCoinsEarned, capstoneCoinsEarned, citadelCoinsEarned, spent, coins: Math.max(0, coinsEarned - spent) };
+    const coinsEarned = npcList.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned;
+    const coins = Math.max(0, coinsEarned - spent);
+    return {
+      locked: true,
+      earned,
+      used,
+      avail,
+      vouchers: { easy: avail.easy, medium: avail.medium, hard: avail.hard },
+      coinsEarned,
+      labCoinsEarned,
+      dojoCoinsEarned,
+      capstoneCoinsEarned,
+      citadelCoinsEarned,
+      spent,
+      coins,
+      starCoins: coins
+    };
+  }
+
+  function wallet(st = getState(), qs = quizStats()) {
+    return computeWallet(st, qs);
+  }
+
+  function recordQuizVoucher(rawStageToken) {
+    const tok = String(rawStageToken || "").trim().toLowerCase();
+    const m = tok.match(/^([a-z]+-\d+):(easy|medium|hard)$/);
+    if (!m) return { gained: false, tier: "", ticket: "", short: "" };
+    const st = getState();
+    if (!isAvatarLocked(st)) {
+      return { gained: false, lockedRequired: true, tier: m[2], ticket: "", short: "" };
+    }
+    const preLock = new Set(st.preLockStages || []);
+    const rewarded = new Set(st.rewardedStages || []);
+    const t = TIERS[m[2]];
+    if (preLock.has(tok) || rewarded.has(tok)) {
+      return { gained: false, already: true, tier: m[2], ticket: t ? t.ticket : "", short: t ? t.short : "" };
+    }
+    st.rewardedStages = [...rewarded, tok];
+    saveState(st);
+    emit();
+    return {
+      gained: true,
+      tier: m[2],
+      ticket: t ? t.ticket : "",
+      short: t ? t.short : ""
+    };
   }
 
   const TITLES = [
@@ -1460,6 +1686,9 @@
     if (!item) return { ok: false, msg: "找不到這件裝備。" };
     if (!profile()) return { ok: false, msg: "請先登入探險護照，才能解鎖裝備喔！" };
     const st = getState();
+    if (!isAvatarLocked(st)) {
+      return { ok: false, lockedRequired: true, msg: "🔒 請先至「基礎造型」選定並鎖定專屬角色，往後過關才能累積星幣與兌換券來解鎖裝備！" };
+    }
     if (st.unlocked.includes(id)) return { ok: true, already: true };
     const w = wallet(st);
     if (item.tier === "star") {
@@ -1488,7 +1717,7 @@
   function setLook(key, val) {
     const st = getState();
     if (key === "hair") {
-      if (st.presetLocked && val !== st.look.hair) {
+      if (isAvatarLocked(st) && val !== st.look.hair) {
         return { ok: false, locked: true, msg: "🔒 你已選定專屬造型，無法更換其他角色；快去闖關解鎖帽子、衣服、武器與寵物來自由搭配吧！" };
       }
       const next = normalizeLook({ ...st.look, hair: val });
@@ -1504,7 +1733,32 @@
   function lockPreset() {
     const st = getState();
     if (!profile()) return { ok: false, msg: "請先登入探險護照！" };
+    const chosenPresetId = (st.look && st.look.hair) ? String(st.look.hair).trim() : "";
+    if (!chosenPresetId) return { ok: false, msg: "請先選擇一位專屬角色造型！" };
+    if (isAvatarLocked(st)) return { ok: true, already: true, state: st };
+
+    // 快照鎖定前已通過的所有測驗關卡，鎖定當下與之前過關項目絕不補發兌換券或星幣
+    const qs = quizStats();
+    const passedBeforeLock = [];
+    ["easy", "medium", "hard"].forEach((diff) => {
+      qs.passed[diff].forEach((unit) => {
+        const tok = `${unit}:${diff}`;
+        if (!passedBeforeLock.includes(tok)) passedBeforeLock.push(tok);
+      });
+    });
+
     st.presetLocked = true;
+    st.presetId = chosenPresetId;
+    st.lockPolicyVersion = 2;
+    st.lockedAt = Date.now();
+    st.preLockStages = Array.from(new Set([...(st.preLockStages || []), ...passedBeforeLock])).sort();
+    st.rewardedStages = [];
+    st.labRewarded = [];
+    st.citadelRewarded = [];
+    st.npcRewarded = [];
+    st.starCoins = 0;
+    st.vouchers = { easy: 0, medium: 0, hard: 0 };
+
     saveState(st, { immediate: true });
     emit();
     return { ok: true, state: st };
@@ -1587,11 +1841,18 @@
     if (!NPC_Q_IDS.has(qid)) return { ok: false, gained: 0 };
     if (!profile()) return { ok: false, guest: true, gained: 0 };
     const st = getState();
-    if (st.npcSolved.includes(qid)) return { ok: true, gained: 0 };
+    const locked = isAvatarLocked(st);
+    const already = st.npcSolved.includes(qid);
+    if (already) return { ok: true, gained: 0, already: true, lockedRequired: !locked };
     st.npcSolved.push(qid);
+    let gained = 0;
+    if (locked) {
+      st.npcRewarded = Array.from(new Set([...(st.npcRewarded || []), qid]));
+      gained = COIN_PER_QUESTION;
+    }
     saveState(st);
     emit();
-    return { ok: true, gained: COIN_PER_QUESTION };
+    return { ok: true, gained, lockedRequired: !locked };
   }
 
   /** 掛載到 NPC 島互動視窗內的快問快答小元件 */
@@ -1604,11 +1865,16 @@
     let idx = Math.max(0, set.findIndex((q) => !solvedSet().has(q.id)));
 
     function render() {
-      const solved = solvedSet();
+      const st = getState();
+      const locked = isAvatarLocked(st);
+      const solved = new Set(st.npcSolved);
       const doneCount = set.filter((q) => solved.has(q.id)).length;
       const q = set[idx];
       const isDone = solved.has(q.id);
-      const coins = wallet().coins;
+      const isRewarded = st.lockPolicyVersion === 1
+        ? solved.has(q.id)
+        : (Array.isArray(st.npcRewarded) && st.npcRewarded.includes(q.id));
+      const coins = wallet(st).coins;
       const opts = q.type === "tf" ? TF : q.options;
       host.innerHTML = `<div class="npcq npc-fade-in">
         <div class="npcq-head">
@@ -1618,11 +1884,15 @@
         </div>
         <div class="npcq-dots">${set.map((x, i) => `<span class="${solved.has(x.id) ? "ok" : ""}${i === idx ? " cur" : ""}"></span>`).join("")}</div>
         <p class="npcq-q"><span class="npcq-type">${q.type === "tf" ? "是非題" : "選擇題"}</span>${esc(q.q)}
-          ${isDone ? `<span class="npcq-done">✔ 星幣已領取</span>` : `<span class="npcq-reward">答對 +${COIN_PER_QUESTION} ⭐</span>`}</p>
+          ${isDone
+            ? `<span class="npcq-done">${isRewarded ? "✔ 星幣已領取" : "✔ 已作答（鎖定角色前無星幣）"}</span>`
+            : (locked ? `<span class="npcq-reward">答對 +${COIN_PER_QUESTION} ⭐</span>` : `<span class="npcq-reward is-locked">🔒 鎖定角色後才累計星幣</span>`)}</p>
         <div class="npcq-opts${q.type === "tf" ? " is-tf" : ""}">${opts.map((o, i) => `<button type="button" class="npcq-opt" data-i="${i}">${esc(o)}</button>`).join("")}</div>
         <div class="npcq-fb" hidden></div>
         <div class="npcq-actions">
-          ${profile() ? "" : `<span class="npcq-hint">🔒 登入探險護照後答對才會累積星幣喔</span>`}
+          ${!profile()
+            ? `<span class="npcq-hint">🔒 登入探險護照後答對才會累積星幣喔</span>`
+            : (!locked ? `<span class="npcq-hint">🔒 尚未鎖定專屬角色：僅記錄作答進度，星幣維持 0（請至「學習成果 → 角色更衣室」鎖定）</span>` : "")}
           <button type="button" class="npc-action-btn npcq-next">下一題 ➜</button>
         </div>
       </div>`;
@@ -1651,6 +1921,10 @@
           if (typeof window.confetti === "function") { try { window.confetti({ particleCount: 36, spread: 60, origin: { y: 0.6 }, colors: ["#ffd166", "#fff59d", "#ffb703"] }); } catch {} }
         } else if (r.guest) {
           gainedHtml = `<small>（登入後答對即可獲得星幣）</small>`;
+        } else if (r.lockedRequired && !r.already) {
+          gainedHtml = `<small>（🔒 尚未鎖定專屬角色，本次僅記錄探索進度，星幣維持 0）</small>`;
+        } else if (r.lockedRequired) {
+          gainedHtml = `<small>（🔒 尚未鎖定專屬角色，星幣維持 0）</small>`;
         } else {
           gainedHtml = `<small>（這題的星幣先前已領取過囉）</small>`;
         }
@@ -1795,12 +2069,13 @@
     return true;
   }
 
+  window.isAvatarLocked = isAvatarLocked;
   window.AvatarSystem = {
     ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DOJO_COIN_REWARD, CAPSTONE_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
     renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState,
-    getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc,
-    resolveLabIslandId, isMicroLabCompleted, getCompletedMicroLabs, completeMicroLab,
-    grantCitadelToken, getCitadelHonorsSummary, sanitizeCitadelTokens,
+    isAvatarLocked, getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc, recordQuizVoucher,
+    resolveLabIslandId, isMicroLabCompleted, isMicroLabRewarded, getCompletedMicroLabs, completeMicroLab,
+    grantCitadelToken, isCitadelTokenRewarded, getCitadelHonorsSummary, sanitizeCitadelTokens,
     toast, mountNpcQuiz, downloadCard, esc
   };
 })();

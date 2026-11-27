@@ -36,6 +36,14 @@
     }
   }
 
+  function isAvatarLocked() {
+    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+  }
+
+  function isTokenRewarded(token) {
+    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isCitadelTokenRewarded === "function" && window.AvatarSystem.isCitadelTokenRewarded(token));
+  }
+
   function completeCase(token, label, onUpdate) {
     const wasAll = CASES.every((c) => isCompleted(c.id));
     let res = { ok: true, isNew: false, gained: 0 };
@@ -52,6 +60,8 @@
           window.confetti({ particleCount: 80, spread: 75, origin: { y: 0.56 }, colors: ["#ffd166", "#34d399", "#38bdf8", "#f472b6"] });
         } catch {}
       }
+    } else if (res && res.isNew && res.lockedRequired) {
+      notify(`🎉 結案「${label}」！已記錄破案進度（🔒 尚未鎖定專屬角色，星幣維持 0）`, "info", 3800);
     }
     if (!wasAll && nowAll) {
       setTimeout(() => {
@@ -1154,7 +1164,9 @@
               <h4>${curCase.icon} ${esc(curCase.title)}</h4>
             </div>
             <span class="dojo-coin-tag ${isCompleted(curCase.id) ? "is-done" : ""}">
-              ${isCompleted(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "⭐ 結案獎勵 +50"}
+              ${isCompleted(curCase.id)
+                ? (isTokenRewarded(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）")
+                : (isAvatarLocked() ? "⭐ 結案獎勵 +50" : "🔒 鎖定角色後結案可得 +50 ⭐")}
             </span>
           </div>
           <div id="capCaseBody" class="cap-case-body"></div>
@@ -1182,7 +1194,7 @@
             const tag = container.querySelector(".dojo-coin-tag");
             if (tag) {
               tag.classList.add("is-done");
-              tag.textContent = "✔ 已結案 · +50 ⭐ 已入帳";
+              tag.textContent = isTokenRewarded(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）";
             }
             const tabBtn = container.querySelector(`.dojo-tab[data-case="${curCase.id}"]`);
             if (tabBtn) {

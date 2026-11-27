@@ -40,6 +40,7 @@
         <button type="button" class="av-download-btn" id="avDownloadBtn">📸 下載角色戰績卡</button>
       </section>
       <section class="av-side-col" aria-label="戰績與更衣室">
+        <div id="avDressingLockBanner" class="av-lock-status-banner" hidden></div>
         <div class="av-rpg-bars" id="avBars"></div>
         <div class="av-tabs" role="tablist" id="avTabs">${TABS.map((t) => `<button type="button" role="tab" class="av-tab" data-tab="${t.id}">${t.label}</button>`).join("")}</div>
         <div class="av-tab-hint" id="avHint"></div>
@@ -47,6 +48,7 @@
         <details class="av-legacy" id="avLegacy">
           <summary>📊 資訊素養七向度雷達圖 ＆ 🏅 徽章牆</summary>
           <div class="res-body">
+            <div id="resBadgesLockBanner" class="av-lock-status-banner" hidden></div>
             <div class="radar-box"><canvas id="radarCanvas" aria-label="資訊素養七向度雷達圖" role="img"></canvas></div>
             <p class="res-note">每個向度對應一座島，顯示該島的<b>測驗完成度（%）</b>（依各單元易／中／難及格通關數 ÷ 總關卡數計算；「🔬 微實作已通關」徽章獨立計算，不覆蓋測驗百分比）。</p>
             <div id="resList" class="res-list"></div>
@@ -181,10 +183,13 @@
     stage.innerHTML = AV.renderAvatar(st, { cls: "av-stage-svg", label: `${p.name} 的 Q 版角色` });
     stage.classList.remove("pop"); void stage.offsetWidth; stage.classList.add("pop");
 
+    const isLocked = typeof AV.isAvatarLocked === "function"
+      ? AV.isAvatarLocked(st)
+      : Boolean(st && st.presetLocked === true && st.presetId);
     const curStyle = AV.HAIR_STYLES.find((h) => h.id === st.look.hair) || AV.HAIR_STYLES[0];
     const lockArea = $("#avPresetLockArea");
     if (lockArea) {
-      if (st.presetLocked) {
+      if (isLocked) {
         lockArea.innerHTML = `<div class="av-preset-locked-badge">✅ 已選定專屬角色：<b>${esc(curStyle.name)}</b></div>`;
       } else {
         lockArea.innerHTML = `<button type="button" class="av-lock-preset-btn" id="avLockPresetBtn">🔒 確定選定此造型（選定後不可更換）</button>`;
@@ -227,18 +232,92 @@
       + bar("xp", "📊", "總積分", qs.totalScore, qs.maxScore);
   }
 
+  /* ---------------- 右側：更衣室與學習成果鎖定提示橫幅 ---------------- */
+  function checkAvatarLocked(st) {
+    return typeof AV.isAvatarLocked === "function"
+      ? AV.isAvatarLocked(st)
+      : Boolean(st && st.presetLocked === true && st.presetId);
+  }
+
+  function renderLockBanners(st) {
+    const locked = checkAvatarLocked(st);
+    const dressingBanner = $("#avDressingLockBanner");
+    if (dressingBanner) {
+      if (locked) {
+        dressingBanner.hidden = true;
+        dressingBanner.innerHTML = "";
+      } else {
+        dressingBanner.hidden = false;
+        dressingBanner.innerHTML = `
+          <div class="av-lsb-body">
+            <div class="av-lsb-title">🔒 目前為「僅累積徽章模式（星幣與兌換券為 0）」</div>
+            <p class="av-lsb-desc">尚未選定並鎖定專屬角色前，測驗與任務僅記錄進度與發放徽章；選定鎖定後，往後完成的任務才會開始累積星幣與兌換券（鎖定前已完成項目不補發）。</p>
+          </div>
+          <div class="av-lsb-actions">
+            ${tab !== "look" ? `<button type="button" class="av-lsb-btn" id="avBannerToLookBtn">💇 前往選角</button>` : ""}
+            <button type="button" class="av-lsb-btn is-primary" id="avBannerLockNowBtn">🔒 鎖定目前角色</button>
+          </div>
+        `;
+        const toLookBtn = $("#avBannerToLookBtn");
+        if (toLookBtn) {
+          toLookBtn.onclick = () => {
+            tab = "look";
+            armedId = null;
+            render();
+          };
+        }
+        const lockNowBtn = $("#avBannerLockNowBtn");
+        if (lockNowBtn) {
+          lockNowBtn.onclick = () => openLockConfirm(AV.getState());
+        }
+      }
+    }
+
+    const legacyBanner = $("#resBadgesLockBanner");
+    if (legacyBanner) {
+      if (locked) {
+        legacyBanner.hidden = true;
+        legacyBanner.innerHTML = "";
+      } else {
+        legacyBanner.hidden = false;
+        legacyBanner.innerHTML = `
+          <div class="av-lsb-body">
+            <div class="av-lsb-title">🔒 目前為「僅累積徽章模式（星幣與兌換券為 0）」</div>
+            <p class="av-lsb-desc">學習進度與徽章皆已正常保留！請先至「角色更衣室 → 基礎造型」選定專屬角色並鎖定，即可開啟後續星幣與兌換券累積。</p>
+          </div>
+          <div class="av-lsb-actions">
+            <button type="button" class="av-lsb-btn is-primary" id="resBannerGoLookBtn">🧙 立即前往選角</button>
+          </div>
+        `;
+        const goLookBtn = $("#resBannerGoLookBtn");
+        if (goLookBtn) {
+          goLookBtn.onclick = () => {
+            tab = "look";
+            armedId = null;
+            render();
+            const sideCol = $(".av-side-col");
+            if (sideCol && typeof sideCol.scrollIntoView === "function") {
+              sideCol.scrollIntoView({ behavior: "smooth", block: "start" });
+            }
+          };
+        }
+      }
+    }
+  }
+
   /* ---------------- 右側：更衣室圖鑑 ---------------- */
   function renderHint(w, st) {
     const T = AV.TIERS;
-    const locked = !!(st && st.presetLocked);
+    const locked = checkAvatarLocked(st);
+    const lockPrefix = locked ? "" : "🔒 尚未鎖定角色（僅累積徽章模式，目前餘額為 0）｜";
     const hint = {
       look: locked
         ? "🔒 已鎖定專屬基礎角色！表情、髮色與所有已解鎖的帽子、服裝、武器與寵物仍可 100% 自由混搭。"
-        : "💡 免費預覽試穿！選定喜歡的基礎角色後，請點擊左側「確定選定此造型」按鈕鎖定你的專屬角色。",
-      easy: `🎟️ 每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
-      medium: `🎟️ 每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
-      hard: `🎟️ 每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
-      star: `⭐ 到地圖上的 7 座 NPC 島參加「領航員隨堂快問快答」（每題 +${AV.COIN_PER_QUESTION} ⭐），或完成七大島「延伸探索」微實作實驗室（每島 +${AV.LAB_COIN_REWARD || 20} ⭐）（目前 <b>${w.coins} ⭐</b>）`
+        : "💡 免費預覽試穿！選定喜歡的基礎角色後，請點擊左側「確定選定此造型」按鈕鎖定你的專屬角色，開啟星幣與兌換券累積。",
+      easy: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
+      medium: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
+      hard: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
+      star: `${lockPrefix}⭐ 鎖定角色後，到地圖上的 7 座 NPC 島參加「領航員隨堂快問快答」（每題 +${AV.COIN_PER_QUESTION} ⭐），或完成七大島「延伸探索」微實作實驗室（每島 +${AV.LAB_COIN_REWARD || 20} ⭐）（目前 <b>${w.coins} ⭐</b>）`
     };
     $("#avHint").innerHTML = hint[tab];
     wrap.querySelectorAll(".av-tab").forEach((b) => {
@@ -261,7 +340,7 @@
   }
   function renderLookTab(st) {
     const look = st.look;
-    const locked = !!st.presetLocked;
+    const locked = checkAvatarLocked(st);
     const maleHairs = AV.HAIR_STYLES.filter((h) => h.group === "male");
     const femaleHairs = AV.HAIR_STYLES.filter((h) => h.group === "female");
     const cardColor = (h) => (look.hair === h.id ? look.hairColor : (h.defaultColor || look.hairColor));
@@ -316,6 +395,7 @@
     if (!Store.profile) return;
     const st = AV.getState(), qs = AV.quizStats(), w = AV.wallet(st, qs);
     renderStage(st, qs, w);
+    renderLockBanners(st);
     renderBars(qs);
     renderHint(w, st);
     renderGrid(st, w);
@@ -328,7 +408,7 @@
     if (!b) return;
     tab = b.dataset.tab; armedId = null;
     const st = AV.getState(), w = AV.wallet(st);
-    renderHint(w, st); renderGrid(st, w);
+    renderLockBanners(st); renderHint(w, st); renderGrid(st, w);
   });
 
   function handleCard(card) {
@@ -341,8 +421,13 @@
       if (r.ok) AV.toast(r.equipped ? `✨ 已穿戴「${it.name}」` : `👋 已卸下「${it.name}」`, "ok", 1800);
       return;
     }
+    const stNow = AV.getState();
+    if (!checkAvatarLocked(stNow)) {
+      AV.toast("🔒 請先至「💇 基礎造型」選定並鎖定專屬角色，往後過關才會累積星幣與兌換券來解鎖裝備！", "warn", 3200);
+      return;
+    }
     // 解鎖：先檢查資源，資源足夠時需「再點一次」確認（取代 confirm()）
-    const w = AV.wallet();
+    const w = AV.wallet(stNow);
     const enough = it.tier === "star" ? w.coins >= it.price : w.avail[it.tier] > 0;
     if (!enough) {
       AV.toast(it.tier === "star"
@@ -400,6 +485,8 @@
 
   /* ---------------- 收合區：雷達圖與徽章牆 ---------------- */
   function renderLegacy() {
+    const st = AV.getState();
+    renderLockBanners(st);
     const rows = islandScores();
     $("#resList").innerHTML = rows.map((r) => `<div class="res-row" style="--c:${r.isl.color}">
         <span class="nm">${r.isl.emoji} ${r.isl.name}</span>
@@ -412,7 +499,11 @@
     const labBadgesHtml = labIds.map((id) => {
       const isl = ISLANDS.find((x) => x.id === id);
       const label = isl ? `${isl.emoji} ${isl.name}` : id;
-      return `<div class="res-badge b-microlab"><span class="rb-ico">🔬</span><div><b>微實作大師徽章</b><small>${esc(label)} · 已領取 +${AV.LAB_COIN_REWARD || 20} ⭐</small></div></div>`;
+      const rewarded = typeof AV.isMicroLabRewarded === "function" ? AV.isMicroLabRewarded(id) : checkAvatarLocked(st);
+      const subText = rewarded
+        ? `${esc(label)} · 已領取 +${AV.LAB_COIN_REWARD || 20} ⭐`
+        : `${esc(label)} · 僅紀錄徽章（鎖定角色前完成）`;
+      return `<div class="res-badge b-microlab"><span class="rb-ico">🔬</span><div><b>微實作大師徽章</b><small>${subText}</small></div></div>`;
     }).join("");
     const quizBadgesHtml = bd.sort((a, b) => b.ts - a.ts).map((b) => `<div class="res-badge b-${b.type}">
         <span class="rb-ico">${(BG[b.type] || {}).icon || "🏅"}</span>
@@ -461,8 +552,11 @@
   }
   $("#avLegacy").addEventListener("toggle", () => { if ($("#avLegacy").open) renderLegacy(); });
 
-  function open() {
+  function open(initialTab) {
     if (!window.Auth.requireLogin()) return;
+    if (typeof initialTab === "string" && TABS.some((t) => t.id === initialTab)) {
+      tab = initialTab;
+    }
     armedId = null;
     closeConfirm();
     wrap.hidden = false;
@@ -470,7 +564,7 @@
     wrap.setAttribute("aria-hidden", "false");
     wrap.classList.add("show"); render();
   }
-  document.getElementById("resultBtn").addEventListener("click", open);
+  document.getElementById("resultBtn").addEventListener("click", () => open());
   // 視窗開著時若有新成績或換裝變動，即時更新
   document.addEventListener("ii:quizdone", () => { if (isOpen()) render(); });
   document.addEventListener("ii:avatar-changed", () => { if (isOpen()) render(); });
