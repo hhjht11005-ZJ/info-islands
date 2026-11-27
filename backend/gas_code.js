@@ -127,6 +127,7 @@ function dispatchPost_(req) {
   if (req.action === "reset_student_pin") return resetStudentPin_(req);
   if (req.action === "unlock_student_avatar") return unlockStudentAvatar_(req);
   if (req.action === "delete_student_data") return deleteStudentData_(req);
+  if (req.action === "adjust_student_wallet") return adjustStudentWallet_(req);
   if (req.action === "save_config") return saveConfig_(req);
 
   if (req.action === "student_login") return studentLogin_(req);
@@ -687,6 +688,7 @@ function saveStudentAvatar_(req) {
   var studentKey = grade + "_" + className + "_" + seat;
   var lbSh = leaderboardSheetOn_(ss);
   var hit = findLeaderboardRowByKey_(lbSh, studentKey);
+  mergeTeacherWallet_(avatarObj, hit ? safeJsonParse_(String(hit.row[9] || ""), null) : null);
   var avatarJson = JSON.stringify(avatarObj);
   var ts = now_();
 
@@ -1046,6 +1048,80 @@ function deleteStudentData_(req) {
   };
 }
 
+function teacherWalletFrom_(avatar) {
+  var source = avatar && avatar.teacherWallet && typeof avatar.teacherWallet === "object" ? avatar.teacherWallet : {};
+  var fields = ["coins", "easy", "medium", "hard"];
+  var result = {};
+  fields.forEach(function (field) {
+    var value = Number(source[field]);
+    result[field] = isFinite(value) && value % 1 === 0 ? value : 0;
+  });
+  return result;
+}
+
+function mergeTeacherWallet_(incoming, previous) {
+  if (!incoming || typeof incoming !== "object") return incoming;
+  var oldAdjustment = teacherWalletFrom_(incoming);
+  var adjustment = teacherWalletFrom_(previous);
+  incoming.teacherWallet = adjustment;
+  incoming.starCoins = Math.max(0, (Number(incoming.starCoins) || 0) + adjustment.coins - oldAdjustment.coins);
+  if (!incoming.vouchers || typeof incoming.vouchers !== "object") incoming.vouchers = {};
+  ["easy", "medium", "hard"].forEach(function (field) {
+    incoming.vouchers[field] = Math.max(0, (Number(incoming.vouchers[field]) || 0) + adjustment[field] - oldAdjustment[field]);
+  });
+  return incoming;
+}
+
+function adjustStudentWallet_(req) {
+  var auth = authenticateTeacher_(req);
+  if (!auth.ok) return { status: "unauthorized", message: auth.message || "密碼錯誤" };
+
+  var className = String(req.className || "").trim();
+  var seat = Number(req.seat);
+  var grade = parseGrade_(req.grade, className);
+  var studentKey = grade + "_" + className + "_" + seat;
+  var resource = String(req.resource || "").trim();
+  var delta = Number(req.delta);
+  if (!className || !Number.isInteger(seat) || seat < 1 || seat > 60 ||
+      (req.studentKey && String(req.studentKey) !== studentKey) ||
+      !["coins", "easy", "medium", "hard"].includes(resource) ||
+      (resource === "coins" ? Math.abs(delta) !== 50 : Math.abs(delta) !== 1)) {
+    return { status: "error", message: "學生或獎勵調整資料無效" };
+  }
+
+  var sh = leaderboardSheetOn_(auth.targetSs);
+  var hit = findLeaderboardRowByKey_(sh, studentKey);
+  var avatar = hit ? safeJsonParse_(String(hit.row[9] || ""), null) : null;
+  if (!avatar || typeof avatar !== "object") avatar = {};
+  var adjustments = teacherWalletFrom_(avatar);
+  var current = resource === "coins"
+    ? Number(avatar.starCoins) || 0
+    : Number(avatar.vouchers && avatar.vouchers[resource]) || 0;
+  if (delta < 0 && current + delta < 0) {
+    return { status: "error", message: "可用餘額不足，無法扣除" };
+  }
+  adjustments[resource] += delta;
+  avatar.teacherWallet = adjustments;
+  if (resource === "coins") {
+    avatar.starCoins = current + delta;
+  } else {
+    if (!avatar.vouchers || typeof avatar.vouchers !== "object") avatar.vouchers = {};
+    avatar.vouchers[resource] = current + delta;
+  }
+
+  var ts = now_();
+  if (hit) {
+    sh.getRange(hit.rowNum, 8).setValue(ts);
+    sh.getRange(hit.rowNum, 10).setValue(JSON.stringify(avatar));
+  } else {
+    var name = findSheetStudentName_(auth.targetSs, SHEET_TEACHER_ROSTER, className, seat)
+      || findSheetStudentName_(auth.targetSs, SHEET_ROSTER, className, seat)
+      || String(req.name || "").trim();
+    sh.appendRow([studentKey, grade, className, seat, name, 0, 0, ts, "", JSON.stringify(avatar), "[]"]);
+  }
+  return { status: "ok", studentKey: studentKey, avatar: avatar, updatedAt: ts };
+}
+
 /* ---------- 雲端動態公告與任務派發 (Config 分頁) ---------- */
 function defaultConfigObj_() {
   return {
@@ -1267,11 +1343,12 @@ function recordLeaderboardAndWrongLogs_(req) {
   var crownCount = Math.max(0, Math.round(Number(req.crownCount) || 0));
   var incomingProgress = Array.isArray(req.completedProgress) ? req.completedProgress : [];
   var avatarObj = (req.avatar && typeof req.avatar === "object") ? req.avatar : null;
-  var incomingAvatar = avatarObj ? JSON.stringify(avatarObj) : "";
   var ts = now_();
 
   var lbSh = leaderboardSheetOn_(ss);
   var hit = findLeaderboardRowByKey_(lbSh, studentKey);
+  if (avatarObj) mergeTeacherWallet_(avatarObj, hit ? safeJsonParse_(String(hit.row[9] || ""), null) : null);
+  var incomingAvatar = avatarObj ? JSON.stringify(avatarObj) : "";
   var finalScore = totalScore;
   var finalCrowns = crownCount;
   var finalAvatarObj = avatarObj;

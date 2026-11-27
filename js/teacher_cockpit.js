@@ -2547,9 +2547,25 @@ import QRCode from "qrcode";
         <h4>獎勵餘額</h4>
         ${st.wallet
           ? `<div class="tc-wallet-summary">⭐ 可用星幣 ${st.wallet.coins.toLocaleString()} · 🎟️ 初階券 ${st.wallet.avail.easy} · 進階券 ${st.wallet.avail.medium} · 大師券 ${st.wallet.avail.hard}</div>
-             <div class="tc-wallet-breakdown">星幣累計取得 ${st.wallet.coinsEarned.toLocaleString()}，已使用 ${st.wallet.spent.toLocaleString()}。兌換券累計取得／已使用：初階 ${st.wallet.earned.easy}／${st.wallet.used.easy}、進階 ${st.wallet.earned.medium}／${st.wallet.used.medium}、大師 ${st.wallet.earned.hard}／${st.wallet.used.hard}。</div>
+             <div class="tc-wallet-breakdown">星幣累計取得（含教師調整）${st.wallet.coinsEarned.toLocaleString()}，已使用 ${st.wallet.spent.toLocaleString()}。兌換券累計取得（含教師調整）／已使用：初階 ${st.wallet.earned.easy}／${st.wallet.used.easy}、進階 ${st.wallet.earned.medium}／${st.wallet.used.medium}、大師 ${st.wallet.earned.hard}／${st.wallet.used.hard}。</div>
              <div class="tc-wallet-breakdown">學生雲端資料更新時間：${esc(st.updatedAt || "未提供")}</div>`
-          : `<div class="tc-wallet-breakdown">尚無學生角色資料，無法計算獎勵餘額。</div>`}
+          : `<div class="tc-wallet-breakdown">尚無學生角色資料；可以先由教師發放獎勵。</div>`}
+        <div class="tc-wallet-controls">
+          ${[
+            ["easy", "初階券", 1, st.wallet ? st.wallet.avail.easy : 0],
+            ["medium", "進階券", 1, st.wallet ? st.wallet.avail.medium : 0],
+            ["hard", "大師券", 1, st.wallet ? st.wallet.avail.hard : 0],
+            ["coins", "星幣", 50, st.wallet ? st.wallet.coins : 0]
+          ].map(([resource, label, step, balance]) => `
+            <div class="tc-wallet-control-row">
+              <span>${label}：<strong>${Number(balance).toLocaleString()}</strong></span>
+              <div class="tc-wallet-buttons">
+                <button type="button" data-wallet-resource="${resource}" data-wallet-delta="-${step}" aria-label="${label}減少 ${step}" ${balance < step ? "disabled" : ""}>−${step}</button>
+                <button type="button" data-wallet-resource="${resource}" data-wallet-delta="${step}" aria-label="${label}增加 ${step}">+${step}</button>
+              </div>
+            </div>`).join("")}
+        </div>
+        <div class="tc-wallet-status" role="status" aria-live="polite">每次調整會儲存到學生的雲端資料。</div>
       </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 16px;">
         ${islandCardsHtml}
@@ -2589,6 +2605,44 @@ import QRCode from "qrcode";
     modal.addEventListener("click", (e) => {
       e.stopPropagation();
       if (e.target === modal) closeDetailModal();
+    });
+    card.addEventListener("click", async (e) => {
+      const button = e.target.closest("button[data-wallet-resource]");
+      if (!button || button.disabled) return;
+      const status = card.querySelector(".tc-wallet-status");
+      const buttons = Array.from(card.querySelectorAll("button[data-wallet-resource]"));
+      const disabledBefore = buttons.map((item) => item.disabled);
+      buttons.forEach((item) => { item.disabled = true; });
+      status.textContent = "儲存中…";
+      try {
+        const result = await postTeacherAction("adjust_student_wallet", {
+          studentKey: st.studentKey,
+          grade: st.grade,
+          className: st.className,
+          seat: st.seat,
+          name: st.name,
+          resource: button.dataset.walletResource,
+          delta: Number(button.dataset.walletDelta)
+        });
+        if (!result || result.status !== "ok" || !result.avatar) {
+          throw new Error((result && result.message) || "調整失敗");
+        }
+        let student = state.data.students.find((item) => item.studentKey === st.studentKey);
+        if (!student) {
+          student = { studentKey: st.studentKey, grade: st.grade, className: st.className, seat: st.seat, name: st.name };
+          state.data.students.push(student);
+        }
+        student.avatar = result.avatar;
+        student.updatedAt = result.updatedAt || "";
+        window.__teacherMergedStudents = buildMergedStudents(catalog);
+        renderMainBody();
+        openStudentDetailModal(st.studentKey, catalog);
+        const updatedStatus = document.querySelector("#teacher-island-details-modal .tc-wallet-status");
+        if (updatedStatus) updatedStatus.textContent = "已儲存；學生重新登入後會取得最新餘額。";
+      } catch (err) {
+        status.textContent = err && err.message ? err.message : "調整失敗";
+        buttons.forEach((item, index) => { item.disabled = disabledBefore[index]; });
+      }
     });
 
     const closeBtn = card.querySelector("#tcIslandDetailsCloseBtn");

@@ -1274,6 +1274,15 @@
     LAB_MILESTONE_7_HARD_VOUCHERS: 1
   };
 
+  function sanitizeTeacherWallet(raw) {
+    const value = raw && typeof raw === "object" ? raw : {};
+    const amount = (key) => {
+      const number = Number(value[key]);
+      return Number.isSafeInteger(number) ? number : 0;
+    };
+    return { coins: amount("coins"), easy: amount("easy"), medium: amount("medium"), hard: amount("hard") };
+  }
+
   function blankBonusState() {
     return {
       coinsEarned: 0,
@@ -1357,7 +1366,8 @@
     labRewarded: [],
     citadelRewarded: [],
     npcRewarded: [],
-    bonus: blankBonusState()
+    bonus: blankBonusState(),
+    teacherWallet: sanitizeTeacherWallet(null)
   });
   let guestState = (() => {
     const st = blankState();
@@ -1384,6 +1394,7 @@
   function sanitizeState(raw) {
     const st = blankState();
     if (raw && typeof raw === "object") {
+      st.teacherWallet = sanitizeTeacherWallet(raw.teacherWallet);
       st.look = normalizeLook(raw.look);
       const rawLocked = raw.presetLocked === true;
       let rawPresetId = "";
@@ -1465,8 +1476,9 @@
     if (!isAvatarLocked(st)) {
       st.presetLocked = false;
       st.presetId = "";
-      st.starCoins = 0;
-      st.vouchers = { easy: 0, medium: 0, hard: 0 };
+      const w = computeWallet(st, qs);
+      st.starCoins = w.coins;
+      st.vouchers = { easy: w.avail.easy, medium: w.avail.medium, hard: w.avail.hard };
       return st;
     }
     const w = computeWallet(st, qs);
@@ -1671,6 +1683,7 @@
       labRewarded: presetLocked ? Array.from(new Set([...(localSt.labRewarded || []), ...(cloudSt.labRewarded || [])])) : [],
       citadelRewarded: presetLocked ? Array.from(new Set([...(localSt.citadelRewarded || []), ...(cloudSt.citadelRewarded || [])])) : [],
       npcRewarded: presetLocked ? Array.from(new Set([...(localSt.npcRewarded || []), ...(cloudSt.npcRewarded || [])])) : [],
+      teacherWallet: cloudAv.teacherWallet !== undefined ? cloudSt.teacherWallet : localSt.teacherWallet,
       bonus: mergeBonus()
     });
     syncStateBalanceFields(merged);
@@ -2266,30 +2279,31 @@
 
   function computeWallet(st, qs = quizStats()) {
     const locked = isAvatarLocked(st);
+    const teacherWallet = sanitizeTeacherWallet(st.teacherWallet);
     if (!locked) {
       return {
         locked: false,
-        earned: { easy: 0, medium: 0, hard: 0 },
+        earned: { easy: Math.max(0, teacherWallet.easy), medium: Math.max(0, teacherWallet.medium), hard: Math.max(0, teacherWallet.hard) },
         used: { easy: 0, medium: 0, hard: 0 },
-        avail: { easy: 0, medium: 0, hard: 0 },
-        vouchers: { easy: 0, medium: 0, hard: 0 },
-        coinsEarned: 0,
+        avail: { easy: Math.max(0, teacherWallet.easy), medium: Math.max(0, teacherWallet.medium), hard: Math.max(0, teacherWallet.hard) },
+        vouchers: { easy: Math.max(0, teacherWallet.easy), medium: Math.max(0, teacherWallet.medium), hard: Math.max(0, teacherWallet.hard) },
+        coinsEarned: Math.max(0, teacherWallet.coins),
         labCoinsEarned: 0,
         dojoCoinsEarned: 0,
         capstoneCoinsEarned: 0,
         citadelCoinsEarned: 0,
         spent: 0,
-        coins: 0,
-        starCoins: 0
+        coins: Math.max(0, teacherWallet.coins),
+        starCoins: Math.max(0, teacherWallet.coins)
       };
     }
 
     const bonusState = sanitizeBonusState(st.bonus);
     const preLockSet = new Set(Array.isArray(st.preLockStages) ? st.preLockStages : []);
     const earned = {
-      easy: Array.from(qs.passed.easy).filter((u) => !preLockSet.has(`${u}:easy`)).length,
-      medium: Array.from(qs.passed.medium).filter((u) => !preLockSet.has(`${u}:medium`)).length,
-      hard: Array.from(qs.passed.hard).filter((u) => !preLockSet.has(`${u}:hard`)).length + (bonusState.hardVouchersEarned || 0)
+      easy: Array.from(qs.passed.easy).filter((u) => !preLockSet.has(`${u}:easy`)).length + teacherWallet.easy,
+      medium: Array.from(qs.passed.medium).filter((u) => !preLockSet.has(`${u}:medium`)).length + teacherWallet.medium,
+      hard: Array.from(qs.passed.hard).filter((u) => !preLockSet.has(`${u}:hard`)).length + (bonusState.hardVouchersEarned || 0) + teacherWallet.hard
     };
     const used = { easy: 0, medium: 0, hard: 0 };
     let spent = 0;
@@ -2327,7 +2341,7 @@
     const citadelCoinsEarned = dojoCoinsEarned + capstoneCoinsEarned;
     const bonusCoinsEarned = bonusState.coinsEarned || 0;
     const bonusHardVouchersEarned = bonusState.hardVouchersEarned || 0;
-    const coinsEarned = npcList.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned + bonusCoinsEarned;
+    const coinsEarned = npcList.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned + bonusCoinsEarned + teacherWallet.coins;
     const coins = Math.max(0, coinsEarned - spent);
     return {
       locked: true,

@@ -4370,6 +4370,34 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   font-size: 0.8rem;
   line-height: 1.5;
 }
+.tc-wallet-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+.tc-wallet-control-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(167, 243, 208, 0.25);
+  border-radius: 10px;
+  font-size: 0.82rem;
+}
+.tc-wallet-buttons { display: flex; gap: 5px; }
+.tc-wallet-buttons button {
+  padding: 4px 7px;
+  border: 1px solid rgba(167, 243, 208, 0.5);
+  border-radius: 7px;
+  background: rgba(16, 185, 129, 0.18);
+  color: #e2e8f0;
+  cursor: pointer;
+  font-weight: 800;
+}
+.tc-wallet-buttons button:disabled { opacity: 0.4; cursor: not-allowed; }
+.tc-wallet-status { margin-top: 8px; color: #a7f3d0; font-size: 0.78rem; }
 
 .tc-submodal-wrap { z-index: 10020; }
 .tc-submodal-card {
