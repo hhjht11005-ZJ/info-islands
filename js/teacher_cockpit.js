@@ -2104,6 +2104,18 @@ import QRCode from "qrcode";
     return Array.from(map.values()).map((st) => {
       const progressSet = parseStudentProgressSet(st.rawProgressList);
       const cc = window.CompletionCenter;
+      let wallet = null;
+      if (st.avatar && AV && typeof AV.wallet === "function" && typeof AV.sanitizeState === "function") {
+        const passed = { easy: new Set(), medium: new Set(), hard: new Set() };
+        const passedTokens = cc && typeof cc.extractPassedStageSet === "function"
+          ? cc.extractPassedStageSet(st.rawProgressList)
+          : progressSet;
+        passedTokens.forEach((token) => {
+          const [unit, difficulty] = token.split(":");
+          if (unit && passed[difficulty]) passed[difficulty].add(unit);
+        });
+        wallet = AV.wallet(AV.sanitizeState(st.avatar), { passed });
+      }
       let easyCount = 0;
       let mediumCount = 0;
       let hardCount = 0;
@@ -2173,6 +2185,7 @@ import QRCode from "qrcode";
         easyCount,
         mediumCount,
         hardCount,
+        wallet,
         presetLocked: !!(st.avatar && st.avatar.presetLocked),
         presetName: presetObj ? presetObj.name : (look ? look.hair : "尚未設定")
       };
@@ -2279,7 +2292,10 @@ import QRCode from "qrcode";
                 </td>
                 <td>
                   <div class="tc-stat-act-cell">
-                    <div class="tc-stat-nums"><span>👑 ${row.crownCount}</span><span>⭐ ${row.totalScore.toLocaleString()}</span></div>
+                    <div class="tc-stat-nums"><span>👑 ${row.crownCount}</span><span>測驗總積分 ${row.totalScore.toLocaleString()}</span></div>
+                    <div class="tc-wallet-summary">${row.wallet
+                      ? `⭐ 可用 ${row.wallet.coins.toLocaleString()} · 🎟️ 初階 ${row.wallet.avail.easy} · 進階 ${row.wallet.avail.medium} · 大師 ${row.wallet.avail.hard}`
+                      : "獎勵餘額尚無資料"}</div>
                     <div class="tc-stat-actions">
                       <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-action="open-island-details" data-student-idx="${idx}" data-skey="${esc(row.studentKey)}" style="pointer-events: auto; cursor: pointer;">🔍 島嶼明細</button>
                       ${hasRecord ? `<button type="button" class="tc-mini-btn warn tc-student-delete-btn" data-skey="${esc(row.studentKey)}" data-cls="${esc(row.className)}" data-seat="${esc(row.seat)}" data-grade="${esc(row.grade)}" data-name="${esc(row.name)}">🗑️ 刪除資料</button>` : ""}
@@ -2522,11 +2538,19 @@ import QRCode from "qrcode";
         <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px;">
           <span style="padding: 6px 13px; border-radius: 999px; background: rgba(79, 179, 255, 0.2); border: 1px solid rgba(124, 199, 255, 0.45); font-size: 0.92rem; font-weight: 800; color: #f8fafc;">${esc(st.className)} 班 ${String(st.seatNum).padStart(2, "0")} 號 · ${esc(displayName(st.name, st.seatNum))}</span>
           <span style="padding: 6px 13px; border-radius: 999px; background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(52, 211, 153, 0.5); color: #6ee7b7; font-size: 0.9rem; font-weight: 800;">總完成：${st.passedTotal} / ${catalog.totalLevels} 關 (${st.pctText}%)</span>
-          <span style="padding: 6px 13px; border-radius: 999px; background: rgba(255, 209, 102, 0.18); border: 1px solid rgba(255, 209, 102, 0.45); color: #fde68a; font-size: 0.88rem; font-weight: 800;">👑 ${st.crownCount} · ⭐ ${st.totalScore.toLocaleString()}</span>
+          <span style="padding: 6px 13px; border-radius: 999px; background: rgba(255, 209, 102, 0.18); border: 1px solid rgba(255, 209, 102, 0.45); color: #fde68a; font-size: 0.88rem; font-weight: 800;">👑 ${st.crownCount} · 測驗總積分 ${st.totalScore.toLocaleString()}</span>
           <span style="padding: 5px 11px; border-radius: 999px; background: rgba(255, 255, 255, 0.08); color: #cbd5e1; font-size: 0.8rem; font-weight: 700;">易 ${st.easyCount} · 中 ${st.mediumCount} · 難 ${st.hardCount}（共 ${catalog.islandCatalog.length} 島 / ${totalUnits} 單元）</span>
         </div>
         <button type="button" id="tcIslandDetailsCloseBtn" aria-label="關閉島嶼明細視窗" style="padding: 8px 16px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.3); background: rgba(255, 255, 255, 0.12); color: #ffffff; font-weight: 800; font-size: 0.92rem; cursor: pointer; pointer-events: auto; font-family: 'Noto Sans TC', sans-serif;">✕ 關閉</button>
       </div>
+      <section class="tc-wallet-detail">
+        <h4>獎勵餘額</h4>
+        ${st.wallet
+          ? `<div class="tc-wallet-summary">⭐ 可用星幣 ${st.wallet.coins.toLocaleString()} · 🎟️ 初階券 ${st.wallet.avail.easy} · 進階券 ${st.wallet.avail.medium} · 大師券 ${st.wallet.avail.hard}</div>
+             <div class="tc-wallet-breakdown">星幣累計取得 ${st.wallet.coinsEarned.toLocaleString()}，已使用 ${st.wallet.spent.toLocaleString()}。兌換券累計取得／已使用：初階 ${st.wallet.earned.easy}／${st.wallet.used.easy}、進階 ${st.wallet.earned.medium}／${st.wallet.used.medium}、大師 ${st.wallet.earned.hard}／${st.wallet.used.hard}。</div>
+             <div class="tc-wallet-breakdown">學生雲端資料更新時間：${esc(st.updatedAt || "未提供")}</div>`
+          : `<div class="tc-wallet-breakdown">尚無學生角色資料，無法計算獎勵餘額。</div>`}
+      </section>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; margin-top: 16px;">
         ${islandCardsHtml}
       </div>
