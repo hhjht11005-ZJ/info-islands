@@ -17,11 +17,7 @@
   }
   function normalizeTeacherMeta(m) {
     if (!m || typeof m !== "object" || !m.teacherId) return null;
-    return {
-      teacherId: String(m.teacherId || "").trim(),
-      schoolName: String(m.schoolName || "").trim(),
-      teacherName: String(m.teacherName || "").trim()
-    };
+    return { teacherId: String(m.teacherId || "").trim() };
   }
   function getStoredTeacherMeta() {
     const m = ls.get(TEACHER_META_KEY, null) || ls.get(LEGACY_TEACHER_META_KEY, null);

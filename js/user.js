@@ -34,12 +34,12 @@
           <div class="login-teacher-bar" id="loginTeacherBar">
             <div class="login-teacher-status" id="loginTeacherStatus" hidden>
               <span class="login-teacher-badge" id="loginTeacherBadge"></span>
-              <button type="button" class="login-teacher-switch-btn" id="loginSwitchTeacherBtn" title="切換學校或老師">切換</button>
+              <button type="button" class="login-teacher-switch-btn" id="loginSwitchTeacherBtn" title="切換教師代碼">切換</button>
             </div>
             <label class="login-teacher-picker" id="loginTeacherPickerWrap" hidden>
-              <span class="lbl-ico">🏫 選擇所屬學校與老師</span>
+              <span class="lbl-ico">🏫 選擇教師代碼（請向老師確認）</span>
               <select id="loginTeacherSelect" name="teacherIdSelect">
-                <option value="">⏳ 正在載入學校與教師名單…</option>
+                <option value="">⏳ 正在載入教師代碼…</option>
               </select>
             </label>
           </div>
@@ -85,10 +85,6 @@
     if (seatSel && seatSel.options.length <= 1) {
       seatSel.insertAdjacentHTML("beforeend", opt(1, 50, v => v + " 號"));
     }
-    const subEl = $("#loginSchoolSub", modal);
-    if (subEl && window.APP_CONFIG && window.APP_CONFIG.SCHOOL) {
-      subEl.textContent = `${window.APP_CONFIG.SCHOOL} · 請先辦理探險護照，測驗成績才會記到你的名下`;
-    }
   }
 
   const form = $("#loginForm");
@@ -129,22 +125,23 @@
     const cur = (typeof Store.getCurrentTeacher === "function" ? Store.getCurrentTeacher() : null)
       || list.find((t) => t && t.teacherId === tid)
       || null;
+    if (schoolSubEl) schoolSubEl.textContent = "請先辦理探險護照，測驗成績才會記到你的名下";
 
     // 渲染學校與教師下拉選單（SWR：有快取立即完整呈現；僅在清單或狀態變更時更新 DOM，不打斷打字與點選）
     let nextSig = "";
     let nextHtml = "";
     if (list.length > 0) {
-      nextSig = `list:${tid}:${list.map((t) => `${t.teacherId}|${t.schoolName}|${t.teacherName}`).join(";")}`;
+      nextSig = `list:${tid}:${list.map((t) => t.teacherId).join(";")}`;
       nextHtml = [
-        `<option value="">-- 請選擇所屬學校與老師 --</option>`,
+        `<option value="">-- 請選擇老師提供的教師代碼 --</option>`,
         ...list.map((t) => {
-          const label = `${t.schoolName || "未命名學校"} — ${t.teacherName || ""}老師`;
+          const label = `教師代碼 ${t.teacherId}`;
           return `<option value="${esc(t.teacherId)}"${t.teacherId === tid ? " selected" : ""}>${esc(label)}</option>`;
         })
       ].join("");
     } else if (!directoryLoaded && directorySyncState === "syncing") {
       nextSig = "syncing";
-      nextHtml = `<option value="">⏳ 背景同步學校與教師名單中（可直接填寫下方資料）…</option>`;
+      nextHtml = `<option value="">⏳ 背景同步教師代碼中…</option>`;
     } else if (directorySyncState === "error") {
       nextSig = "error";
       nextHtml = `<option value="">（名單背景更新失敗，可直接登入或稍後重試）</option>`;
@@ -165,36 +162,26 @@
       teacherStatusEl.hidden = false;
       teacherStatusEl.classList.toggle("is-warn", !!invalidBound);
       if (invalidBound) {
-        teacherBadgeEl.textContent = `⚠️ 找不到教師代碼（${tid}），請重新選擇所屬學校與老師`;
+        teacherBadgeEl.textContent = `⚠️ 找不到教師代碼（${tid}），請重新選擇`;
         teacherPickerWrap.hidden = false;
-      } else if (cur && cur.schoolName) {
-        teacherBadgeEl.textContent = `🏫 已連線至：${cur.schoolName} — ${cur.teacherName}老師`;
+      } else if (cur) {
+        teacherBadgeEl.textContent = `🏫 已連線教師代碼：${tid}`;
         teacherPickerWrap.hidden = true;
-        if (schoolSubEl) {
-          schoolSubEl.textContent = `${cur.schoolName}（${cur.teacherName}老師）· 請先辦理探險護照，測驗成績才會記到你的名下`;
-        }
       } else {
-        teacherBadgeEl.textContent = `🏫 已鎖定教師代碼：${tid}（背景確認學校名稱中…）`;
+        teacherBadgeEl.textContent = `🏫 已鎖定教師代碼：${tid}（背景確認中…）`;
         teacherPickerWrap.hidden = true;
       }
       if (switchTeacherBtn) switchTeacherBtn.textContent = "切換";
     } else {
       if (tid && isSwitchingTeacher) {
         teacherStatusEl.hidden = false;
-        teacherBadgeEl.textContent = cur && cur.schoolName
-          ? `🏫 目前：${cur.schoolName} — ${cur.teacherName}老師`
-          : `🏫 目前代碼：${tid}`;
+        teacherBadgeEl.textContent = `🏫 目前教師代碼：${tid}`;
         if (switchTeacherBtn) switchTeacherBtn.textContent = "取消";
       } else {
         teacherStatusEl.hidden = true;
       }
       teacherPickerWrap.hidden = false;
-      if (schoolSubEl && (!cur || !cur.schoolName)) {
-        const cfgSchool = window.APP_CONFIG && window.APP_CONFIG.SCHOOL;
-        schoolSubEl.textContent = cfgSchool
-          ? `${cfgSchool} · 請先辦理探險護照，測驗成績才會記到你的名下`
-          : "請先選擇學校／老師並辦理探險護照，測驗成績才會記到你的名下";
-      }
+      if (schoolSubEl && !tid) schoolSubEl.textContent = "請先選擇教師代碼並辦理探險護照，測驗成績才會記到你的名下";
     }
   }
 
@@ -340,7 +327,7 @@
     let boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
     let knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
     if (hasLbSync && knownTeachers.length > 0 && !boundTid) {
-      err.textContent = "請先選擇所屬學校與老師";
+      err.textContent = "請先選擇老師提供的教師代碼";
       if (teacherPickerWrap) teacherPickerWrap.hidden = false;
       if (teacherSelect) teacherSelect.focus();
       return;
@@ -394,7 +381,7 @@
         boundTid = typeof Store.getTeacherId === "function" ? Store.getTeacherId() : "";
         knownTeachers = typeof Store.getTeachersList === "function" ? Store.getTeachersList() : [];
         if (knownTeachers.length > 0 && !boundTid) {
-          err.textContent = "請先選擇所屬學校與老師";
+          err.textContent = "請先選擇老師提供的教師代碼";
           if (teacherPickerWrap) teacherPickerWrap.hidden = false;
           if (teacherSelect) teacherSelect.focus();
           btn.textContent = pendingSetup ? "✅ 確認設定並登入" : "🎒 領取裝備，即刻登島！";

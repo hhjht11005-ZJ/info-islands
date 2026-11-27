@@ -48,11 +48,7 @@ function doGet(e) {
 
     var allTeachers = listTeacherRecords_(masterSs);
     var teachersList = allTeachers.map(function (t) {
-      return {
-        teacherId: t.teacherId,
-        schoolName: t.schoolName,
-        teacherName: t.teacherName
-      };
+      return { teacherId: t.teacherId };
     });
 
     var currentTeacher = null;
@@ -61,11 +57,7 @@ function doGet(e) {
       for (var i = 0; i < allTeachers.length; i++) {
         if (allTeachers[i].teacherId === teacherId) {
           found = allTeachers[i];
-          currentTeacher = {
-            teacherId: found.teacherId,
-            schoolName: found.schoolName,
-            teacherName: found.teacherName
-          };
+          currentTeacher = { teacherId: found.teacherId };
           break;
         }
       }
@@ -301,11 +293,7 @@ function listTeacherRecords_(masterSs) {
 
 function getPublicTeachersList_(masterSs) {
   return listTeacherRecords_(masterSs).map(function (t) {
-    return {
-      teacherId: t.teacherId,
-      schoolName: t.schoolName,
-      teacherName: t.teacherName
-    };
+    return { teacherId: t.teacherId };
   });
 }
 
