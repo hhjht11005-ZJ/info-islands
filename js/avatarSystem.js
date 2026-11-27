@@ -285,7 +285,8 @@
         return `${openTopCap(h, c, headId, covered ? "" : "M82 51 Q120 40 158 51")}${clips}`;
       },
       sideburns: (h, c, headId) => {
-        const headset = headId === "esports_headset" ? "" : `<g>
+        const skipHeadset = headId === "esports_headset" || headId === "miku_holo_headset_clips" || headId === "esports_commander_headset" || headId === "cat_holo_headphones";
+        const headset = skipHeadset ? "" : `<g>
           <rect x="46" y="96" width="14" height="26" rx="5" fill="#1e293b" stroke="#e2e8f0" stroke-width="2"/>
           <rect x="49.5" y="102" width="6" height="14" rx="2.5" fill="#2dd4bf" stroke="#ec4899" stroke-width="1.1"/>
           <rect x="180" y="96" width="14" height="26" rx="5" fill="#1e293b" stroke="#e2e8f0" stroke-width="2"/>
@@ -528,7 +529,9 @@
       <ellipse cx="163" cy="128" rx="${blushRx}" ry="${blushRy}" fill="url(#${c.u}-blush)"/>`;
   };
   const HAND_R = { x: 164, y: 203 };
+  const HAND_L = { x: 76, y: 203 };
   const rightHand = (c) => `<circle cx="${HAND_R.x}" cy="${HAND_R.y}" r="8.4" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.1"/>`;
+  const leftHand = (c) => `<circle cx="${HAND_L.x}" cy="${HAND_L.y}" r="8.4" fill="url(#${c.u}-skin)" stroke="${OL}" stroke-width="2.1"/>`;
   function arms(top, c) {
     const sl = (top && top.sleeve) || { color: "#d6efff", long: false, cuff: "#6ec5e9" };
     const P = (d, col, w) => `<path d="${d}" fill="none" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>`;
@@ -560,6 +563,7 @@
    * ------------------------------------------------------------------ */
   const PET = (inner) => `<g transform="translate(38 236)">${inner}</g>`;
   const WEAPON = (rot, inner) => `<g transform="translate(${HAND_R.x} ${HAND_R.y}) rotate(${rot})">${inner}</g>`;
+  const WEAPON_L = (rot, inner) => `<g transform="translate(${HAND_L.x} ${HAND_L.y}) rotate(${rot})">${inner}</g>`;
 
   const ITEMS = [
     /* ===== 【易】帽子與飾品 ===== */
@@ -976,19 +980,97 @@
       }
     }
   ];
+
+  const EXTRA_ITEMS = typeof window.__createAvatarExtraItems === "function"
+    ? window.__createAvatarExtraItems({
+        OL, TORSO, HAND_R, HAND_L, WEAPON, WEAPON_L, PET,
+        starPath, sparkle, pixelArt, note, lg, rg
+      })
+    : [];
+  const LEGACY_REPRICE = {
+    vr_goggles: { price: 300, voucherType: "easy", vouchers: 2 },
+    esports_headset: { price: 320, voucherType: "easy", vouchers: 2 },
+    hacker_hood: { price: 340, voucherType: "easy", vouchers: 2 },
+    holo_monocle: { price: 300, voucherType: "easy", vouchers: 2 },
+    boba_clip: { price: 280, voucherType: "easy", vouchers: 2 },
+    shiba_ears: { price: 300, voucherType: "easy", vouchers: 2 },
+    strawberry_beret: { price: 320, voucherType: "easy", vouchers: 2 },
+    star_crown: { price: 340, voucherType: "easy", vouchers: 2 },
+    neon_hoodie: { price: 520, voucherType: "medium", vouchers: 3 },
+    cyber_jacket: { price: 560, voucherType: "medium", vouchers: 3 },
+    space_suit: { price: 580, voucherType: "medium", vouchers: 3 },
+    circuit_cargo: { price: 450, voucherType: "medium", vouchers: 2 },
+    sailor_set: { price: 500, voucherType: "medium", vouchers: 2 },
+    plaid_skirt: { price: 420, voucherType: "medium", vouchers: 2 },
+    bear_overalls: { price: 440, voucherType: "medium", vouchers: 2 },
+    star_cloak: { price: 580, voucherType: "medium", vouchers: 3 },
+    binary_saber: { price: 780, voucherType: "hard", vouchers: 4 },
+    keyboard_greatsword: { price: 820, voucherType: "hard", vouchers: 4 },
+    shiba_drone: { price: 750, voucherType: "hard", vouchers: 3 },
+    ai_ghost: { price: 720, voucherType: "hard", vouchers: 3 },
+    python_staff: { price: 800, voucherType: "hard", vouchers: 4 },
+    pixel_hammer: { price: 760, voucherType: "hard", vouchers: 3 },
+    pixel_cat: { price: 700, voucherType: "hard", vouchers: 3 },
+    mini_duck: { price: 680, voucherType: "hard", vouchers: 3 },
+    barista_apron: { price: 360, voucherType: "", vouchers: 0 },
+    note_halo: { price: 480, voucherType: "", vouchers: 0 },
+    bg_cyber: { price: 560, voucherType: "", vouchers: 0 },
+    bg_sakura: { price: 560, voucherType: "", vouchers: 0 },
+    golden_board: { price: 920, voucherType: "", vouchers: 0 }
+  };
+  ITEMS.forEach((it) => {
+    const rp = LEGACY_REPRICE[it.id];
+    if (!rp) return;
+    it.legacyPrice = it.tier === "star" ? (Number(it.price) || 0) : 0;
+    it.legacyVoucherType = it.tier === "star" ? "" : it.tier;
+    it.legacyVouchers = it.tier === "star" ? 0 : 1;
+    it.price = rp.price;
+    it.voucherType = rp.voucherType;
+    it.vouchers = rp.vouchers;
+  });
+  ITEMS.push(...EXTRA_ITEMS);
+
   const ITEM_MAP = Object.fromEntries(ITEMS.map((it) => [it.id, it]));
 
   const TIERS = {
-    easy: { key: "easy", ticket: "初階造型券", short: "初階券", icon: "🎟️", diffName: "易", color: "#4ade80", cat: "帽子／飾品" },
-    medium: { key: "medium", ticket: "進階服裝券", short: "進階券", icon: "🎟️", diffName: "中", color: "#60a5fa", cat: "上衣／褲裙" },
-    hard: { key: "hard", ticket: "傳說武裝券", short: "傳說券", icon: "🎟️", diffName: "難", color: "#f472b6", cat: "武器／寵物" },
+    easy: { key: "easy", ticket: "初階造型券", short: "初階券", icon: "🎟️", diffName: "易", color: "#4ade80", cat: "入門／頭飾" },
+    medium: { key: "medium", ticket: "進階服裝券", short: "進階券", icon: "🎟️", diffName: "中", color: "#60a5fa", cat: "進階／服裝" },
+    hard: { key: "hard", ticket: "大師武裝券", short: "大師券", icon: "🎟️", diffName: "難", color: "#f472b6", cat: "傳說／神裝" },
     star: { key: "star", ticket: "探索星幣", short: "星幣", icon: "⭐", diffName: "NPC", color: "#ffd166", cat: "星幣限定" }
   };
-  const SLOT_NAME = { head: "頭飾", face: "臉飾", top: "上衣", bottom: "褲裙", outer: "外披", weapon: "武器", pet: "寵物", aura: "光環", bg: "背景", mount: "坐騎" };
+  const SLOT_NAME = { head: "頭飾", face: "臉飾", top: "上衣", bottom: "褲裙", outer: "背飾", weapon: "手持", pet: "寵物", aura: "背飾光環", bg: "背景", mount: "坐騎" };
   const SLOT_VIEW = {
-    head: "34 6 172 156", face: "54 68 132 96", top: "50 136 140 116", bottom: "60 186 120 92", outer: "40 136 160 134",
-    weapon: "122 52 118 180", pet: "4 200 68 68", aura: "40 0 160 92", bg: "0 0 240 300", mount: "36 226 168 66"
+    head: "30 4 180 158", face: "44 64 152 104", top: "48 134 144 120", bottom: "60 186 120 92", outer: "10 34 220 228",
+    weapon: "112 46 128 190", pet: "4 200 68 68", aura: "18 0 204 204", bg: "0 0 240 300", mount: "36 226 168 66"
   };
+
+  function getItemCost(it) {
+    if (!it) return { coins: 0, voucherType: "", vouchers: 0 };
+    const coins = Math.max(0, Math.round(Number(it.price) || 0));
+    const voucherType = (it.voucherType === "easy" || it.voucherType === "medium" || it.voucherType === "hard")
+      ? it.voucherType
+      : (it.tier === "easy" || it.tier === "medium" || it.tier === "hard" ? it.tier : "");
+    const vouchers = voucherType ? Math.max(0, Math.round(Number(it.vouchers) || 0)) : 0;
+    return { coins, voucherType, vouchers };
+  }
+
+  function getLegacyItemCost(it) {
+    if (!it) return { coins: 0, voucherType: "", vouchers: 0 };
+    if (it.legacyPrice !== undefined || it.legacyVoucherType !== undefined) {
+      return {
+        coins: Math.max(0, Number(it.legacyPrice) || 0),
+        voucherType: it.legacyVoucherType || "",
+        vouchers: Math.max(0, Number(it.legacyVouchers) || 0)
+      };
+    }
+    return getItemCost(it);
+  }
+
+  function isItemExclusiveAllowed(it, st) {
+    if (!it || !it.exclusiveFor) return true;
+    const locked = Boolean(st && st.presetLocked === true && Boolean(String(st.presetId || "").trim()));
+    return locked && st.presetId === it.exclusiveFor;
+  }
 
   /* ------------------------------------------------------------------
    * 五、分層 SVG 渲染
@@ -1054,7 +1136,10 @@
     s += arms(hinataSleeve, c) + L(I.outer, "front");
     if (hair.aura) s += hair.aura(hc, c, headId);
     s += headBase(c, look.hair) + face(hc, c, look.hair, faceId) + hair.crown(hc, c, headId) + hair.sideburns(hc, c, headId) + hair.bangs(hc, c, headId) + L(I.head, "front") + L(I.face, "front");
-    if (I.weapon) s += `<g class="${opt.noAnim ? "" : "av-weapon "}av-legend">${L(I.weapon, "main")}</g>` + rightHand(c);
+    if (I.weapon) {
+      const leftLayer = I.weapon.L && I.weapon.L.left ? `${L(I.weapon, "left")}${leftHand(c)}` : "";
+      s += `<g class="${opt.noAnim ? "" : "av-weapon "}av-legend">${leftLayer}${L(I.weapon, "main")}</g>` + rightHand(c);
+    }
     if (I.mount) s += `</g>`;
     s += `</g>`;
     if (I.pet) s += `<g class="${opt.noAnim ? "" : "av-pet "}av-legend">${L(I.pet, "main")}</g>`;
@@ -1067,7 +1152,7 @@
     const item = ITEM_MAP[itemId];
     if (!item) return "";
     return renderAvatar({ look, equipped: { [item.slot]: item.id } }, {
-      viewBox: SLOT_VIEW[item.slot], noBg: item.slot !== "bg", noShadow: true, noAnim: true, cls: "av-thumb-svg", label: item.name
+      viewBox: item.thumbViewBox || SLOT_VIEW[item.slot], noBg: item.slot !== "bg", noShadow: true, noAnim: true, cls: "av-thumb-svg", label: item.name
     });
   }
   function renderLookThumb(look) {
@@ -1075,11 +1160,11 @@
       viewBox: "22 4 196 178", noBg: true, noShadow: true, noAnim: true, cls: "av-thumb-svg", label: "造型預覽"
     });
   }
-  /** 風雲榜 42px 圓形迷你公仔頭像 */
+  /** 風雲榜 42px 與名片用圓形迷你公仔頭像 */
   function renderMiniAvatar(stOrLook, opt = {}) {
     const st = stOrLook && stOrLook.look ? stOrLook : { look: stOrLook || DEFAULT_LOOK, equipped: {} };
     return renderAvatar(st, {
-      viewBox: "24 4 192 192", noBg: true, noShadow: true, noAnim: true, cls: opt.cls || "av-mini-svg", label: opt.label || "冒險者頭像"
+      viewBox: "14 2 212 204", noBg: true, noShadow: true, noAnim: true, cls: opt.cls || "av-mini-svg", label: opt.label || "冒險者頭像"
     });
   }
 
@@ -1174,11 +1259,86 @@
       return sanitizeLabList(raw);
     } catch { return []; }
   }
+  const BONUS_CONFIG = {
+    PERFECT_STREAK_TARGET: 3,
+    PERFECT_STREAK_COINS: 50,
+    HIGH_STREAK_TARGET: 5,
+    HIGH_STREAK_SCORE: 80,
+    HIGH_STREAK_COINS: 40,
+    UNIT_MASTERY_COINS: 35,
+    ISLAND_CLEAR_COINS: 80,
+    ISLAND_GRAND_SLAM_COINS: 150,
+    ISLAND_GRAND_SLAM_HARD_VOUCHERS: 1,
+    LAB_MILESTONE_3_COINS: 50,
+    LAB_MILESTONE_7_COINS: 120,
+    LAB_MILESTONE_7_HARD_VOUCHERS: 1
+  };
+
+  function blankBonusState() {
+    return {
+      coinsEarned: 0,
+      hardVouchersEarned: 0,
+      perfectStreakStages: [],
+      highScoreStreakStages: [],
+      perfectStreakCount: 0,
+      highScoreStreakCount: 0,
+      unitMastered: [],
+      islandCleared: [],
+      islandGrandSlam: [],
+      labMilestones: []
+    };
+  }
+
+  function sanitizeStringList(raw, filterFn) {
+    if (!Array.isArray(raw)) return [];
+    const out = [];
+    raw.forEach((x) => {
+      const s = String(x || "").trim();
+      if (!s) return;
+      if (filterFn && !filterFn(s)) return;
+      if (!out.includes(s)) out.push(s);
+    });
+    return out;
+  }
+
+  function sanitizeBonusState(raw) {
+    const b = blankBonusState();
+    if (!raw || typeof raw !== "object") return b;
+    b.coinsEarned = Math.max(0, Math.round(Number(raw.coinsEarned) || 0));
+    b.hardVouchersEarned = Math.max(0, Math.round(Number(raw.hardVouchersEarned) || 0));
+    b.perfectStreakStages = sanitizeStageList(raw.perfectStreakStages).slice(0, BONUS_CONFIG.PERFECT_STREAK_TARGET);
+    b.highScoreStreakStages = sanitizeStageList(raw.highScoreStreakStages).slice(0, BONUS_CONFIG.HIGH_STREAK_TARGET);
+    b.perfectStreakCount = Math.max(0, Math.round(Number(raw.perfectStreakCount) || 0));
+    b.highScoreStreakCount = Math.max(0, Math.round(Number(raw.highScoreStreakCount) || 0));
+    b.unitMastered = sanitizeStringList(raw.unitMastered);
+    b.islandCleared = sanitizeStringList(raw.islandCleared);
+    b.islandGrandSlam = sanitizeStringList(raw.islandGrandSlam);
+    b.labMilestones = sanitizeStringList(raw.labMilestones, (k) => k === "lab_3" || k === "lab_7");
+    return b;
+  }
+
+  function sanitizeUnlockCosts(raw) {
+    const out = {};
+    if (!raw || typeof raw !== "object") return out;
+    Object.keys(raw).forEach((id) => {
+      if (!ITEM_MAP[id] || !raw[id] || typeof raw[id] !== "object") return;
+      const c = raw[id];
+      out[id] = {
+        coins: Math.max(0, Math.round(Number(c.coins) || 0)),
+        easy: Math.max(0, Math.round(Number(c.easy) || 0)),
+        medium: Math.max(0, Math.round(Number(c.medium) || 0)),
+        hard: Math.max(0, Math.round(Number(c.hard) || 0))
+      };
+    });
+    return out;
+  }
+
   const blankState = () => ({
     v: 1,
     lockPolicyVersion: 2,
     look: Object.assign({}, DEFAULT_LOOK),
     unlocked: [],
+    unlockCosts: {},
     equipped: {},
     npcSolved: [],
     labCompleted: [],
@@ -1189,10 +1349,15 @@
     starCoins: 0,
     vouchers: { easy: 0, medium: 0, hard: 0 },
     preLockStages: [],
+    preLockMasteredUnits: [],
+    preLockClearedIslands: [],
+    preLockGrandSlamIslands: [],
+    preLockLabMilestones: [],
     rewardedStages: [],
     labRewarded: [],
     citadelRewarded: [],
-    npcRewarded: []
+    npcRewarded: [],
+    bonus: blankBonusState()
   });
   let guestState = (() => {
     const st = blankState();
@@ -1237,10 +1402,16 @@
       st.npcSolved = Array.isArray(raw.npcSolved) ? Array.from(new Set(raw.npcSolved.filter((id) => NPC_Q_IDS.has(id)))) : [];
       st.labCompleted = sanitizeLabList(raw.labCompleted);
       st.citadelTokens = sanitizeCitadelTokens(raw);
+      const allUnlockCosts = sanitizeUnlockCosts(raw.unlockCosts);
+      Object.keys(allUnlockCosts).forEach((id) => {
+        if (st.unlocked.includes(id)) st.unlockCosts[id] = allUnlockCosts[id];
+      });
       const eq = raw.equipped && typeof raw.equipped === "object" ? raw.equipped : {};
       Object.keys(eq).forEach((slot) => {
         const item = ITEM_MAP[eq[slot]];
-        if (item && item.slot === slot && st.unlocked.includes(item.id)) st.equipped[slot] = item.id;
+        if (item && item.slot === slot && st.unlocked.includes(item.id) && (!item.exclusiveFor || (locked && rawPresetId === item.exclusiveFor))) {
+          st.equipped[slot] = item.id;
+        }
       });
 
       if (!locked) {
@@ -1249,25 +1420,40 @@
         st.starCoins = 0;
         st.vouchers = { easy: 0, medium: 0, hard: 0 };
         st.preLockStages = [];
+        st.preLockMasteredUnits = [];
+        st.preLockClearedIslands = [];
+        st.preLockGrandSlamIslands = [];
+        st.preLockLabMilestones = [];
         st.rewardedStages = [];
         st.labRewarded = [];
         st.citadelRewarded = [];
         st.npcRewarded = [];
+        st.bonus = blankBonusState();
       } else {
         const isLegacyLocked = raw.presetId === undefined && raw.lockPolicyVersion !== 2;
         st.lockPolicyVersion = isLegacyLocked ? 1 : 2;
         if (isLegacyLocked) {
           st.preLockStages = [];
+          st.preLockMasteredUnits = [];
+          st.preLockClearedIslands = [];
+          st.preLockGrandSlamIslands = [];
+          st.preLockLabMilestones = [];
           st.rewardedStages = [];
           st.labRewarded = st.labCompleted.slice();
           st.citadelRewarded = st.citadelTokens.filter((t) => CITADEL_HONOR_KEYS.has(t));
           st.npcRewarded = st.npcSolved.slice();
+          st.bonus = sanitizeBonusState(raw.bonus);
         } else {
           st.preLockStages = sanitizeStageList(raw.preLockStages);
+          st.preLockMasteredUnits = sanitizeStringList(raw.preLockMasteredUnits);
+          st.preLockClearedIslands = sanitizeStringList(raw.preLockClearedIslands);
+          st.preLockGrandSlamIslands = sanitizeStringList(raw.preLockGrandSlamIslands);
+          st.preLockLabMilestones = sanitizeStringList(raw.preLockLabMilestones, (k) => k === "lab_3" || k === "lab_7");
           st.rewardedStages = sanitizeStageList(raw.rewardedStages);
           st.labRewarded = sanitizeLabList(raw.labRewarded);
           st.citadelRewarded = sanitizeCitadelTokens(raw.citadelRewarded).filter((t) => CITADEL_HONOR_KEYS.has(t));
           st.npcRewarded = Array.isArray(raw.npcRewarded) ? Array.from(new Set(raw.npcRewarded.filter((id) => NPC_Q_IDS.has(id)))) : [];
+          st.bonus = sanitizeBonusState(raw.bonus);
         }
       }
     }
@@ -1318,6 +1504,13 @@
     const honorList = (st.citadelTokens || []).filter((t) => CITADEL_HONOR_KEYS.has(t));
     const nextLook = { ...st.look };
     if (honorList.length > 0) nextLook.citadelHonors = honorList;
+    const eqClean = {};
+    Object.keys((st && st.equipped) || {}).forEach((slot) => {
+      const id = st.equipped[slot];
+      if (id && ITEM_MAP[id]) eqClean[slot] = id;
+    });
+    if (Object.keys(eqClean).length > 0) nextLook.equipped = eqClean;
+    else delete nextLook.equipped;
     const synced = syncStateBalanceFields({ ...st, look: nextLook });
     return synced;
   }
@@ -1396,6 +1589,25 @@
     const eqSource = (Object.keys(cloudSt.equipped).length > 0 && (!localRaw || Object.keys(localSt.equipped).length === 0 || cloudSt.presetLocked))
       ? cloudSt.equipped
       : localSt.equipped;
+    const mergeBonus = () => {
+      if (!presetLocked) return blankBonusState();
+      const lb = sanitizeBonusState(localSt.bonus);
+      const cb = sanitizeBonusState(cloudSt.bonus);
+      const useCloudCoins = cb.coinsEarned >= lb.coinsEarned;
+      return {
+        coinsEarned: Math.max(lb.coinsEarned, cb.coinsEarned),
+        hardVouchersEarned: Math.max(lb.hardVouchersEarned, cb.hardVouchersEarned),
+        perfectStreakStages: useCloudCoins ? cb.perfectStreakStages : lb.perfectStreakStages,
+        highScoreStreakStages: useCloudCoins ? cb.highScoreStreakStages : lb.highScoreStreakStages,
+        perfectStreakCount: Math.max(lb.perfectStreakCount, cb.perfectStreakCount),
+        highScoreStreakCount: Math.max(lb.highScoreStreakCount, cb.highScoreStreakCount),
+        unitMastered: Array.from(new Set([...lb.unitMastered, ...cb.unitMastered])),
+        islandCleared: Array.from(new Set([...lb.islandCleared, ...cb.islandCleared])),
+        islandGrandSlam: Array.from(new Set([...lb.islandGrandSlam, ...cb.islandGrandSlam])),
+        labMilestones: Array.from(new Set([...lb.labMilestones, ...cb.labMilestones]))
+      };
+    };
+    const mergedUnlockCosts = { ...(localSt.unlockCosts || {}), ...(cloudSt.unlockCosts || {}) };
     const merged = sanitizeState({
       v: 1,
       lockPolicyVersion: presetLocked ? Math.max(localSt.lockPolicyVersion || 2, cloudSt.lockPolicyVersion || 2) : 2,
@@ -1404,15 +1616,21 @@
       presetId,
       lockedAt: presetLocked ? (cloudSt.lockedAt || localSt.lockedAt || null) : null,
       unlocked: mergedUnlocked,
+      unlockCosts: mergedUnlockCosts,
       npcSolved: mergedNpcSolved,
       labCompleted: mergedLabs,
       citadelTokens: mergedCitadel,
       equipped: eqSource,
       preLockStages: presetLocked ? Array.from(new Set([...(localSt.preLockStages || []), ...(cloudSt.preLockStages || [])])) : [],
+      preLockMasteredUnits: presetLocked ? Array.from(new Set([...(localSt.preLockMasteredUnits || []), ...(cloudSt.preLockMasteredUnits || [])])) : [],
+      preLockClearedIslands: presetLocked ? Array.from(new Set([...(localSt.preLockClearedIslands || []), ...(cloudSt.preLockClearedIslands || [])])) : [],
+      preLockGrandSlamIslands: presetLocked ? Array.from(new Set([...(localSt.preLockGrandSlamIslands || []), ...(cloudSt.preLockGrandSlamIslands || [])])) : [],
+      preLockLabMilestones: presetLocked ? Array.from(new Set([...(localSt.preLockLabMilestones || []), ...(cloudSt.preLockLabMilestones || [])])) : [],
       rewardedStages: presetLocked ? Array.from(new Set([...(localSt.rewardedStages || []), ...(cloudSt.rewardedStages || [])])) : [],
       labRewarded: presetLocked ? Array.from(new Set([...(localSt.labRewarded || []), ...(cloudSt.labRewarded || [])])) : [],
       citadelRewarded: presetLocked ? Array.from(new Set([...(localSt.citadelRewarded || []), ...(cloudSt.citadelRewarded || [])])) : [],
-      npcRewarded: presetLocked ? Array.from(new Set([...(localSt.npcRewarded || []), ...(cloudSt.npcRewarded || [])])) : []
+      npcRewarded: presetLocked ? Array.from(new Set([...(localSt.npcRewarded || []), ...(cloudSt.npcRewarded || [])])) : [],
+      bonus: mergeBonus()
     });
     syncStateBalanceFields(merged);
     try {
@@ -1440,6 +1658,437 @@
     if (st.lockPolicyVersion === 1) return (st.labCompleted || []).includes(cid);
     return Array.isArray(st.labRewarded) && st.labRewarded.includes(cid);
   }
+  function getAllIslandUnitIds(isl) {
+    const cc = window.CompletionCenter;
+    if (cc && typeof cc.getIslandUnits === "function") {
+      return cc.getIslandUnits(isl.id).map((u) => u.unitId);
+    }
+    const seq = Array.isArray(isl && isl.sequence) ? isl.sequence : [];
+    return seq.map((_, idx) => `${isl.id}-${idx + 1}`);
+  }
+
+  function buildBestStageScoreMap(events, extraCtx) {
+    const cc = window.CompletionCenter;
+    const map = new Map();
+    const record = (rawUnit, rawDiff, rawScore) => {
+      const unit = cc && typeof cc.canonicalizeUnitId === "function"
+        ? cc.canonicalizeUnitId(rawUnit)
+        : String(rawUnit || "").trim().toLowerCase();
+      if (!unit) return;
+      const diff = cc && typeof cc.normalizeDifficultyToken === "function"
+        ? cc.normalizeDifficultyToken(rawDiff, { mapSingleToEasy: true })
+        : (rawDiff === "single" ? "easy" : String(rawDiff || "").trim().toLowerCase());
+      if (diff !== "easy" && diff !== "medium" && diff !== "hard") return;
+      const sc = Number(rawScore);
+      if (!Number.isFinite(sc)) return;
+      const tok = `${unit}:${diff}`;
+      const prev = map.get(tok);
+      if (prev === undefined || sc > prev) map.set(tok, sc);
+    };
+    (Array.isArray(events) ? events : []).forEach((e) => {
+      if (!e || e.type !== "quiz") return;
+      const rawUnit = e.unit || e.unitId || "";
+      const rawDiff = e.quizDifficulty || e.difficulty || (e.detail && e.detail.difficulty) || "easy";
+      record(rawUnit, rawDiff, e.score);
+    });
+    if (extraCtx && extraCtx.unitId && extraCtx.score !== undefined) {
+      record(extraCtx.unitId, extraCtx.difficulty || "easy", extraCtx.score);
+    }
+    return map;
+  }
+
+  function resolveQuizStageToken(ctx) {
+    if (!ctx || typeof ctx !== "object") return { unitId: "", difficulty: "", stageToken: "", islandId: "" };
+    const cc = window.CompletionCenter;
+    let rawUnit = ctx.unitId || ctx.unit || "";
+    let rawDiff = ctx.difficulty || ctx.quizDifficulty || "easy";
+    if (!rawUnit && ctx.stageToken && String(ctx.stageToken).includes(":")) {
+      const parts = String(ctx.stageToken).split(":");
+      rawUnit = parts[0];
+      rawDiff = parts[1];
+    }
+    const unitId = cc && typeof cc.canonicalizeUnitId === "function"
+      ? cc.canonicalizeUnitId(rawUnit)
+      : String(rawUnit || "").trim().toLowerCase();
+    const difficulty = cc && typeof cc.normalizeDifficultyToken === "function"
+      ? cc.normalizeDifficultyToken(rawDiff, { mapSingleToEasy: true })
+      : (rawDiff === "single" ? "easy" : String(rawDiff || "").trim().toLowerCase());
+    const stageToken = (unitId && (difficulty === "easy" || difficulty === "medium" || difficulty === "hard"))
+      ? `${unitId}:${difficulty}`
+      : "";
+    const rawIsl = ctx.islandId || (unitId ? unitId.split("-")[0] : "");
+    const islandId = cc && typeof cc.resolveIslandId === "function"
+      ? cc.resolveIslandId(rawIsl)
+      : String(rawIsl || "").trim().toLowerCase();
+    return { unitId, difficulty, stageToken, islandId };
+  }
+
+  function computePreLockMilestones(evs, labCompleted) {
+    const islList = Array.isArray(window.ISLANDS) ? window.ISLANDS.slice(0, 7) : [];
+    const scoreMap = buildBestStageScoreMap(evs);
+    const masteredUnits = [];
+    const clearedIslands = [];
+    const grandSlamIslands = [];
+    const labMilestones = [];
+    islList.forEach((isl) => {
+      const units = getAllIslandUnitIds(isl);
+      let allUnitsPerfect = units.length > 0;
+      units.forEach((u) => {
+        const perfect3 = ["easy", "medium", "hard"].every((d) => (scoreMap.get(`${u}:${d}`) || 0) >= 100);
+        if (perfect3) masteredUnits.push(u);
+        else allUnitsPerfect = false;
+      });
+      if (allUnitsPerfect) grandSlamIslands.push(isl.id);
+      if (typeof window.calculateIslandCompletion === "function") {
+        const comp = window.calculateIslandCompletion(isl.id, evs);
+        if (comp && comp.totalStages > 0 && comp.percentage >= 100 && comp.passedStages >= comp.totalStages) {
+          clearedIslands.push(isl.id);
+        }
+      }
+    });
+    const labCount = Array.isArray(labCompleted) ? labCompleted.length : 0;
+    if (labCount >= 3) labMilestones.push("lab_3");
+    if (labCount >= 7) labMilestones.push("lab_7");
+    return { masteredUnits, clearedIslands, grandSlamIslands, labMilestones };
+  }
+
+  /**
+   * 統一額外獎勵結算引擎（受 isAvatarLocked 嚴格保護）：
+   * 1. 🔥 三連滿分王（不重複關卡 ×3 且皆 100 分 -> +50 ⭐，可重複）
+   * 2. ⚡ 五連高分衝刺（不重複關卡 ×5 且皆 >=80 分 -> +40 ⭐，可重複）
+   * 3. 🎯 單元全難度制霸（單一單元易/中/難皆 100 分 -> +35 ⭐，每單元限 1 次）
+   * 4. 🏝️ 單一島嶼 100% 通關（全關卡 >=60 分 -> +80 ⭐，每島限 1 次）
+   * 5. 👑 單一島嶼全皇冠大滿貫（全單元三難度皆 100 分 -> +150 ⭐ + 1 大師券，每島限 1 次）
+   * 6. 🔬 實驗室探索達人（完成 3 島 +50 ⭐；完成全部 7 島再贈 +120 ⭐ + 1 大師券）
+   */
+  function evaluateBonusRewards(quizContext = {}, userState) {
+    const hasExplicitState = Boolean(userState && typeof userState === "object");
+    const st = hasExplicitState ? userState : getState();
+    if (!st.bonus || typeof st.bonus !== "object") st.bonus = blankBonusState();
+    else st.bonus = sanitizeBonusState(st.bonus);
+
+    const locked = isAvatarLocked(st);
+    const kind = (quizContext && quizContext.kind) || (quizContext && (quizContext.unitId || quizContext.unit || quizContext.stageToken) ? "quiz" : "microlab");
+    const evs = Array.isArray(quizContext && quizContext.events)
+      ? quizContext.events
+      : (window.Store && window.Store.profile && typeof window.Store.events === "function"
+          ? window.Store.events().filter((e) => e && e.type === "quiz")
+          : []);
+
+    const achievements = [];
+    let coinsAdded = 0;
+    let hardVouchersAdded = 0;
+
+    if (!locked) {
+      // 未鎖定角色前：不累積星幣與兌換券，僅檢測當下是否達標供 UI 提示
+      if (kind === "quiz") {
+        const score = Number(quizContext && quizContext.score);
+        const { unitId, difficulty, stageToken, islandId } = resolveQuizStageToken(quizContext);
+        const syntheticEvents = (stageToken && Number.isFinite(score))
+          ? [...evs, { type: "quiz", island: islandId, unit: unitId, difficulty, score }]
+          : evs;
+        const scoreMap = buildBestStageScoreMap(syntheticEvents);
+        if (unitId && ["easy", "medium", "hard"].every((d) => (scoreMap.get(`${unitId}:${d}`) || 0) >= 100)) {
+          achievements.push({ id: "unit_mastery", icon: "🎯", title: "單元全難度制霸", detail: unitId, coins: 0, hardVouchers: 0, potentialCoins: BONUS_CONFIG.UNIT_MASTERY_COINS, potentialHardVouchers: 0, lockedRequired: true });
+        }
+        if (islandId && typeof window.calculateIslandCompletion === "function") {
+          const comp = window.calculateIslandCompletion(islandId, syntheticEvents);
+          if (comp && comp.totalStages > 0 && comp.percentage >= 100) {
+            achievements.push({ id: "island_clear", icon: "🏝️", title: "單一島嶼 100% 通關", detail: comp.islandName || islandId, coins: 0, hardVouchers: 0, potentialCoins: BONUS_CONFIG.ISLAND_CLEAR_COINS, potentialHardVouchers: 0, lockedRequired: true });
+          }
+          const islObj = (Array.isArray(window.ISLANDS) ? window.ISLANDS : []).find((i) => i.id === islandId);
+          if (islObj) {
+            const units = getAllIslandUnitIds(islObj);
+            if (units.length > 0 && units.every((u) => ["easy", "medium", "hard"].every((d) => (scoreMap.get(`${u}:${d}`) || 0) >= 100))) {
+              achievements.push({ id: "island_grand_slam", icon: "👑", title: "單一島嶼全皇冠大滿貫", detail: islObj.name, coins: 0, hardVouchers: 0, potentialCoins: BONUS_CONFIG.ISLAND_GRAND_SLAM_COINS, potentialHardVouchers: BONUS_CONFIG.ISLAND_GRAND_SLAM_HARD_VOUCHERS, lockedRequired: true });
+            }
+          }
+        }
+      } else if (kind === "microlab") {
+        const labCount = Array.isArray(st.labCompleted) ? st.labCompleted.length : 0;
+        if (labCount === 3) {
+          achievements.push({ id: "lab_3", icon: "🔬", title: "實驗室探索達人（3 島）", detail: "完成 3 座島微實作", coins: 0, hardVouchers: 0, potentialCoins: BONUS_CONFIG.LAB_MILESTONE_3_COINS, potentialHardVouchers: 0, lockedRequired: true });
+        } else if (labCount >= 7) {
+          achievements.push({ id: "lab_7", icon: "🔬", title: "實驗室探索達人（全 7 島）", detail: "完成全部 7 座島微實作", coins: 0, hardVouchers: 0, potentialCoins: BONUS_CONFIG.LAB_MILESTONE_7_COINS, potentialHardVouchers: BONUS_CONFIG.LAB_MILESTONE_7_HARD_VOUCHERS, lockedRequired: true });
+        }
+      }
+      return {
+        locked: false,
+        unlockedNoticeOnly: achievements.length > 0,
+        coinsAdded: 0,
+        hardVouchersAdded: 0,
+        achievements,
+        bonus: st.bonus,
+        wallet: wallet(st),
+        state: st
+      };
+    }
+
+    const islList = Array.isArray(window.ISLANDS) ? window.ISLANDS.slice(0, 7) : [];
+    const preUnits = new Set(st.preLockMasteredUnits || []);
+    const preCleared = new Set(st.preLockClearedIslands || []);
+    const preGrand = new Set(st.preLockGrandSlamIslands || []);
+    const preLabs = new Set(st.preLockLabMilestones || []);
+
+    if (kind === "quiz") {
+      const score = Number(quizContext && quizContext.score);
+      const { unitId, difficulty, stageToken, islandId } = resolveQuizStageToken(quizContext);
+      const syntheticEvents = (stageToken && Number.isFinite(score))
+        ? [...evs, { type: "quiz", island: islandId, unit: unitId, difficulty, score }]
+        : evs;
+
+      // 1. 🔥 三連滿分王（不同關卡 ×3 且皆 100 分，可重複；重複同關不累計；未達 100 分歸零）
+      if (stageToken && Number.isFinite(score)) {
+        if (score < 100) {
+          st.bonus.perfectStreakStages = [];
+        } else if (!st.bonus.perfectStreakStages.includes(stageToken)) {
+          st.bonus.perfectStreakStages = [...st.bonus.perfectStreakStages, stageToken];
+          if (st.bonus.perfectStreakStages.length >= BONUS_CONFIG.PERFECT_STREAK_TARGET) {
+            st.bonus.perfectStreakStages = [];
+            st.bonus.perfectStreakCount += 1;
+            coinsAdded += BONUS_CONFIG.PERFECT_STREAK_COINS;
+            achievements.push({
+              id: "perfect_streak_3",
+              icon: "🔥",
+              title: "三連滿分王",
+              detail: "連續 3 個不同關卡獲得 100 分",
+              coins: BONUS_CONFIG.PERFECT_STREAK_COINS,
+              hardVouchers: 0
+            });
+          }
+        }
+
+        // 2. ⚡ 五連高分衝刺（不同關卡 ×5 且皆 >= 80 分，可重複；重複同關不累計；低於 80 分歸零）
+        if (score < BONUS_CONFIG.HIGH_STREAK_SCORE) {
+          st.bonus.highScoreStreakStages = [];
+        } else if (!st.bonus.highScoreStreakStages.includes(stageToken)) {
+          st.bonus.highScoreStreakStages = [...st.bonus.highScoreStreakStages, stageToken];
+          if (st.bonus.highScoreStreakStages.length >= BONUS_CONFIG.HIGH_STREAK_TARGET) {
+            st.bonus.highScoreStreakStages = [];
+            st.bonus.highScoreStreakCount += 1;
+            coinsAdded += BONUS_CONFIG.HIGH_STREAK_COINS;
+            achievements.push({
+              id: "high_streak_5",
+              icon: "⚡",
+              title: "五連高分衝刺",
+              detail: "連續 5 個不同關卡皆達 80 分以上",
+              coins: BONUS_CONFIG.HIGH_STREAK_COINS,
+              hardVouchers: 0
+            });
+          }
+        }
+      }
+
+      // 3. 🎯 單元全難度制霸（單一單元易、中、難皆 100 分 -> +35 ⭐，每單元限領 1 次）
+      const scoreMap = buildBestStageScoreMap(syntheticEvents);
+      islList.forEach((isl) => {
+        const units = getAllIslandUnitIds(isl);
+        let allUnitsPerfect = units.length > 0;
+        units.forEach((u) => {
+          const isUnitPerfect = ["easy", "medium", "hard"].every((d) => (scoreMap.get(`${u}:${d}`) || 0) >= 100);
+          if (!isUnitPerfect) {
+            allUnitsPerfect = false;
+            return;
+          }
+          if (!preUnits.has(u) && !st.bonus.unitMastered.includes(u)) {
+            st.bonus.unitMastered = [...st.bonus.unitMastered, u];
+            coinsAdded += BONUS_CONFIG.UNIT_MASTERY_COINS;
+            const unitMeta = window.CONTENT && window.CONTENT[u];
+            achievements.push({
+              id: `unit_mastery:${u}`,
+              icon: "🎯",
+              title: "單元全難度制霸",
+              detail: (unitMeta && unitMeta.unit) ? `${unitMeta.unit} 易／中／難全滿分` : `${u} 易／中／難全滿分`,
+              coins: BONUS_CONFIG.UNIT_MASTERY_COINS,
+              hardVouchers: 0
+            });
+          }
+        });
+
+        // 4. 🏝️ 單一島嶼 100% 通關（全關卡 >=60 分 -> +80 ⭐，每島限領 1 次）
+        if (typeof window.calculateIslandCompletion === "function") {
+          const comp = window.calculateIslandCompletion(isl.id, syntheticEvents);
+          if (comp && comp.totalStages > 0 && comp.percentage >= 100 && comp.passedStages >= comp.totalStages) {
+            if (!preCleared.has(isl.id) && !st.bonus.islandCleared.includes(isl.id)) {
+              st.bonus.islandCleared = [...st.bonus.islandCleared, isl.id];
+              coinsAdded += BONUS_CONFIG.ISLAND_CLEAR_COINS;
+              achievements.push({
+                id: `island_clear:${isl.id}`,
+                icon: "🏝️",
+                title: "島嶼 100% 通關",
+                detail: `${isl.emoji || ""} ${isl.name} 全關卡及格通關`,
+                coins: BONUS_CONFIG.ISLAND_CLEAR_COINS,
+                hardVouchers: 0
+              });
+            }
+          }
+        }
+
+        // 5. 👑 單一島嶼全皇冠大滿貫（全單元三難度皆 100 分 -> +150 ⭐ + 1 大師券，每島限領 1 次）
+        if (allUnitsPerfect && !preGrand.has(isl.id) && !st.bonus.islandGrandSlam.includes(isl.id)) {
+          st.bonus.islandGrandSlam = [...st.bonus.islandGrandSlam, isl.id];
+          coinsAdded += BONUS_CONFIG.ISLAND_GRAND_SLAM_COINS;
+          hardVouchersAdded += BONUS_CONFIG.ISLAND_GRAND_SLAM_HARD_VOUCHERS;
+          achievements.push({
+            id: `island_grand_slam:${isl.id}`,
+            icon: "👑",
+            title: "島嶼全皇冠大滿貫",
+            detail: `${isl.emoji || ""} ${isl.name} 全單元三難度滿分稱霸`,
+            coins: BONUS_CONFIG.ISLAND_GRAND_SLAM_COINS,
+            hardVouchers: BONUS_CONFIG.ISLAND_GRAND_SLAM_HARD_VOUCHERS
+          });
+        }
+      });
+    }
+
+    // 6. 🔬 實驗室探索達人（完成 3 座島 +50 ⭐；完成全部 7 島再贈 +120 ⭐ + 1 大師券）
+    const labCount = Array.isArray(st.labCompleted) ? st.labCompleted.length : 0;
+    if (labCount >= 3 && !preLabs.has("lab_3") && !st.bonus.labMilestones.includes("lab_3")) {
+      st.bonus.labMilestones = [...st.bonus.labMilestones, "lab_3"];
+      coinsAdded += BONUS_CONFIG.LAB_MILESTONE_3_COINS;
+      achievements.push({
+        id: "lab_3",
+        icon: "🔬",
+        title: "實驗室探索達人（3 島）",
+        detail: "累計完成 3 座主題島微實作實驗室",
+        coins: BONUS_CONFIG.LAB_MILESTONE_3_COINS,
+        hardVouchers: 0
+      });
+    }
+    if (labCount >= 7 && !preLabs.has("lab_7") && !st.bonus.labMilestones.includes("lab_7")) {
+      st.bonus.labMilestones = [...st.bonus.labMilestones, "lab_7"];
+      coinsAdded += BONUS_CONFIG.LAB_MILESTONE_7_COINS;
+      hardVouchersAdded += BONUS_CONFIG.LAB_MILESTONE_7_HARD_VOUCHERS;
+      achievements.push({
+        id: "lab_7",
+        icon: "🔬",
+        title: "實驗室探索達人（全 7 島）",
+        detail: "完成全部 7 座主題島微實作實驗室",
+        coins: BONUS_CONFIG.LAB_MILESTONE_7_COINS,
+        hardVouchers: BONUS_CONFIG.LAB_MILESTONE_7_HARD_VOUCHERS
+      });
+    }
+
+    if (coinsAdded > 0) st.bonus.coinsEarned += coinsAdded;
+    if (hardVouchersAdded > 0) st.bonus.hardVouchersEarned += hardVouchersAdded;
+
+    const shouldSave = quizContext && quizContext.save !== undefined
+      ? Boolean(quizContext.save)
+      : !hasExplicitState;
+    if (shouldSave) {
+      saveState(st, { immediate: true });
+      emit();
+    } else {
+      syncStateBalanceFields(st);
+    }
+
+    return {
+      locked: true,
+      unlockedNoticeOnly: false,
+      coinsAdded,
+      hardVouchersAdded,
+      achievements,
+      bonus: st.bonus,
+      wallet: wallet(st),
+      state: st
+    };
+  }
+
+  function getBonusProgress(userState) {
+    const st = userState || getState();
+    const locked = isAvatarLocked(st);
+    const b = sanitizeBonusState(st && st.bonus);
+    const islList = Array.isArray(window.ISLANDS) ? window.ISLANDS.slice(0, 7) : [];
+    const evs = window.Store && window.Store.profile && typeof window.Store.events === "function"
+      ? window.Store.events().filter((e) => e && e.type === "quiz")
+      : [];
+    const scoreMap = buildBestStageScoreMap(evs);
+    const preUnits = new Set((st && st.preLockMasteredUnits) || []);
+    const preCleared = new Set((st && st.preLockClearedIslands) || []);
+    const preGrand = new Set((st && st.preLockGrandSlamIslands) || []);
+    const preLabs = new Set((st && st.preLockLabMilestones) || []);
+
+    let totalUnits = 0;
+    let perfectUnitCount = 0;
+    const perIsland = islList.map((isl) => {
+      const units = getAllIslandUnitIds(isl);
+      totalUnits += units.length;
+      let islandPerfectUnits = 0;
+      units.forEach((u) => {
+        if (["easy", "medium", "hard"].every((d) => (scoreMap.get(`${u}:${d}`) || 0) >= 100)) {
+          islandPerfectUnits += 1;
+          perfectUnitCount += 1;
+        }
+      });
+      const comp = typeof window.calculateIslandCompletion === "function"
+        ? window.calculateIslandCompletion(isl.id, evs)
+        : { percentage: 0, passedStages: 0, totalStages: units.length * 3 };
+      return {
+        id: isl.id,
+        name: isl.name,
+        emoji: isl.emoji || "🏝️",
+        color: isl.color || "#38bdf8",
+        percentage: comp ? comp.percentage : 0,
+        passedStages: comp ? comp.passedStages : 0,
+        totalStages: comp ? comp.totalStages : units.length * 3,
+        perfectUnits: islandPerfectUnits,
+        totalUnits: units.length,
+        clearedDone: b.islandCleared.includes(isl.id) || preCleared.has(isl.id),
+        clearedClaimed: b.islandCleared.includes(isl.id),
+        clearedPreLock: preCleared.has(isl.id),
+        grandSlamDone: b.islandGrandSlam.includes(isl.id) || preGrand.has(isl.id),
+        grandSlamClaimed: b.islandGrandSlam.includes(isl.id),
+        grandSlamPreLock: preGrand.has(isl.id)
+      };
+    });
+
+    const labCount = Array.isArray(st && st.labCompleted) ? st.labCompleted.length : 0;
+    return {
+      locked,
+      perfectStreak: {
+        current: locked ? b.perfectStreakStages.length : 0,
+        target: BONUS_CONFIG.PERFECT_STREAK_TARGET,
+        stages: locked ? b.perfectStreakStages.slice() : [],
+        triggerCount: b.perfectStreakCount
+      },
+      highScoreStreak: {
+        current: locked ? b.highScoreStreakStages.length : 0,
+        target: BONUS_CONFIG.HIGH_STREAK_TARGET,
+        minScore: BONUS_CONFIG.HIGH_STREAK_SCORE,
+        stages: locked ? b.highScoreStreakStages.slice() : [],
+        triggerCount: b.highScoreStreakCount
+      },
+      unitMastery: {
+        claimedCount: b.unitMastered.length,
+        perfectUnitCount,
+        totalUnits,
+        claimedUnits: b.unitMastered.slice(),
+        preLockCount: preUnits.size
+      },
+      islandClear: {
+        claimedCount: b.islandCleared.length,
+        doneCount: perIsland.filter((x) => x.clearedDone).length,
+        totalIslands: islList.length,
+        perIsland
+      },
+      islandGrandSlam: {
+        claimedCount: b.islandGrandSlam.length,
+        doneCount: perIsland.filter((x) => x.grandSlamDone).length,
+        totalIslands: islList.length
+      },
+      labMilestones: {
+        labCount,
+        totalIslands: 7,
+        lab3Claimed: b.labMilestones.includes("lab_3"),
+        lab7Claimed: b.labMilestones.includes("lab_7"),
+        lab3PreLock: preLabs.has("lab_3"),
+        lab7PreLock: preLabs.has("lab_7")
+      },
+      totalBonusCoins: b.coinsEarned,
+      totalBonusHardVouchers: b.hardVouchersEarned
+    };
+  }
+
   function completeMicroLab(islandId) {
     const cid = resolveLabIslandId(islandId);
     if (!cid) return { ok: false, gained: 0, coins: wallet().coins };
@@ -1459,10 +2108,13 @@
       gained = LAB_COIN_REWARD;
       changed = true;
     }
-    if (changed) {
+    const bonusResult = !already
+      ? evaluateBonusRewards({ kind: "microlab", islandId: cid, save: false }, st)
+      : { locked, unlockedNoticeOnly: false, coinsAdded: 0, hardVouchersAdded: 0, achievements: [] };
+    if (changed || (bonusResult && (bonusResult.coinsAdded > 0 || bonusResult.hardVouchersAdded > 0))) {
       saveState(st, { immediate: true });
       emit();
-      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { islandId: cid, completed: true, gained, lockedRequired: !locked } }));
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { islandId: cid, completed: true, gained, lockedRequired: !locked, bonusResult } }));
     }
     return {
       ok: true,
@@ -1471,6 +2123,7 @@
       already,
       lockedRequired: !locked,
       guest: isGuest,
+      bonusResult,
       coins: wallet(st).coins
     };
   }
@@ -1590,19 +2243,30 @@
       };
     }
 
+    const bonusState = sanitizeBonusState(st.bonus);
     const preLockSet = new Set(Array.isArray(st.preLockStages) ? st.preLockStages : []);
     const earned = {
       easy: Array.from(qs.passed.easy).filter((u) => !preLockSet.has(`${u}:easy`)).length,
       medium: Array.from(qs.passed.medium).filter((u) => !preLockSet.has(`${u}:medium`)).length,
-      hard: Array.from(qs.passed.hard).filter((u) => !preLockSet.has(`${u}:hard`)).length
+      hard: Array.from(qs.passed.hard).filter((u) => !preLockSet.has(`${u}:hard`)).length + (bonusState.hardVouchersEarned || 0)
     };
     const used = { easy: 0, medium: 0, hard: 0 };
     let spent = 0;
+    const unlockCosts = (st.unlockCosts && typeof st.unlockCosts === "object") ? st.unlockCosts : {};
     (st.unlocked || []).forEach((id) => {
       const item = ITEM_MAP[id];
       if (!item) return;
-      if (item.tier === "star") spent += item.price;
-      else used[item.tier]++;
+      const recorded = unlockCosts[id];
+      if (recorded && typeof recorded === "object") {
+        spent += Math.max(0, Number(recorded.coins) || 0);
+        used.easy += Math.max(0, Number(recorded.easy) || 0);
+        used.medium += Math.max(0, Number(recorded.medium) || 0);
+        used.hard += Math.max(0, Number(recorded.hard) || 0);
+      } else {
+        const leg = getLegacyItemCost(item);
+        spent += leg.coins;
+        if (leg.voucherType && used[leg.voucherType] !== undefined) used[leg.voucherType] += leg.vouchers;
+      }
     });
     const avail = {};
     Object.keys(earned).forEach((k) => { avail[k] = Math.max(0, earned[k] - used[k]); });
@@ -1620,7 +2284,9 @@
     const dojoCoinsEarned = dojoCount * DOJO_COIN_REWARD;
     const capstoneCoinsEarned = capstoneCount * CAPSTONE_COIN_REWARD;
     const citadelCoinsEarned = dojoCoinsEarned + capstoneCoinsEarned;
-    const coinsEarned = npcList.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned;
+    const bonusCoinsEarned = bonusState.coinsEarned || 0;
+    const bonusHardVouchersEarned = bonusState.hardVouchersEarned || 0;
+    const coinsEarned = npcList.length * COIN_PER_QUESTION + labCoinsEarned + citadelCoinsEarned + bonusCoinsEarned;
     const coins = Math.max(0, coinsEarned - spent);
     return {
       locked: true,
@@ -1633,6 +2299,8 @@
       dojoCoinsEarned,
       capstoneCoinsEarned,
       citadelCoinsEarned,
+      bonusCoinsEarned,
+      bonusHardVouchersEarned,
       spent,
       coins,
       starCoins: coins
@@ -1689,14 +2357,29 @@
     if (!isAvatarLocked(st)) {
       return { ok: false, lockedRequired: true, msg: "🔒 請先至「基礎造型」選定並鎖定專屬角色，往後過關才能累積星幣與兌換券來解鎖裝備！" };
     }
+    if (!isItemExclusiveAllowed(item, st)) {
+      return { ok: false, msg: `🔒 此為「${item.characterName || "專屬角色"}」限定神裝，僅對應角色可解鎖購買！` };
+    }
     if (st.unlocked.includes(id)) return { ok: true, already: true };
     const w = wallet(st);
-    if (item.tier === "star") {
-      if (w.coins < item.price) return { ok: false, msg: `⭐ 探索星幣不足，還差 ${item.price - w.coins} 枚！去 NPC 島答題賺星幣吧。` };
-    } else if (w.avail[item.tier] < 1) {
-      const t = TIERS[item.tier];
-      return { ok: false, msg: `🎟️ ${t.ticket}不足！再通過 1 個單元的「${t.diffName}」測驗即可獲得。` };
+    const cost = getItemCost(item);
+    const lackCoins = cost.coins > w.coins ? (cost.coins - w.coins) : 0;
+    const lackVouchers = (cost.voucherType && cost.vouchers > (w.avail[cost.voucherType] || 0))
+      ? (cost.vouchers - (w.avail[cost.voucherType] || 0))
+      : 0;
+    if (lackCoins > 0 || lackVouchers > 0) {
+      const lacks = [];
+      if (lackCoins > 0) lacks.push(`⭐ 星幣還差 ${lackCoins} 枚`);
+      if (lackVouchers > 0) lacks.push(`🎟️ ${TIERS[cost.voucherType].short}還差 ${lackVouchers} 張`);
+      return { ok: false, msg: `兌換條件尚未達成：${lacks.join("、")}！` };
     }
+    if (!st.unlockCosts || typeof st.unlockCosts !== "object") st.unlockCosts = {};
+    st.unlockCosts[id] = {
+      coins: cost.coins,
+      easy: cost.voucherType === "easy" ? cost.vouchers : 0,
+      medium: cost.voucherType === "medium" ? cost.vouchers : 0,
+      hard: cost.voucherType === "hard" ? cost.vouchers : 0
+    };
     st.unlocked.push(id);
     st.equipped[item.slot] = id;
     saveState(st);
@@ -1737,7 +2420,7 @@
     if (!chosenPresetId) return { ok: false, msg: "請先選擇一位專屬角色造型！" };
     if (isAvatarLocked(st)) return { ok: true, already: true, state: st };
 
-    // 快照鎖定前已通過的所有測驗關卡，鎖定當下與之前過關項目絕不補發兌換券或星幣
+    // 快照鎖定前已通過的所有測驗關卡與成就，鎖定當下與之前過關項目絕不補發兌換券或星幣
     const qs = quizStats();
     const passedBeforeLock = [];
     ["easy", "medium", "hard"].forEach((diff) => {
@@ -1746,16 +2429,25 @@
         if (!passedBeforeLock.includes(tok)) passedBeforeLock.push(tok);
       });
     });
+    const evs = window.Store && window.Store.profile && typeof window.Store.events === "function"
+      ? window.Store.events().filter((e) => e && e.type === "quiz")
+      : [];
+    const preMilestones = computePreLockMilestones(evs, st.labCompleted || []);
 
     st.presetLocked = true;
     st.presetId = chosenPresetId;
     st.lockPolicyVersion = 2;
     st.lockedAt = Date.now();
     st.preLockStages = Array.from(new Set([...(st.preLockStages || []), ...passedBeforeLock])).sort();
+    st.preLockMasteredUnits = preMilestones.masteredUnits;
+    st.preLockClearedIslands = preMilestones.clearedIslands;
+    st.preLockGrandSlamIslands = preMilestones.grandSlamIslands;
+    st.preLockLabMilestones = preMilestones.labMilestones;
     st.rewardedStages = [];
     st.labRewarded = [];
     st.citadelRewarded = [];
     st.npcRewarded = [];
+    st.bonus = blankBonusState();
     st.starCoins = 0;
     st.vouchers = { easy: 0, medium: 0, hard: 0 };
 
@@ -2070,10 +2762,12 @@
   }
 
   window.isAvatarLocked = isAvatarLocked;
+  window.evaluateBonusRewards = evaluateBonusRewards;
   window.AvatarSystem = {
-    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DOJO_COIN_REWARD, CAPSTONE_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS,
+    ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DOJO_COIN_REWARD, CAPSTONE_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS, BONUS_CONFIG,
     renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState,
     isAvatarLocked, getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc, recordQuizVoucher,
+    getItemCost, isItemExclusiveAllowed, evaluateBonusRewards, getBonusProgress,
     resolveLabIslandId, isMicroLabCompleted, isMicroLabRewarded, getCompletedMicroLabs, completeMicroLab,
     grantCitadelToken, isCitadelTokenRewarded, getCitadelHonorsSummary, sanitizeCitadelTokens,
     toast, mountNpcQuiz, downloadCard, esc

@@ -653,6 +653,11 @@
         clonedAvatar.look = { ...clonedAvatar.look };
         if (honorTokens.length > 0) clonedAvatar.look.citadelHonors = honorTokens;
         else delete clonedAvatar.look.citadelHonors;
+        if (clonedAvatar.equipped && typeof clonedAvatar.equipped === "object" && Object.keys(clonedAvatar.equipped).length > 0) {
+          clonedAvatar.look.equipped = { ...clonedAvatar.equipped };
+        } else {
+          delete clonedAvatar.look.equipped;
+        }
       }
       payload.avatar = clonedAvatar;
     } else if (honorTokens.length > 0) {

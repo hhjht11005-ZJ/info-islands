@@ -5,14 +5,23 @@
   const esc = AV.esc;
   let chart = null;
   let tab = "look";
+  let shopFilter = "all";
   let armedId = null, armTimer = null;
 
   const TABS = [
     { id: "look", label: "💇 基礎造型" },
-    { id: "easy", label: "🎩 頭飾臉飾(易)" },
-    { id: "medium", label: "👕 服裝褲裙(中)" },
-    { id: "hard", label: "⚔️ 武器寵物(難)" },
-    { id: "star", label: "⭐ 星幣限定" }
+    { id: "shop", label: "🛍️ 神裝商店" },
+    { id: "quests", label: "🏆 榮譽獎勵任務" }
+  ];
+
+  const SHOP_FILTERS = [
+    { id: "all", label: "🌟 全部" },
+    { id: "exclusive", label: "👑 專屬裝備" },
+    { id: "head", label: "🎩 頭飾" },
+    { id: "top", label: "👕 服裝" },
+    { id: "weapon", label: "⚔️ 手持" },
+    { id: "back", label: "🪽 背飾" },
+    { id: "extra", label: "🐾 寵/背/坐" }
   ];
 
   const wrap = document.createElement("div");
@@ -43,6 +52,7 @@
         <div id="avDressingLockBanner" class="av-lock-status-banner" hidden></div>
         <div class="av-rpg-bars" id="avBars"></div>
         <div class="av-tabs" role="tablist" id="avTabs">${TABS.map((t) => `<button type="button" role="tab" class="av-tab" data-tab="${t.id}">${t.label}</button>`).join("")}</div>
+        <div class="av-shop-filters" id="avShopFilters" hidden>${SHOP_FILTERS.map((f) => `<button type="button" class="av-filter-pill" data-filter="${f.id}">${f.label}</button>`).join("")}</div>
         <div class="av-tab-hint" id="avHint"></div>
         <div class="av-grid" id="avGrid"></div>
         <details class="av-legacy" id="avLegacy">
@@ -213,7 +223,7 @@
     const T = AV.TIERS;
     $("#avWallet").innerHTML = ["easy", "medium", "hard"].map((k) =>
       `<span class="av-cap cap-${k}" title="通過「${T[k].diffName}」測驗累計 ${w.earned[k]} 張，已使用 ${w.used[k]} 張">🎟️ ${T[k].short}<b>${w.avail[k]}</b></span>`).join("")
-      + `<span class="av-cap cap-star" title="NPC 島與微實作實驗室累計 ${w.coinsEarned} 枚，已花費 ${w.spent} 枚">⭐ 探索星幣<b>${w.coins}</b></span>`;
+      + `<span class="av-cap cap-star" title="累積總星幣 ${w.coinsEarned} 枚（含榮譽獎勵 +${w.bonusCoinsEarned || 0} ⭐），已花費 ${w.spent} 枚">⭐ 探索星幣<b>${w.coins}</b></span>`;
   }
 
   /* ---------------- 右側：RPG 戰績條 ---------------- */
@@ -310,16 +320,24 @@
     const T = AV.TIERS;
     const locked = checkAvatarLocked(st);
     const lockPrefix = locked ? "" : "🔒 尚未鎖定角色（僅累積徽章模式，目前餘額為 0）｜";
+    const presetStyle = locked ? (AV.HAIR_STYLES.find((h) => h.id === st.presetId) || null) : null;
     const hint = {
       look: locked
-        ? "🔒 已鎖定專屬基礎角色！表情、髮色與所有已解鎖的帽子、服裝、武器與寵物仍可 100% 自由混搭。"
+        ? "🔒 已鎖定專屬基礎角色！表情、髮色與所有已解鎖的專屬／共同裝備皆可 100% 自由混搭。"
         : "💡 免費預覽試穿！選定喜歡的基礎角色後，請點擊左側「確定選定此造型」按鈕鎖定你的專屬角色，開啟星幣與兌換券累積。",
-      easy: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「易」測驗獲得 1 張${T.easy.ticket}（已累計 ${w.earned.easy} 張・已用 ${w.used.easy} 張・<b>可用 ${w.avail.easy} 張</b>）`,
-      medium: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「中」測驗獲得 1 張${T.medium.ticket}（已累計 ${w.earned.medium} 張・已用 ${w.used.medium} 張・<b>可用 ${w.avail.medium} 張</b>）`,
-      hard: `${lockPrefix}🎟️ 鎖定角色後，每通過 1 個單元的「難」測驗獲得 1 張${T.hard.ticket}（已累計 ${w.earned.hard} 張・已用 ${w.used.hard} 張・<b>可用 ${w.avail.hard} 張</b>）`,
-      star: `${lockPrefix}⭐ 鎖定角色後，到地圖上的 7 座 NPC 島參加「領航員隨堂快問快答」（每題 +${AV.COIN_PER_QUESTION} ⭐），或完成七大島「延伸探索」微實作實驗室（每島 +${AV.LAB_COIN_REWARD || 20} ⭐）（目前 <b>${w.coins} ⭐</b>）`
+      shop: `${lockPrefix}🛍️ 目前可用：<b>${w.coins} ⭐</b> · 🎟️ 初階 <b>${w.avail.easy}</b> · 進階 <b>${w.avail.medium}</b> · 大師 <b>${w.avail.hard}</b>${presetStyle ? ` ｜ 👑 已解鎖「${esc(presetStyle.name)}」專屬神裝商店` : " ｜ 🔒 鎖定專屬角色後解鎖對應 4 款專屬神裝"}`,
+      quests: `${lockPrefix}🏆 完成連續滿分、全難度制霸、島嶼通關與微實作里程碑可領取大量額外星幣與大師券（單一關卡重複刷分不計入連勝）。`
     };
-    $("#avHint").innerHTML = hint[tab];
+    $("#avHint").innerHTML = hint[tab] || hint.look;
+    const filterBar = $("#avShopFilters");
+    if (filterBar) {
+      filterBar.hidden = tab !== "shop";
+      filterBar.querySelectorAll(".av-filter-pill").forEach((b) => {
+        const active = b.dataset.filter === shopFilter;
+        b.classList.toggle("active", active);
+        b.setAttribute("aria-pressed", active ? "true" : "false");
+      });
+    }
     wrap.querySelectorAll(".av-tab").forEach((b) => {
       const on = b.dataset.tab === tab;
       b.classList.toggle("active", on);
@@ -355,40 +373,165 @@
     </div>`;
   }
 
+  function formatCostBadge(cost, T) {
+    const parts = [];
+    if (cost.coins > 0) parts.push(`⭐ ${cost.coins}`);
+    if (cost.voucherType && cost.vouchers > 0) {
+      parts.push(`🎟️ ${cost.vouchers} ${T[cost.voucherType].short}`);
+    }
+    return parts.join(" ＋ ") || "免費";
+  }
+
+  function matchesShopFilter(it, filterId, st) {
+    if (it.exclusiveFor && !(typeof AV.isItemExclusiveAllowed === "function" && AV.isItemExclusiveAllowed(it, st))) {
+      return false;
+    }
+    switch (filterId) {
+      case "exclusive": return Boolean(it.exclusiveFor);
+      case "head": return it.slot === "head" || it.slot === "face";
+      case "top": return it.slot === "top" || it.slot === "bottom";
+      case "weapon": return it.slot === "weapon";
+      case "back": return it.slot === "outer" || it.slot === "aura";
+      case "extra": return it.slot === "pet" || it.slot === "bg" || it.slot === "mount";
+      default: return true;
+    }
+  }
+
   function itemCard(it, st, w) {
     const owned = st.unlocked.includes(it.id);
     const wearing = st.equipped[it.slot] === it.id;
-    const T = AV.TIERS[it.tier];
+    const T = AV.TIERS;
+    const cost = typeof AV.getItemCost === "function" ? AV.getItemCost(it) : { coins: Number(it.price) || 0, voucherType: it.tier === "star" ? "" : it.tier, vouchers: it.tier === "star" ? 0 : 1 };
+    const costText = formatCostBadge(cost, T);
     let btn, act = "", cls = "", dis = "";
     if (wearing) { btn = "✨ 裝備中"; act = "toggle"; cls = "is-wearing"; }
     else if (owned) { btn = "點擊穿戴"; act = "toggle"; cls = "is-owned"; }
-    else if (it.tier === "star") {
-      const can = w.coins >= it.price;
-      btn = armedId === it.id ? `確定花 ${it.price} ⭐ 兌換？` : `⭐ ${it.price} 兌換`;
-      act = "unlock"; cls = can ? "is-buyable" : "is-locked"; if (!can) dis = " aria-disabled=\"true\"";
-    } else {
-      const can = w.avail[it.tier] > 0;
-      btn = armedId === it.id ? "再點一次確認解鎖" : (can ? `使用券解鎖` : `🔒 需 1 張${T.short}`);
+    else {
+      const canCoins = w.coins >= cost.coins;
+      const canVouchers = !cost.voucherType || (w.avail[cost.voucherType] || 0) >= cost.vouchers;
+      const can = canCoins && canVouchers;
+      btn = armedId === it.id ? `確定花 ${costText} 兌換？` : (can ? `兌換（${costText}）` : `🔒 ${costText}`);
       act = "unlock"; cls = can ? "is-buyable" : "is-locked"; if (!can) dis = " aria-disabled=\"true\"";
     }
     if (armedId === it.id) cls += " is-armed";
-    return `<div class="av-card tier-${it.tier} ${cls}" data-id="${it.id}" data-act="${act}" tabindex="0" role="button" aria-label="${esc(it.name)}：${esc(btn)}">
+    const exclusiveTag = it.exclusiveFor
+      ? `<span class="av-tag exclusive">👑 ${esc(it.characterName || "專屬")}神裝</span>`
+      : "";
+    return `<div class="av-card tier-${it.tier}${it.exclusiveFor ? " is-exclusive" : ""} ${cls}" data-id="${it.id}" data-act="${act}" tabindex="0" role="button" aria-label="${esc(it.name)}：${esc(btn)}">
       ${owned ? "" : `<span class="av-lock" aria-hidden="true">🔒</span>`}
       <span class="av-thumb">${AV.renderThumb(it.id, st.look)}</span>
       <div class="av-card-info">
         <b class="av-card-name">${esc(it.name)}</b>
-        <div class="av-tags"><span class="av-tag ${it.style}">${it.style === "tech" ? "⚡ 科技潮酷" : "🌸 可愛療癒"}</span><span class="av-tag slot">${AV.SLOT_NAME[it.slot]}</span></div>
+        <div class="av-tags">${exclusiveTag}<span class="av-tag ${it.style}">${it.style === "tech" ? "⚡ 科技潮酷" : "🌸 可愛療癒"}</span><span class="av-tag slot">${AV.SLOT_NAME[it.slot]}</span></div>
         <p class="av-card-desc">${esc(it.desc)}</p>
       </div>
       <span class="av-card-btn"${dis}>${btn}</span>
     </div>`;
   }
 
+  function renderQuestsTab(st) {
+    const bp = typeof AV.getBonusProgress === "function" ? AV.getBonusProgress(st) : null;
+    if (!bp) return `<p class="res-note">暫無法載入榮譽獎勵進度。</p>`;
+    const pPct = Math.min(100, Math.round((bp.perfectStreak.current / bp.perfectStreak.target) * 100));
+    const hPct = Math.min(100, Math.round((bp.highScoreStreak.current / bp.highScoreStreak.target) * 100));
+    const lockNotice = bp.locked
+      ? ""
+      : `<div class="av-quest-lock-note">🔒 目前尚未鎖定專屬角色：以下僅預覽目標與進度。請先至「💇 基礎造型」選定並鎖定角色，往後新完成的挑戰才會累計額外星幣與大師券！</div>`;
+    const formatStageList = (arr) => arr.length
+      ? arr.map((tok) => `<code>${esc(tok)}</code>`).join(" ")
+      : `<span class="av-q-empty">尚無累積關卡</span>`;
+
+    return `<div class="av-quests">
+      ${lockNotice}
+      <div class="av-quest-summary">
+        <span>🏆 已領取額外獎勵總計：<b>+${bp.totalBonusCoins} ⭐ 星幣</b>${bp.totalBonusHardVouchers > 0 ? ` ＋ <b>+${bp.totalBonusHardVouchers} 🎟️ 大師券</b>` : ""}</span>
+      </div>
+
+      <div class="av-quest-grid">
+        <article class="av-quest-card is-streak">
+          <div class="av-qc-head">
+            <b>🔥 三連滿分王</b>
+            <span class="av-qc-reward">+50 ⭐ 星幣（可重複）</span>
+          </div>
+          <p class="av-qc-desc">連續通過 <b>3 個不同關卡</b>（<code>unitId:difficulty</code> 不可與本輪重複）且皆獲得 <b>100 分</b>；任一次未達 100 分連勝歸零。</p>
+          <div class="av-qc-bar"><i style="width:${pPct}%"></i><span>${bp.perfectStreak.current} / ${bp.perfectStreak.target} 關</span></div>
+          <div class="av-qc-meta">本輪已計數：${formatStageList(bp.perfectStreak.stages)} ｜ 已觸發 <b>${bp.perfectStreak.triggerCount}</b> 次</div>
+        </article>
+
+        <article class="av-quest-card is-streak">
+          <div class="av-qc-head">
+            <b>⚡ 五連高分衝刺</b>
+            <span class="av-qc-reward">+40 ⭐ 星幣（可重複）</span>
+          </div>
+          <p class="av-qc-desc">連續通過 <b>5 個不同關卡</b>且皆達 <b>80 分</b>以上（重複同關不累計）；任一次低於 80 分歸零。</p>
+          <div class="av-qc-bar is-cyan"><i style="width:${hPct}%"></i><span>${bp.highScoreStreak.current} / ${bp.highScoreStreak.target} 關</span></div>
+          <div class="av-qc-meta">本輪已計數：${formatStageList(bp.highScoreStreak.stages)} ｜ 已觸發 <b>${bp.highScoreStreak.triggerCount}</b> 次</div>
+        </article>
+
+        <article class="av-quest-card">
+          <div class="av-qc-head">
+            <b>🎯 單元全難度制霸</b>
+            <span class="av-qc-reward">+35 ⭐ / 單元</span>
+          </div>
+          <p class="av-qc-desc">單一學習單元的「易、中、難」三難度全數拿下 100 分（每單元限領 1 次）。</p>
+          <div class="av-qc-stat">目前達成 <b>${bp.unitMastery.perfectUnitCount} / ${bp.unitMastery.totalUnits}</b> 單元 · 鎖定後已領取 <b>${bp.unitMastery.claimedCount}</b> 次</div>
+        </article>
+
+        <article class="av-quest-card">
+          <div class="av-qc-head">
+            <b>🔬 實驗室探索達人</b>
+            <span class="av-qc-reward">+50 ⭐ / +120 ⭐ + 1 大師券</span>
+          </div>
+          <p class="av-qc-desc">累計完成主題島微實作實驗室即可領取里程碑獎勵（目前 <b>${bp.labMilestones.labCount} / 7</b> 座島）。</p>
+          <div class="av-qc-milestones">
+            <span class="av-qm-pill ${bp.labMilestones.lab3Claimed ? "is-done" : ""}">3 島 +50 ⭐ · ${bp.labMilestones.lab3Claimed ? "✅ 已領取" : (bp.labMilestones.lab3PreLock ? "鎖定前達成" : (bp.labMilestones.labCount >= 3 ? "待鎖定/結算" : `${bp.labMilestones.labCount}/3`))}</span>
+            <span class="av-qm-pill ${bp.labMilestones.lab7Claimed ? "is-done" : ""}">全 7 島 +120 ⭐ + 1 大師券 · ${bp.labMilestones.lab7Claimed ? "✅ 已領取" : (bp.labMilestones.lab7PreLock ? "鎖定前達成" : (bp.labMilestones.labCount >= 7 ? "待鎖定/結算" : `${bp.labMilestones.labCount}/7`))}</span>
+          </div>
+        </article>
+      </div>
+
+      <h4 class="av-quest-sub">🏝️ 七大主題島制霸一覽（100% 通關 <b>+80 ⭐</b> · 全皇冠大滿貫 <b>+150 ⭐ ＋ 1 大師券</b>）</h4>
+      <div class="av-island-quest-list">
+        ${bp.islandClear.perIsland.map((isl) => `
+          <div class="av-iq-row" style="--iq-c:${isl.color}">
+            <div class="av-iq-name">${isl.emoji} <b>${esc(isl.name)}</b> <small>${isl.percentage}% (${isl.passedStages}/${isl.totalStages} 關 · 滿分單元 ${isl.perfectUnits}/${isl.totalUnits})</small></div>
+            <div class="av-iq-pills">
+              <span class="av-iq-pill ${isl.clearedClaimed ? "is-done" : (isl.clearedDone ? "is-pre" : "")}">🏝️ 100% 通關 +80 ⭐ ${isl.clearedClaimed ? "✅ 已領" : (isl.clearedPreLock ? "🔒 鎖定前達成" : "未達標")}</span>
+              <span class="av-iq-pill ${isl.grandSlamClaimed ? "is-done" : (isl.grandSlamDone ? "is-pre" : "")}">👑 全皇冠 +150 ⭐ +1 大師券 ${isl.grandSlamClaimed ? "✅ 已領" : (isl.grandSlamPreLock ? "🔒 鎖定前達成" : "未達標")}</span>
+            </div>
+          </div>
+        `).join("")}
+      </div>
+    </div>`;
+  }
+
   function renderGrid(st, w) {
     const grid = $("#avGrid");
     grid.classList.toggle("is-look", tab === "look");
+    grid.classList.toggle("is-quests", tab === "quests");
     if (tab === "look") { grid.innerHTML = renderLookTab(st); return; }
-    grid.innerHTML = AV.ITEMS.filter((it) => it.tier === tab).map((it) => itemCard(it, st, w)).join("");
+    if (tab === "quests") { grid.innerHTML = renderQuestsTab(st); return; }
+    const filtered = AV.ITEMS.filter((it) => matchesShopFilter(it, shopFilter, st));
+    if (shopFilter === "exclusive" && !checkAvatarLocked(st)) {
+      grid.innerHTML = `<div class="av-shop-empty-lock">🔒 請先至「💇 基礎造型」選定並鎖定專屬角色，即可解鎖並購買該角色的 4 款專屬神裝！<br><button type="button" class="av-lsb-btn is-primary" id="avEmptyGoLookBtn">🧙 立即前往選角</button></div>`;
+      const goBtn = $("#avEmptyGoLookBtn");
+      if (goBtn) {
+        goBtn.onclick = () => { tab = "look"; armedId = null; render(); };
+      }
+      return;
+    }
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="av-shop-empty-lock">目前此分類暫無可顯示的裝備，試試切換其他分類吧！</div>`;
+      return;
+    }
+    // 專屬神裝優先排在前面，其次依價格由低到高排列
+    const sorted = filtered.slice().sort((a, b) => {
+      const aEx = a.exclusiveFor ? 0 : 1;
+      const bEx = b.exclusiveFor ? 0 : 1;
+      if (aEx !== bEx) return aEx - bEx;
+      return (Number(a.price) || 0) - (Number(b.price) || 0);
+    });
+    grid.innerHTML = sorted.map((it) => itemCard(it, st, w)).join("");
   }
 
   function render() {
@@ -402,13 +545,21 @@
     if ($("#avLegacy").open) renderLegacy();
   }
 
-  /* ---------------- 互動：分頁 / 捏臉 / 解鎖 / 穿戴 ---------------- */
+  /* ---------------- 互動：分頁 / 分類篩選 / 捏臉 / 解鎖 / 穿戴 ---------------- */
   $("#avTabs").addEventListener("click", (e) => {
     const b = e.target.closest(".av-tab");
     if (!b) return;
     tab = b.dataset.tab; armedId = null;
     const st = AV.getState(), w = AV.wallet(st);
     renderLockBanners(st); renderHint(w, st); renderGrid(st, w);
+  });
+  $("#avShopFilters").addEventListener("click", (e) => {
+    const f = e.target.closest(".av-filter-pill");
+    if (!f) return;
+    shopFilter = f.dataset.filter || "all";
+    armedId = null;
+    const st = AV.getState(), w = AV.wallet(st);
+    renderHint(w, st); renderGrid(st, w);
   });
 
   function handleCard(card) {
@@ -426,13 +577,22 @@
       AV.toast("🔒 請先至「💇 基礎造型」選定並鎖定專屬角色，往後過關才會累積星幣與兌換券來解鎖裝備！", "warn", 3200);
       return;
     }
-    // 解鎖：先檢查資源，資源足夠時需「再點一次」確認（取代 confirm()）
+    if (it.exclusiveFor && !(typeof AV.isItemExclusiveAllowed === "function" && AV.isItemExclusiveAllowed(it, stNow))) {
+      AV.toast(`🔒 此為「${it.characterName || "專屬角色"}」限定神裝，僅對應角色可購買！`, "warn", 3200);
+      return;
+    }
+    // 解鎖：先檢查資源（星幣與兌換券須同時滿足），足夠時需「再點一次」確認（取代 confirm()）
     const w = AV.wallet(stNow);
-    const enough = it.tier === "star" ? w.coins >= it.price : w.avail[it.tier] > 0;
-    if (!enough) {
-      AV.toast(it.tier === "star"
-        ? `⭐ 探索星幣不足，還差 ${it.price - w.coins} 枚！去 NPC 島答題賺星幣吧。`
-        : `🎟️ ${AV.TIERS[it.tier].ticket}不足！再通過 1 個單元的「${AV.TIERS[it.tier].diffName}」測驗即可獲得。`, "warn");
+    const cost = typeof AV.getItemCost === "function" ? AV.getItemCost(it) : { coins: Number(it.price) || 0, voucherType: it.tier === "star" ? "" : it.tier, vouchers: it.tier === "star" ? 0 : 1 };
+    const lackCoins = cost.coins > w.coins ? (cost.coins - w.coins) : 0;
+    const lackVouchers = (cost.voucherType && cost.vouchers > (w.avail[cost.voucherType] || 0))
+      ? (cost.vouchers - (w.avail[cost.voucherType] || 0))
+      : 0;
+    if (lackCoins > 0 || lackVouchers > 0) {
+      const lacks = [];
+      if (lackCoins > 0) lacks.push(`⭐ 星幣還差 ${lackCoins} 枚`);
+      if (lackVouchers > 0) lacks.push(`🎟️ ${AV.TIERS[cost.voucherType].short}還差 ${lackVouchers} 張`);
+      AV.toast(`無法兌換「${it.name}」：${lacks.join("、")}！`, "warn");
       return;
     }
     if (armedId !== id) {
@@ -440,7 +600,8 @@
       clearTimeout(armTimer);
       armTimer = setTimeout(() => { armedId = null; if (isOpen()) renderGrid(AV.getState(), AV.wallet()); }, 3500);
       renderGrid(AV.getState(), w);
-      AV.toast(it.tier === "star" ? `再點一次即可花費 ${it.price} ⭐ 兌換「${it.name}」` : `再點一次即可使用 1 張${AV.TIERS[it.tier].ticket}解鎖「${it.name}」`, "info", 2200);
+      const costText = formatCostBadge(cost, AV.TIERS);
+      AV.toast(`再點一次即可花費 ${costText} 解鎖「${it.name}」`, "info", 2400);
       return;
     }
     armedId = null; clearTimeout(armTimer);
@@ -554,8 +715,13 @@
 
   function open(initialTab) {
     if (!window.Auth.requireLogin()) return;
-    if (typeof initialTab === "string" && TABS.some((t) => t.id === initialTab)) {
-      tab = initialTab;
+    if (typeof initialTab === "string") {
+      if (TABS.some((t) => t.id === initialTab)) {
+        tab = initialTab;
+      } else if (initialTab === "easy" || initialTab === "medium" || initialTab === "hard" || initialTab === "star") {
+        tab = "shop";
+        shopFilter = initialTab === "easy" ? "head" : (initialTab === "medium" ? "top" : (initialTab === "hard" ? "weapon" : "all"));
+      }
     }
     armedId = null;
     closeConfirm();

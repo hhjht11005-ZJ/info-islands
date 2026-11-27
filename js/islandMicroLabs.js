@@ -96,15 +96,24 @@
     if (!cid) return { ok: false, gained: 0 };
     if (window.AvatarSystem && typeof window.AvatarSystem.completeMicroLab === "function") {
       const res = window.AvatarSystem.completeMicroLab(cid);
+      const bonus = res && res.bonusResult;
+      const bonusAchs = (bonus && Array.isArray(bonus.achievements)) ? bonus.achievements : [];
       if (res && res.gained > 0) {
         notify(`🎉 完成「${labTitle}」！獲得 🔬 微實作大師徽章 與 +${res.gained} ⭐ 探索星幣！`, "coin", 4200);
+        if (bonus && !bonus.unlockedNoticeOnly && bonusAchs.length > 0) {
+          bonusAchs.forEach((a) => {
+            const extraVoucher = a.hardVouchers > 0 ? ` ＋ ${a.hardVouchers} 張大師券` : "";
+            notify(`🏆 榮譽里程碑【${a.title}】：額外贈送 +${a.coins} ⭐${extraVoucher}！`, "coin", 5200);
+          });
+        }
         if (typeof window.confetti === "function") {
           try {
             window.confetti({ particleCount: 75, spread: 72, origin: { y: 0.58 }, colors: ["#ffd166", "#34d399", "#38bdf8", "#f472b6"] });
           } catch {}
         }
       } else if (res && res.lockedRequired && !res.already) {
-        notify(`🎉 完成「${labTitle}」！已獲得 🔬 微實作大師徽章（🔒 尚未鎖定專屬角色，星幣維持 0）`, "info", 4200);
+        const milestoneHint = bonusAchs.length > 0 ? `（亦達成 ${bonusAchs.map((a) => a.title).join("、")} 條件，鎖定角色後新完成任務才累計星幣）` : "（🔒 尚未鎖定專屬角色，星幣維持 0）";
+        notify(`🎉 完成「${labTitle}」！已獲得 🔬 微實作大師徽章${milestoneHint}`, "info", 4200);
       }
       return res;
     }

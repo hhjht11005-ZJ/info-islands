@@ -10,6 +10,7 @@ import "./data/units/island-data.js";
 import "./data/units/island-ai.js";
 import "./js/completion.js";
 import "./js/store.js";
+import "./js/avatarGearCatalog.js";
 import "./js/avatarSystem.js";
 import "./js/audio_manager.js";
 import "./js/cloud_task.js";

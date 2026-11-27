@@ -239,6 +239,38 @@
     }
 
     const addEventPromise = Store.addEvent(ev);
+    let bonusRes = null;
+    if (AV && typeof AV.evaluateBonusRewards === "function") {
+      bonusRes = AV.evaluateBonusRewards({
+        kind: "quiz",
+        unitId: canonUnit,
+        difficulty: normDiff,
+        stageToken,
+        score,
+        islandId: info.isl.id,
+        events: Store.events()
+      });
+    }
+    const bonusAchs = (bonusRes && Array.isArray(bonusRes.achievements)) ? bonusRes.achievements : [];
+    const bonusCelebrateHtml = (avatarLocked && bonusAchs.length > 0)
+      ? `<div class="q-bonus-celebrate" id="qBonusCelebrate" role="status">
+           <div class="q-bc-head">
+             <span class="q-bc-spark">✨</span>
+             <b>🎉 觸發額外榮譽獎勵！</b>
+             <span class="q-bc-total">+${bonusRes.coinsAdded} ⭐${bonusRes.hardVouchersAdded > 0 ? ` ＋ ${bonusRes.hardVouchersAdded} 🎟️ 大師券` : ""}</span>
+           </div>
+           <ul class="q-bc-list">
+             ${bonusAchs.map((a) => `<li>
+               <span class="q-bc-ico">${a.icon || "🏆"}</span>
+               <span class="q-bc-txt"><b>${esc(a.title)}</b>${a.detail ? ` <small>（${esc(a.detail)}）</small>` : ""}</span>
+               <span class="q-bc-gain">+${a.coins} ⭐${a.hardVouchers > 0 ? ` + ${a.hardVouchers} 大師券` : ""}</span>
+             </li>`).join("")}
+           </ul>
+         </div>`
+      : (!avatarLocked && bonusAchs.length > 0
+          ? `<div class="q-bonus-lock-hint" role="status">🏅 本次達成「${bonusAchs.map((a) => esc(a.title)).join("、")}」條件（鎖定角色後新完成關卡才累計額外星幣與大師券）</div>`
+          : "");
+
     const rewardNoticeHtml = pass
       ? (!avatarLocked
           ? `<div class="q-avatar-lock-card" id="qAvatarLockCard" role="status">
@@ -255,6 +287,7 @@
         <div>${pass ? "🎉 通過!" : "💪 再接再厲!"} 答對 ${correctCount} / ${questions.length} 題 · 用時 ${sec} 秒${pass && C.diff ? "<br>本單元已累計通過,島嶼繁榮度會跟著提升!" : ""}</div></div>
       ${badgeInfo ? `<div class="badge-award">${badgeInfo.icon}<div><b>${newBadge ? "獲得" : "已擁有"}「${badgeInfo.name}」</b><br><small>可在「📈 學習成果」查看你的徽章牆</small></div></div>` : ""}
       ${rewardNoticeHtml}
+      ${bonusCelebrateHtml}
       <p class="sync" id="qSync">⏳ 正在記錄成績…</p>
       ${questions.map((q, i) => `<div class="review ${marks[i] ? "ok" : "no"}"><b>${marks[i] ? "✔" : "✘"} 第 ${i + 1} / ${questions.length} 題</b> ${esc(q.q).replace(/\n/g, "<br>")}
         <div class="ans">你的答案:${esc(showMine(q, answers[i]))}${marks[i] ? "" : `<br>正確答案:<b>${esc(showAns(q))}</b>`}</div>

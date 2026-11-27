@@ -478,15 +478,25 @@
     }
   });
 
-  /* 右上角學員資訊 */
+  /* 右上角學員資訊（主畫面個人名片：即時連動紙娃娃裝備頭像） */
   const chip = $("#userChip");
   function renderChip() {
     const p = Store.profile;
     if (!p) { chip.innerHTML = ""; return; }
     const pend = Store.pending();
-    chip.innerHTML = `<span class="who">👤 <b>${p.name}</b> <small>${p.cls[0] === "7" ? "七" : p.cls[0] === "8" ? "八" : "九"}年${+p.cls.slice(1)}班 ${p.seat}號</small></span>
+    const AV = window.AvatarSystem;
+    const miniSvg = (AV && typeof AV.renderMiniAvatar === "function" && typeof AV.getState === "function")
+      ? `<span class="user-chip-avatar" aria-hidden="true">${AV.renderMiniAvatar(AV.getState(), { label: p.name })}</span>`
+      : `👤`;
+    chip.innerHTML = `<span class="who" id="userChipProfile" title="點擊開啟角色更衣室與學習成果">${miniSvg} <span class="who-txt"><b>${p.name}</b> <small>${p.cls[0] === "7" ? "七" : p.cls[0] === "8" ? "八" : "九"}年${+p.cls.slice(1)}班 ${p.seat}號</small></span></span>
       ${pend ? `<span class="pend" title="有 ${pend} 筆成績尚未同步,稍後會自動補送">⏳${pend}</span>` : ""}
       <button class="link" id="logoutBtn">登出</button>`;
+    const profileEl = $("#userChipProfile", chip);
+    if (profileEl) {
+      profileEl.onclick = () => {
+        if (window.Results && typeof window.Results.open === "function") window.Results.open();
+      };
+    }
     $("#logoutBtn").onclick = () => {
       Store.logout();
       renderChip();
@@ -497,6 +507,9 @@
     };
   }
   document.addEventListener("ii:synced", renderChip);
+  document.addEventListener("ii:avatar-changed", renderChip);
+  document.addEventListener("ii:login", renderChip);
+  document.addEventListener("ii:citadel-updated", renderChip);
 
   const teacherEntryBtn = $("#loginTeacherEntryBtn", modal);
   if (teacherEntryBtn) {

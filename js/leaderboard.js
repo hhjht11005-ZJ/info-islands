@@ -605,7 +605,8 @@
             hairColor: pickedHair.defaultColor || "silver",
             face: (faces[(seed >>> 8) % faces.length] || {}).id || "calm"
           };
-      innerSvg = AV.renderMiniAvatar({ look, equipped: {} }, { label: entry.maskedName });
+      const eq = (look && look.equipped && typeof look.equipped === "object") ? look.equipped : {};
+      innerSvg = AV.renderMiniAvatar({ look, equipped: eq }, { label: entry.maskedName });
     }
     if (honors && honors.hasAnyHonor) {
       return `<span class="lb-avatar-frame is-citadel-honored" title="${esc(honors.badgeText || "天穹試煉榮譽")}"><span class="lb-halo-ring" aria-hidden="true"></span><span class="lb-halo-star s1" aria-hidden="true">✦</span><span class="lb-halo-star s2" aria-hidden="true">✦</span><span class="lb-avatar" aria-hidden="true">${innerSvg}</span></span>`;

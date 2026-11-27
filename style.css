@@ -486,7 +486,19 @@ table.rubric { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
 .user-chip { min-height: 34px; display: flex; gap: 10px; align-items: center; font-size: .88rem; padding: 4px 14px; pointer-events: auto; }
 .user-chip:empty { display: none; }
-.user-chip .who { background: transparent; border: 0; padding: 0; pointer-events: auto; }
+.user-chip .who { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 0; padding: 0; pointer-events: auto; cursor: pointer; }
+.user-chip-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: radial-gradient(circle at 35% 28%, #fffdf8 0%, #dbeafe 70%, #bfdbfe 100%);
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  display: grid;
+  place-items: center;
+}
+.user-chip-avatar .av-mini-svg { width: 100%; height: 100%; display: block; }
 .user-chip small { color: #d6ecff; margin-left: 4px; }
 .user-chip .pend { color: #ffb74d; }
 .link { background: none; border: 0; color: #ffd166; text-decoration: underline; padding: 0; font-weight: 600; pointer-events: auto; }
@@ -3374,7 +3386,8 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 10px;
 }
-.av-grid.is-look {
+.av-grid.is-look,
+.av-grid.is-quests {
   display: block;
 }
 .av-look h4 {
@@ -6537,3 +6550,258 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 .av-lsb-btn.is-primary:hover {
   background: linear-gradient(135deg, #fcd34d, #fbbf24);
 }
+
+/* 商店分類篩選列 ＋ 專屬神裝標籤 */
+.av-shop-filters[hidden] { display: none !important; }
+.av-shop-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 2px 0 8px;
+  font-family: "Noto Sans TC", sans-serif;
+}
+.av-filter-pill {
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.52);
+  color: #cbd5e1;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.14s ease, border-color 0.14s ease, color 0.14s ease;
+}
+.av-filter-pill:hover {
+  background: rgba(56, 189, 248, 0.18);
+  color: #f8fafc;
+}
+.av-filter-pill.active {
+  border-color: #fbbf24;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.28), rgba(245, 158, 11, 0.18));
+  color: #fde68a;
+  font-weight: 800;
+}
+.av-tag.exclusive {
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.28), rgba(245, 158, 11, 0.2));
+  color: #fde68a;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+}
+.av-card.is-exclusive {
+  border-color: rgba(251, 191, 36, 0.55);
+  box-shadow: 0 6px 18px rgba(245, 158, 11, 0.14);
+}
+.av-shop-empty-lock {
+  grid-column: 1 / -1;
+  padding: 24px 18px;
+  border-radius: 16px;
+  border: 1.5px dashed rgba(251, 191, 36, 0.52);
+  background: rgba(15, 23, 42, 0.65);
+  color: #fde68a;
+  text-align: center;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.7;
+}
+.av-shop-empty-lock .av-lsb-btn { margin-top: 10px; }
+
+/* 測驗結算：金色閃耀額外榮譽獎勵慶祝卡 */
+@keyframes qBonusShimmer {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.q-bonus-celebrate {
+  margin: 12px 0;
+  padding: 13px 16px;
+  border-radius: 16px;
+  border: 2px solid #fbbf24;
+  background: linear-gradient(120deg, rgba(251, 191, 36, 0.24), rgba(245, 158, 11, 0.14), rgba(253, 224, 71, 0.28), rgba(245, 158, 11, 0.14));
+  background-size: 200% 100%;
+  animation: qBonusShimmer 4.5s linear infinite;
+  box-shadow: 0 8px 24px rgba(251, 191, 36, 0.22);
+  font-family: "Noto Sans TC", sans-serif;
+}
+.q-bc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: #fef08a;
+  font-size: 0.98rem;
+}
+.q-bc-total {
+  margin-left: auto;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, #fbbf24, #f59e0b);
+  color: #1f1400;
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+.q-bc-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.q-bc-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.56);
+  color: #f8fafc;
+  font-size: 0.86rem;
+}
+.q-bc-txt { flex: 1 1 180px; }
+.q-bc-txt small { color: #cbd5e1; }
+.q-bc-gain { font-weight: 900; color: #fde047; }
+.q-bonus-lock-hint {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border-radius: 11px;
+  background: rgba(30, 41, 59, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #cbd5e1;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.82rem;
+}
+
+/* 榮譽獎勵任務追蹤面板 */
+.av-quests {
+  display: grid;
+  gap: 12px;
+  font-family: "Noto Sans TC", sans-serif;
+}
+.av-quest-lock-note {
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(251, 191, 36, 0.5);
+  background: rgba(245, 158, 11, 0.16);
+  color: #fde68a;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.av-quest-summary {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.62);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #f8fafc;
+  font-size: 0.9rem;
+}
+.av-quest-summary b { color: #fde047; }
+.av-quest-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+.av-quest-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.66);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  color: #e2e8f0;
+  display: grid;
+  gap: 7px;
+}
+.av-quest-card.is-streak { border-color: rgba(251, 191, 36, 0.42); }
+.av-qc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.av-qc-head b { color: #fef08a; font-size: 0.94rem; }
+.av-qc-reward {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(251, 191, 36, 0.22);
+  color: #fde047;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+.av-qc-desc { margin: 0; font-size: 0.79rem; line-height: 1.48; color: #cbd5e1; }
+.av-qc-desc code,
+.av-qc-meta code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #7dd3fc;
+  font-family: Consolas, monospace;
+  font-size: 0.74rem;
+}
+.av-qc-bar {
+  position: relative;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.av-qc-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: linear-gradient(90deg, #f59e0b, #fde047);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+}
+.av-qc-bar.is-cyan i { background: linear-gradient(90deg, #0284c7, #22d3ee); }
+.av-qc-bar span { position: relative; z-index: 1; font-size: 0.76rem; font-weight: 900; color: #0f172a; text-shadow: 0 0 6px rgba(255, 255, 255, 0.75); }
+.av-qc-meta,
+.av-qc-stat { font-size: 0.77rem; color: #94a3b8; line-height: 1.45; }
+.av-qc-stat b { color: #f8fafc; }
+.av-qc-milestones { display: flex; flex-wrap: wrap; gap: 6px; }
+.av-qm-pill {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #cbd5e1;
+}
+.av-qm-pill.is-done {
+  background: rgba(16, 185, 129, 0.22);
+  border-color: rgba(52, 211, 153, 0.6);
+  color: #a7f3d0;
+}
+.av-quest-sub {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  color: #eaf4ff;
+}
+.av-island-quest-list { display: grid; gap: 7px; }
+.av-iq-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.56);
+  border-left: 4px solid var(--iq-c, #38bdf8);
+}
+.av-iq-name { font-size: 0.85rem; color: #f8fafc; }
+.av-iq-name small { color: #94a3b8; margin-left: 6px; }
+.av-iq-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+.av-iq-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+.av-iq-pill.is-done { background: rgba(16, 185, 129, 0.22); color: #a7f3d0; border: 1px solid rgba(52, 211, 153, 0.5); }
+.av-iq-pill.is-pre { background: rgba(245, 158, 11, 0.18); color: #fde68a; border: 1px solid rgba(251, 191, 36, 0.4); }
