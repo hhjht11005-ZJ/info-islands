@@ -542,7 +542,7 @@
     return { ok: true, isNew, gained, lockedRequired, token: clean, tokens: nextList };
   }
 
-  function clearStudentLocalData(targetProfile, { includeActiveIsland = true } = {}) {
+  function clearStudentLocalData(targetProfile, { includeActiveIsland = true, clearLeaderboardCaches = false, altNames = [] } = {}) {
     try {
       localStorage.removeItem("ii:microlab:guest");
       localStorage.removeItem("ii:microlab:stages:guest");
@@ -555,7 +555,10 @@
       String(seatNum || targetProfile.seat || "").trim(),
       seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
     ].filter(Boolean)));
-    const nameStr = String(targetProfile.name).trim();
+    const nameVariants = Array.from(new Set([
+      String(targetProfile.name || "").trim(),
+      ...(Array.isArray(altNames) ? altNames.map((n) => String(n || "").trim()) : [])
+    ].filter(Boolean)));
     const prefixes = [
       "ii:ev:",
       "ii:badges:",
@@ -566,10 +569,97 @@
     ];
     if (includeActiveIsland) prefixes.push("ii:activeIslandId:");
     seatVariants.forEach((sv) => {
-      prefixes.forEach((pref) => {
-        try { localStorage.removeItem(`${pref}${clsStr}-${sv}-${nameStr}`); } catch {}
+      nameVariants.forEach((nameStr) => {
+        prefixes.forEach((pref) => {
+          try { localStorage.removeItem(`${pref}${clsStr}-${sv}-${nameStr}`); } catch {}
+        });
       });
     });
+
+    if (clearLeaderboardCaches) {
+      const gradeNum = parseGradeFromCls({ grade: targetProfile.grade, cls: clsStr });
+      const sKeys = new Set(seatVariants.map((sv) => buildStudentKey(gradeNum, clsStr, sv)));
+      const tid = getTeacherId();
+
+      try {
+        const pending = ls.get(LB_PENDING, {});
+        if (pending && typeof pending === "object") {
+          let changed = false;
+          Object.keys(pending).forEach((k) => {
+            const it = pending[k];
+            const baseKey = String(k).split("::wq::")[0];
+            const matchByKey = sKeys.has(baseKey) || (it && sKeys.has(String(it.studentKey || "")));
+            const matchByProfile = it && String(it.className || "").trim() === clsStr && Number(it.seat) === seatNum;
+            const matchTeacher = !tid || !it || !it.teacherId || String(it.teacherId).trim() === tid;
+            if ((matchByKey || matchByProfile) && matchTeacher) {
+              delete pending[k];
+              changed = true;
+            }
+          });
+          if (changed) ls.set(LB_PENDING, pending);
+        }
+      } catch {}
+
+      try {
+        const syncedMap = ls.get(LB_SYNCED, {});
+        if (syncedMap && typeof syncedMap === "object") {
+          let changed = false;
+          sKeys.forEach((sk) => {
+            const scoped = buildSyncedCacheKey(sk, tid);
+            if (syncedMap[scoped]) {
+              delete syncedMap[scoped];
+              changed = true;
+            }
+          });
+          if (changed) ls.set(LB_SYNCED, syncedMap);
+        }
+      } catch {}
+
+      try {
+        const pool = ls.get(POOL, null);
+        if (pool && pool.students && typeof pool.students === "object") {
+          let changed = false;
+          Object.keys(pool.students).forEach((k) => {
+            const st = pool.students[k];
+            const matchProfile = nameVariants.some((nm) => k === `${clsStr}-${seatNum}-${nm}`);
+            const matchRow = st && String(st.cls || st.className || "").trim() === clsStr && Number(st.seat) === seatNum && nameVariants.includes(String(st.name || "").trim());
+            const matchKey = st && sKeys.has(String(st.studentKey || ""));
+            if (matchProfile || matchRow || matchKey) {
+              delete pool.students[k];
+              changed = true;
+            }
+          });
+          if (changed) {
+            pool.updatedAt = Date.now();
+            ls.set(POOL, pool);
+          }
+        }
+      } catch {}
+
+      try {
+        const queue = ls.get(QUEUE, []);
+        if (Array.isArray(queue) && queue.length > 0) {
+          const filtered = queue.filter((it) => {
+            if (!it || !it.p) return true;
+            const sameCls = String(it.p.cls || "").trim() === clsStr;
+            const sameSeat = Number(it.p.seat) === seatNum;
+            const sameName = nameVariants.includes(String(it.p.name || "").trim());
+            const sameTeacher = !tid || !it.teacherId || String(it.teacherId).trim() === tid;
+            return !(sameCls && sameSeat && sameName && sameTeacher);
+          });
+          if (filtered.length !== queue.length) ls.set(QUEUE, filtered);
+        }
+      } catch {}
+    }
+  }
+
+  function isCloudStudentRecordEmpty(student) {
+    if (!student || typeof student !== "object") return true;
+    const rawProg = student.progress !== undefined ? student.progress : student.completedProgress;
+    const progressLen = Array.isArray(rawProg) ? rawProg.length : 0;
+    const totalScore = Number(student.totalScore) || 0;
+    const hasAvatar = Boolean(student.avatar && typeof student.avatar === "object");
+    return progressLen === 0 && totalScore === 0 && !hasAvatar;
   }
 
   function collectAllPassedProgress(explicitProfile) {
@@ -975,6 +1065,18 @@
 
   function restoreCloudStudentData(profile, student) {
     if (!profile || !student || typeof student !== "object") return { cloudProgress: [], needsBackgroundSync: false };
+    if (isCloudStudentRecordEmpty(student)) {
+      clearStudentLocalData(profile, { includeActiveIsland: true, clearLeaderboardCaches: true });
+      if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+        window.AvatarSystem.clearStudentState(profile, { resetGuest: true });
+      } else {
+        try { localStorage.removeItem(`ii:avatar:${profile.cls}-${profile.seat}-${profile.name}`); } catch {}
+      }
+      if (typeof window.updateAllIslandArchitectures === "function") {
+        window.updateAllIslandArchitectures({ animateUpgrade: false });
+      }
+      return { cloudProgress: [], localProgress: [], needsBackgroundSync: false, isEmptyCloud: true };
+    }
     const key = evKey(profile);
     const badgeKey = `ii:badges:${profile.cls}-${profile.seat}-${profile.name}`;
 
@@ -1200,6 +1302,17 @@
           return { ok: false, status: "error", msg: "伺服器未回應有效格式，請稍後再試" };
         }
         if (loginRes.status === "need_pin_setup") {
+          clearStudentLocalData(p, { includeActiveIsland: true, clearLeaderboardCaches: true });
+          if (Store.profile && studentKey(Store.profile) === studentKey(p)) {
+            Store.profile = null;
+            try { localStorage.removeItem(PROFILE); } catch {}
+            try { localStorage.removeItem(ACTIVE_ISLAND); } catch {}
+          }
+          if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+            window.AvatarSystem.clearStudentState(p, { resetGuest: true });
+          } else if (window.AvatarSystem && typeof window.AvatarSystem.resetGuestState === "function") {
+            window.AvatarSystem.resetGuestState({ silent: true });
+          }
           return {
             ok: false,
             status: "need_pin_setup",
@@ -1244,9 +1357,22 @@
       Store.profile = p; ls.set(PROFILE, p);
       let syncInfo = { needsBackgroundSync: false };
       if (loginRes && loginRes.student) {
-        syncInfo = restoreCloudStudentData(p, loginRes.student) || { needsBackgroundSync: false };
+        if (isCloudStudentRecordEmpty(loginRes.student)) {
+          clearStudentLocalData(p, { includeActiveIsland: true, clearLeaderboardCaches: true, altNames: [cleanName] });
+          if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+            window.AvatarSystem.clearStudentState(p, { altNames: [cleanName], resetGuest: true });
+          }
+          if (typeof window.updateAllIslandArchitectures === "function") {
+            window.updateAllIslandArchitectures({ animateUpgrade: false });
+          }
+        } else {
+          syncInfo = restoreCloudStudentData(p, loginRes.student) || { needsBackgroundSync: false };
+        }
       } else if (lbUrl) {
-        clearStudentLocalData(p, { includeActiveIsland: false });
+        clearStudentLocalData(p, { includeActiveIsland: true, clearLeaderboardCaches: true, altNames: [cleanName] });
+        if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+          window.AvatarSystem.clearStudentState(p, { altNames: [cleanName], resetGuest: true });
+        }
       }
       try {
         const savedForStudent = readActiveIslandRaw(activeIslandKey(p));
@@ -1370,6 +1496,7 @@
     getCitadelTokens,
     recordCitadelToken,
     clearStudentLocalData,
+    isCloudStudentRecordEmpty,
     calculateIslandCompletion: (islandId, state) => (window.calculateIslandCompletion ? window.calculateIslandCompletion(islandId, state) : null),
     syncLeaderboardPool,
     buildStudentKey,

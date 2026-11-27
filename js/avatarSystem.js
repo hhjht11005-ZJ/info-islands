@@ -1552,6 +1552,44 @@
       document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { reset: true } }));
     }
   }
+  function clearStudentState(targetProfile, { altNames = [], resetGuest = true, silent = false } = {}) {
+    clearTimeout(cloudSyncTimer);
+    cloudSyncTimer = null;
+    if (resetGuest) {
+      guestState = blankState();
+      try {
+        localStorage.removeItem(labKey(null));
+        localStorage.removeItem("ii:microlab:stages:guest");
+      } catch {}
+    }
+    if (targetProfile && targetProfile.cls && targetProfile.name) {
+      const clsStr = String(targetProfile.cls).trim();
+      const seatNum = Number(targetProfile.seat) || 0;
+      const seatVariants = Array.from(new Set([
+        String(seatNum || targetProfile.seat || "").trim(),
+        seatNum > 0 ? String(seatNum).padStart(2, "0") : ""
+      ].filter(Boolean)));
+      const nameVariants = Array.from(new Set([
+        String(targetProfile.name || "").trim(),
+        ...(Array.isArray(altNames) ? altNames.map((n) => String(n || "").trim()) : [])
+      ].filter(Boolean)));
+      seatVariants.forEach((sv) => {
+        nameVariants.forEach((nm) => {
+          const sp = { cls: clsStr, seat: sv, name: nm };
+          try {
+            localStorage.removeItem(stateKey(sp));
+            localStorage.removeItem(labKey(sp));
+            localStorage.removeItem(`ii:microlab:stages:${clsStr}-${sv}-${nm}`);
+          } catch {}
+        });
+      });
+    }
+    if (!silent) {
+      emit();
+      document.dispatchEvent(new CustomEvent("ii:microlab-updated", { detail: { reset: true } }));
+    }
+    return blankState();
+  }
   function restoreCloudAvatar(cloudAv, explicitProfile, opts = {}) {
     const p = explicitProfile || profile();
     if (!p) return getState();
@@ -1559,7 +1597,10 @@
     cloudSyncTimer = null;
 
     if (opts && opts.replace) {
-      const nextState = (cloudAv && typeof cloudAv === "object") ? sanitizeState(cloudAv) : blankState();
+      if (!cloudAv || typeof cloudAv !== "object") {
+        return clearStudentState(p, { resetGuest: false });
+      }
+      const nextState = sanitizeState(cloudAv);
       syncStateBalanceFields(nextState);
       try {
         localStorage.setItem(stateKey(p), JSON.stringify(nextState));
@@ -2765,7 +2806,7 @@
   window.evaluateBonusRewards = evaluateBonusRewards;
   window.AvatarSystem = {
     ITEMS, ITEM_MAP, TIERS, SLOT_NAME, HAIR_STYLES, HAIR_COLORS, FACES, TITLES, NPC_QUIZ, COIN_PER_QUESTION, LAB_COIN_REWARD, DOJO_COIN_REWARD, CAPSTONE_COIN_REWARD, DEFAULT_LOOK, EYE_PRESETS, BONUS_CONFIG,
-    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState,
+    renderAvatar, renderThumb, renderLookThumb, renderMiniAvatar, normalizeLook, getHairPalette, sanitizeState, restoreCloudAvatar, resetGuestState, clearStudentState,
     isAvatarLocked, getState, quizStats, wallet, title, unlock, toggleEquip, setLook, lockPreset, answerNpc, recordQuizVoucher,
     getItemCost, isItemExclusiveAllowed, evaluateBonusRewards, getBonusProgress,
     resolveLabIslandId, isMicroLabCompleted, isMicroLabRewarded, getCompletedMicroLabs, completeMicroLab,

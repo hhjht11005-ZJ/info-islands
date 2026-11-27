@@ -4333,6 +4333,12 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   gap: 6px;
   align-items: flex-start;
 }
+.tc-stat-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
 .tc-stat-nums {
   display: flex;
   gap: 8px;

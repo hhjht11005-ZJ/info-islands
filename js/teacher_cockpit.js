@@ -2257,6 +2257,7 @@ import QRCode from "qrcode";
               </div>`;
 
               const barPct = Math.min(100, Math.max(0, row.pctNum));
+              const hasRecord = Boolean(row.hasCloud || row.totalScore > 0 || row.crownCount > 0 || row.passedTotal > 0 || row.pinCode || row.avatar);
               return `<tr>
                 <td><span class="tc-seat-chip">${esc(row.className)} · ${String(row.seatNum).padStart(2, "0")}號</span></td>
                 <td class="tc-name-cell">${esc(displayName(row.name, row.seatNum))}</td>
@@ -2279,7 +2280,10 @@ import QRCode from "qrcode";
                 <td>
                   <div class="tc-stat-act-cell">
                     <div class="tc-stat-nums"><span>👑 ${row.crownCount}</span><span>⭐ ${row.totalScore.toLocaleString()}</span></div>
-                    <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-action="open-island-details" data-student-idx="${idx}" data-skey="${esc(row.studentKey)}" style="pointer-events: auto; cursor: pointer;">🔍 島嶼明細</button>
+                    <div class="tc-stat-actions">
+                      <button type="button" class="tc-mini-btn info tc-island-detail-btn" data-action="open-island-details" data-student-idx="${idx}" data-skey="${esc(row.studentKey)}" style="pointer-events: auto; cursor: pointer;">🔍 島嶼明細</button>
+                      ${hasRecord ? `<button type="button" class="tc-mini-btn warn tc-student-delete-btn" data-skey="${esc(row.studentKey)}" data-cls="${esc(row.className)}" data-seat="${esc(row.seat)}" data-grade="${esc(row.grade)}" data-name="${esc(row.name)}">🗑️ 刪除資料</button>` : ""}
+                    </div>
                   </div>
                 </td>
               </tr>`;
@@ -3789,6 +3793,64 @@ import QRCode from "qrcode";
           }
           renderMainBody();
           setGlobalStatus(`✅ 已為 ${whoLabel} 解鎖基礎造型`, "ok");
+          setTimeout(() => setGlobalStatus(""), 3200);
+        }
+      });
+      return;
+    }
+
+    const deleteStudentBtn = target.closest(".tc-student-delete-btn");
+    if (deleteStudentBtn) {
+      const { skey, cls, seat, grade, name } = deleteStudentBtn.dataset;
+      const whoLabel = `${cls} 班 ${String(seat).padStart(2, "0")} 號（${displayName(name, seat)}）`;
+      openTeacherConfirmModal({
+        title: "🗑️ 確定要刪除該生雲端資料？",
+        msg: `此操作將永久清除 ${whoLabel} 的雲端學習進度、積分、皇冠、個人驗證碼、角色外觀與錯題紀錄（無法復原），該生下次登入時將重新設定驗證碼並從頭開始。確定要刪除嗎？`,
+        confirmLabel: "確定永久刪除",
+        onConfirm: async () => {
+          const res = await postTeacherAction("delete_student_data", {
+            studentKey: skey,
+            grade,
+            className: cls,
+            seat
+          });
+          if (res && res.status === "unauthorized") {
+            clearTeacherSession();
+            throw new Error("教師驗證已逾時，請重新登入");
+          }
+          if (!res || res.status !== "ok") {
+            throw new Error((res && res.message) || "刪除學生資料失敗");
+          }
+
+          const seatNum = Number(seat);
+          state.data.students = (state.data.students || []).filter((s) => {
+            const sKeyMatch = s.studentKey === skey || `${parseStudentGradeFromCls(s.grade, s.className)}_${s.className}_${s.seat}` === skey;
+            const clsSeatMatch = String(s.className || "").trim() === String(cls || "").trim() && Number(s.seat) === seatNum;
+            return !(sKeyMatch || clsSeatMatch);
+          });
+          state.data.wrongLogs = (state.data.wrongLogs || []).filter((w) => {
+            return !(String(w.className || "").trim() === String(cls || "").trim() && Number(w.seat) === seatNum);
+          });
+          state.revealedPins.delete(skey);
+
+          const sess = getTeacherSession();
+          if (sess && sess.password) {
+            try {
+              const refreshed = await fetchTeacherDashboard(sess.password, sess);
+              if (refreshed && refreshed.status === "ok") {
+                setTeacherSession(refreshed.teacher || sess, sess.password, sess.account);
+                applyDashboardData(refreshed);
+              }
+            } catch {
+              // 若刷新請求短暫失敗，仍保留前方已即時移除的本地列表狀態
+            }
+          }
+          renderMainBody();
+          if (window.Store && typeof window.Store.fetchGasSnapshot === "function") {
+            void window.Store.fetchGasSnapshot(undefined, { force: true }).catch(() => {});
+          }
+          setGlobalStatus(`✅ 已刪除 ${whoLabel} 的雲端資料並完成刷新`, "ok");
+          showToast(`🗑️ 已刪除 ${whoLabel} 的雲端資料`, "ok", 2800);
           setTimeout(() => setGlobalStatus(""), 3200);
         }
       });

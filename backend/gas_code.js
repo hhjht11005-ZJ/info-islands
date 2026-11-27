@@ -126,6 +126,7 @@ function dispatchPost_(req) {
   if (req.action === "save_roster") return saveRoster_(req);
   if (req.action === "reset_student_pin") return resetStudentPin_(req);
   if (req.action === "unlock_student_avatar") return unlockStudentAvatar_(req);
+  if (req.action === "delete_student_data") return deleteStudentData_(req);
   if (req.action === "save_config") return saveConfig_(req);
 
   if (req.action === "student_login") return studentLogin_(req);
@@ -947,6 +948,102 @@ function unlockStudentAvatar_(req) {
   avatarObj.presetLocked = false;
   lbSh.getRange(hit.rowNum, 10).setValue(JSON.stringify(avatarObj));
   return { status: "ok", unlocked: true, studentKey: studentKey, avatar: avatarObj };
+}
+
+function deleteMatchingRowsReverse_(sh, matchFn) {
+  if (!sh || sh.getLastRow() <= 1) return 0;
+  var rows = sh.getDataRange().getValues();
+  var removed = 0;
+  for (var i = rows.length - 1; i >= 1; i--) {
+    if (matchFn(rows[i])) {
+      sh.deleteRow(i + 1);
+      removed++;
+    }
+  }
+  return removed;
+}
+
+function deleteStudentData_(req) {
+  var auth = authenticateTeacher_(req);
+  if (!auth.ok) {
+    return { status: "unauthorized", message: auth.message || "密碼錯誤" };
+  }
+
+  var className = String(req.className || "").trim();
+  var seatRaw = String(req.seat || "").trim();
+  var seatNum = Number(seatRaw);
+  var grade = parseGrade_(req.grade, className);
+  var studentKey = String(req.studentKey || (grade + "_" + className + "_" + seatRaw)).trim();
+  if (!studentKey && (!className || !seatRaw)) {
+    return { status: "error", message: "缺少學生識別鍵" };
+  }
+
+  var ss = auth.targetSs;
+  var masterSs = masterSs_();
+  var hasClsSeat = Boolean(className && seatNum >= 1 && seatNum <= 60 && seatNum % 1 === 0);
+
+  // 1. 刪除教師獨立試算表 Leaderboard 中的學生列
+  var lbSh = ss.getSheetByName(SHEET_LEADERBOARD);
+  var lbRemoved = deleteMatchingRowsReverse_(lbSh, function (r) {
+    if (studentKey && String(r[0] || "").trim() === studentKey) return true;
+    return hasClsSeat && String(r[2] || "").trim() === className && Number(r[3]) === seatNum;
+  });
+
+  // 2. 刪除總控主試算表 GlobalLeaderboard 中的跨校總榜列
+  var tid = String((auth.teacher && auth.teacher.teacherId) || "DEFAULT").trim();
+  var globalKey = tid + "__" + studentKey;
+  var gSh = masterSs.getSheetByName(SHEET_GLOBAL_LB);
+  var globalRemoved = deleteMatchingRowsReverse_(gSh, function (r) {
+    if (studentKey && String(r[0] || "").trim() === globalKey) return true;
+    return hasClsSeat && String(r[1] || "").trim() === tid && String(r[4] || "").trim() === className && Number(r[5]) === seatNum;
+  });
+
+  // 3. 刪除 WrongLogs 錯題紀錄
+  var wlRemoved = 0;
+  if (hasClsSeat) {
+    var wlSh = ss.getSheetByName(SHEET_WRONGLOGS);
+    wlRemoved = deleteMatchingRowsReverse_(wlSh, function (r) {
+      return String(r[2] || "").trim() === className && Number(r[3]) === seatNum;
+    });
+  }
+
+  // 4. 刪除自動登入名冊「名冊」（保留教師匯入的正式班級名冊 Roster）
+  var rosterLogRemoved = 0;
+  if (hasClsSeat) {
+    var rSh = ss.getSheetByName(SHEET_ROSTER);
+    rosterLogRemoved = deleteMatchingRowsReverse_(rSh, function (r) {
+      return String(r[0] || "").trim() === className && Number(r[1]) === seatNum;
+    });
+  }
+
+  // 5. 刪除「紀錄(全部)」與「班級XXX」分頁內的歷史作答明細
+  var logRemoved = 0;
+  var classLogRemoved = 0;
+  if (hasClsSeat) {
+    var logSh = ss.getSheetByName(SHEET_LOG);
+    logRemoved = deleteMatchingRowsReverse_(logSh, function (r) {
+      return String(r[2] || "").trim() === className && Number(r[3]) === seatNum;
+    });
+    var clsSh = ss.getSheetByName("班級" + className);
+    classLogRemoved = deleteMatchingRowsReverse_(clsSh, function (r) {
+      return String(r[1] || "").trim() === className && Number(r[2]) === seatNum;
+    });
+  }
+
+  SpreadsheetApp.flush();
+  return {
+    status: "ok",
+    deleted: (lbRemoved + globalRemoved + wlRemoved + rosterLogRemoved + logRemoved + classLogRemoved) > 0,
+    studentKey: studentKey,
+    deletedCounts: {
+      leaderboard: lbRemoved,
+      globalLeaderboard: globalRemoved,
+      wrongLogs: wlRemoved,
+      rosterLogs: rosterLogRemoved,
+      logs: logRemoved,
+      classLogs: classLogRemoved
+    }
+  };
 }
 
 /* ---------- 雲端動態公告與任務派發 (Config 分頁) ---------- */

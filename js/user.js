@@ -426,6 +426,21 @@
       ]);
 
       if (r && r.status === "need_pin_setup") {
+        const targetP = {
+          cls: String(v.grade) + String(v.room).padStart(2, "0"),
+          seat: Number(v.seat),
+          name: v.name
+        };
+        if (typeof Store.clearStudentLocalData === "function") {
+          Store.clearStudentLocalData(targetP, { includeActiveIsland: true, clearLeaderboardCaches: true });
+        }
+        if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+          window.AvatarSystem.clearStudentState(targetP, { resetGuest: true });
+        }
+        renderChip();
+        if (typeof window.updateAllIslandArchitectures === "function") {
+          window.updateAllIslandArchitectures({ animateUpgrade: false });
+        }
         pendingSetup = true;
         if (setupTip) {
           setupTip.textContent = (r.hasRosterMatch && r.maskedName)
@@ -449,6 +464,20 @@
           pinInput.select();
         }
         return;
+      }
+
+      if (r.student && typeof Store.isCloudStudentRecordEmpty === "function" && Store.isCloudStudentRecordEmpty(r.student)) {
+        const curP = Store.profile || {
+          cls: String(v.grade) + String(v.room).padStart(2, "0"),
+          seat: Number(v.seat),
+          name: v.name
+        };
+        if (typeof Store.clearStudentLocalData === "function") {
+          Store.clearStudentLocalData(curP, { includeActiveIsland: true, clearLeaderboardCaches: true, altNames: [v.name] });
+        }
+        if (window.AvatarSystem && typeof window.AvatarSystem.clearStudentState === "function") {
+          window.AvatarSystem.clearStudentState(curP, { altNames: [v.name], resetGuest: true });
+        }
       }
 
       resetPinSetupState();
