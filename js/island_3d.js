@@ -7978,6 +7978,7 @@
         citadelHudBtn.textContent = `🔒 天穹浮島 (${citadelState.metCount}/7)`;
       }
       citadelHudBtn.classList.toggle("is-unlocked", citadelState.unlocked);
+      citadelHudBtn.classList.toggle("is-max", Boolean(isMax && citadelState.unlocked));
     }
   }
 
@@ -14099,28 +14100,38 @@
     }
   }
 
-  // 綁定右上角全景重置按鈕
+  // 綁定全景重置按鈕
   const cameraResetBtnEl = document.getElementById("cameraResetBtn");
   if (cameraResetBtnEl) {
     cameraResetBtnEl.addEventListener("click", (e) => {
       e.stopPropagation();
       resetCameraToPanorama();
     });
-    const controlsWrap = cameraResetBtnEl.parentElement;
-    if (controlsWrap && !document.getElementById("citadelHudBtn")) {
-      const citadelHudBtn = document.createElement("button");
-      citadelHudBtn.id = "citadelHudBtn";
-      citadelHudBtn.type = "button";
-      citadelHudBtn.className = `${cameraResetBtnEl.className || ""} citadel-hud-btn`.trim();
-      citadelHudBtn.textContent = "🔒 天穹浮島 (0/7)";
-      citadelHudBtn.title = "開啟天穹試煉浮島狀態檢核與雙殿堂";
-      citadelHudBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void openAetherCitadelLazy();
-      });
-      controlsWrap.insertBefore(citadelHudBtn, cameraResetBtnEl.nextSibling);
-      syncCitadelVisualState();
+  }
+
+  // 建立天穹試煉浮島（中央聖殿）HUD 入口按鈕，並置入第二層藍色檢視膠囊列 (#viewChips)
+  if (!document.getElementById("citadelHudBtn")) {
+    const citadelHudBtn = document.createElement("button");
+    citadelHudBtn.id = "citadelHudBtn";
+    citadelHudBtn.type = "button";
+    citadelHudBtn.className = "chip citadel-hud-btn";
+    citadelHudBtn.textContent = "🔒 天穹浮島 (0/7)";
+    citadelHudBtn.title = "開啟天穹試煉浮島狀態檢核與雙殿堂";
+    citadelHudBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void openAetherCitadelLazy();
+    });
+    const isMobileViewport = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches;
+    const viewChipsEl = document.getElementById("viewChips");
+    const mobileUserActionsEl = document.querySelector(".mobile-user-actions");
+    const fallbackControlsWrap = cameraResetBtnEl ? cameraResetBtnEl.parentElement : null;
+    const mountTarget = isMobileViewport
+      ? (mobileUserActionsEl || viewChipsEl || fallbackControlsWrap)
+      : (viewChipsEl || fallbackControlsWrap);
+    if (mountTarget) {
+      mountTarget.appendChild(citadelHudBtn);
     }
+    syncCitadelVisualState();
   }
 
   let hoveredGuardianNpc = null;

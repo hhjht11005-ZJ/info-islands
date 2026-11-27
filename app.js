@@ -675,6 +675,7 @@
   const mobileToolsToggleBtn = $("#mobileToolsToggleBtn");
   const mobileToolsPanel = $("#mobileToolsPanel");
   const mobileUserActions = $(".mobile-user-actions");
+  const viewChips = $("#viewChips");
 
   if (
     hudLeft && brandBar && sceneControls && filterBar && hudUserRow &&
@@ -688,15 +689,18 @@
       mobileToolsToggleBtn.classList.toggle("is-open", open);
     };
     const syncMobileHudLayout = (isMobile) => {
+      const citadelHudBtn = $("#citadelHudBtn");
       if (isMobile) {
         mobileTopActions.insertBefore(leaderboardBtn, mobileToolsToggleBtn);
         mobileToolsPanel.insertBefore(sceneControls, mobileUserActions);
         mobileToolsPanel.insertBefore(filterBar, mobileUserActions);
         mobileUserActions.append(userChip, audioToggleBtn, resultBtn);
+        if (citadelHudBtn) mobileUserActions.appendChild(citadelHudBtn);
       } else {
         brandBar.appendChild(sceneControls);
         hudLeft.appendChild(filterBar);
         hudUserRow.append(userChip, audioToggleBtn, resultBtn, leaderboardBtn);
+        if (citadelHudBtn && viewChips) viewChips.appendChild(citadelHudBtn);
       }
       setMobileToolsOpen(false);
     };
@@ -707,6 +711,11 @@
     mobileToolsToggleBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
       setMobileToolsOpen(mobileToolsPanel.hidden);
+    });
+    mobileToolsPanel.addEventListener("click", (ev) => {
+      if (ev.target.closest("#citadelHudBtn") && mobileMql.matches) {
+        setMobileToolsOpen(false);
+      }
     });
     document.addEventListener("ii:gradefilter", () => {
       if (mobileMql.matches) setMobileToolsOpen(false);
