@@ -24,7 +24,12 @@
       return Promise.resolve(window.ComputationalDojo);
     }
     if (!dojoLoadPromise) {
-      dojoLoadPromise = import("./computationalDojo.js").then(() => window.ComputationalDojo);
+      dojoLoadPromise = import("./computationalDojo.js").then(() => {
+        if (!window.ComputationalDojo || typeof window.ComputationalDojo.mount !== "function") {
+          throw new Error("運算思維道場模組載入後未註冊 mount 介面");
+        }
+        return window.ComputationalDojo;
+      });
     }
     return dojoLoadPromise;
   }
@@ -34,7 +39,12 @@
       return Promise.resolve(window.CapstoneCases);
     }
     if (!capstoneLoadPromise) {
-      capstoneLoadPromise = import("./capstoneCases.js").then(() => window.CapstoneCases);
+      capstoneLoadPromise = import("./capstoneCases.js").then(() => {
+        if (!window.CapstoneCases || typeof window.CapstoneCases.mount !== "function") {
+          throw new Error("跨島綜合解謎模組載入後未註冊 mount 介面");
+        }
+        return window.CapstoneCases;
+      });
     }
     return capstoneLoadPromise;
   }
@@ -48,22 +58,50 @@
     return Math.min(99, Math.round((passed / total) * 100));
   }
 
+  function hasActiveTeacherSession() {
+    try {
+      for (const key of ["ii_teacher_session", "island_teacher_session"]) {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || !parsed.password) continue;
+        const exp = Number(parsed.expiresAt);
+        if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) continue;
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
   function isTeacherTempUnlocked() {
     if (window.CloudConfig && typeof window.CloudConfig.isCitadelTempUnlocked === "function") {
-      return window.CloudConfig.isCitadelTempUnlocked();
+      return Boolean(window.CloudConfig.isCitadelTempUnlocked());
     }
     if (window.CloudConfig && typeof window.CloudConfig.get === "function") {
-      return Boolean(window.CloudConfig.get().unlockCitadel);
+      return Boolean(window.CloudConfig.get()?.unlockCitadel);
     }
     return false;
   }
 
+  function isTeacherDemoMode() {
+    const hasStudent = Boolean(window.Store?.profile);
+    if (hasStudent) return false;
+    return hasActiveTeacherSession() || isTeacherTempUnlocked();
+  }
+
   function getCitadelTokens() {
+    if (isTeacherDemoMode()) {
+      const dojoTokens = window.ComputationalDojo?.getDemoTokens?.() || [];
+      const capTokens = window.CapstoneCases?.getDemoTokens?.() || [];
+      return Array.from(new Set([...(Array.isArray(dojoTokens) ? dojoTokens : []), ...(Array.isArray(capTokens) ? capTokens : [])]));
+    }
     if (window.Store && typeof window.Store.getCitadelTokens === "function") {
-      return window.Store.getCitadelTokens();
+      const list = window.Store.getCitadelTokens();
+      return Array.isArray(list) ? list : [];
     }
     if (window.AvatarSystem && typeof window.AvatarSystem.getState === "function") {
-      return window.AvatarSystem.getState().citadelTokens || [];
+      const list = window.AvatarSystem.getState()?.citadelTokens;
+      return Array.isArray(list) ? list : [];
     }
     return [];
   }
@@ -71,27 +109,28 @@
   function checkAccess(progressOverride) {
     const islands = Array.isArray(window.ISLANDS) ? window.ISLANDS.slice(0, 7) : [];
     const hasOverride = progressOverride !== undefined;
-    const progressState = hasOverride
-      ? progressOverride
-      : (window.Store && window.Store.profile && typeof window.Store.events === "function" ? window.Store.events() : []);
+    const rawEvents = (window.Store?.profile && typeof window.Store?.events === "function")
+      ? (window.Store.events() || [])
+      : [];
+    const progressState = hasOverride ? (progressOverride ?? []) : rawEvents;
 
     const items = islands.map((isl) => {
       const comp = typeof window.calculateIslandCompletion === "function"
-        ? window.calculateIslandCompletion(isl.id, progressState)
-        : { islandId: isl.id, islandName: isl.name, totalStages: (isl.sequence || []).length * 3, passedStages: 0, percentage: 0 };
-      const totalStages = Number(comp.totalStages) || 0;
-      const passedStages = Number(comp.passedStages) || 0;
-      const percentage = Number(comp.percentage) || 0;
+        ? (window.calculateIslandCompletion(isl?.id, progressState) || {})
+        : { islandId: isl?.id, islandName: isl?.name, totalStages: (isl?.sequence || []).length * 3, passedStages: 0, percentage: 0 };
+      const totalStages = Number(comp?.totalStages) || 0;
+      const passedStages = Number(comp?.passedStages) || 0;
+      const percentage = Number(comp?.percentage) || 0;
       let targetPassed = 0;
       while (targetPassed < totalStages && computePct(targetPassed, totalStages) < 80) {
         targetPassed++;
       }
       const needStages = percentage >= 80 ? 0 : Math.max(1, targetPassed - passedStages);
       return {
-        id: isl.id,
-        name: isl.name,
-        emoji: isl.emoji || "🏝️",
-        color: isl.color || "#38bdf8",
+        id: isl?.id || "",
+        name: isl?.name || "",
+        emoji: isl?.emoji || "🏝️",
+        color: isl?.color || "#38bdf8",
         totalStages,
         passedStages,
         percentage,
@@ -103,10 +142,12 @@
     const metCount = items.filter((it) => it.met).length;
     const allSevenAt80 = items.length >= 7 && metCount === items.length;
     const teacherTempOpen = isTeacherTempUnlocked();
+    const teacherDemo = isTeacherDemoMode();
     return {
       unlocked: allSevenAt80 || teacherTempOpen,
       allSevenAt80,
       teacherTempOpen,
+      teacherDemo,
       metCount,
       totalCount: items.length,
       items
@@ -250,17 +291,31 @@
     });
   }
 
+  function getSafeHonorsSummary(tokens) {
+    const safeTokens = Array.isArray(tokens) ? tokens : [];
+    const raw = (window.AvatarSystem && typeof window.AvatarSystem.getCitadelHonorsSummary === "function")
+      ? (window.AvatarSystem.getCitadelHonorsSummary(safeTokens) || {})
+      : {};
+    return {
+      titles: Array.isArray(raw.titles) ? raw.titles : [],
+      dojoPassed: Array.isArray(raw.dojoPassed) ? raw.dojoPassed : safeTokens.filter((t) => String(t).startsWith("dojo:")),
+      capstonePassed: Array.isArray(raw.capstonePassed) ? raw.capstonePassed : safeTokens.filter((t) => String(t).startsWith("capstone:"))
+    };
+  }
+
   function renderTwinHalls(access) {
+    const demoMode = isTeacherDemoMode();
     const tokens = getCitadelTokens();
-    const coins = (window.AvatarSystem && typeof window.AvatarSystem.wallet === "function")
-      ? window.AvatarSystem.wallet().coins
-      : 0;
-    const honors = (window.AvatarSystem && typeof window.AvatarSystem.getCitadelHonorsSummary === "function")
-      ? window.AvatarSystem.getCitadelHonorsSummary(tokens)
-      : { titles: [], dojoPassed: [], capstonePassed: [] };
+    const coins = demoMode
+      ? 0
+      : (Number(window.AvatarSystem?.wallet?.()?.coins) || 0);
+    const honors = getSafeHonorsSummary(tokens);
 
     bodyEl.innerHTML = `
       <div class="citadel-hall-shell">
+        ${demoMode
+          ? `<div class="citadel-teacher-demo-banner" role="status">👨‍🏫 教師課堂演示模式：可自由操作所有道場與跨島案件（演示過程不寫入學生個人成績）</div>`
+          : ""}
         <div class="citadel-hall-hero">
           <div class="citadel-hero-left">
             <span class="citadel-kicker">✨ 天穹試煉浮島 · 全息機關守衛．阿爾法歡迎登島</span>
@@ -270,10 +325,10 @@
               : `<div class="citadel-unlocked-badge">🌟 七大島嶼智慧結晶皆達 80% · 天穹結界已永久解封</div>`}
           </div>
           <div class="citadel-hero-stats">
-            <div class="citadel-stat-pill">⭐ 探索星幣：<b id="citadelCoinsVal">${coins}</b></div>
+            <div class="citadel-stat-pill">${demoMode ? "🎓 演示模式：<b id=\"citadelCoinsVal\">不計星幣</b>" : `⭐ 探索星幣：<b id="citadelCoinsVal">${coins}</b>`}</div>
             <div class="citadel-stat-pill">🧠 道場：<b id="citadelDojoCount">${honors.dojoPassed.length}</b> / 4</div>
             <div class="citadel-stat-pill">🕵️ 檔案室：<b id="citadelCapCount">${honors.capstonePassed.length}</b> / 2</div>
-            ${honors.titles.map((t) => `<div class="citadel-title-chip">${t.icon} ${esc(t.name)}</div>`).join("")}
+            ${honors.titles.map((t) => `<div class="citadel-title-chip">${esc(t?.icon || "🏅")} ${esc(t?.name || "")}</div>`).join("")}
           </div>
         </div>
 
@@ -299,17 +354,16 @@
     }
 
     const syncStatsHeader = () => {
+      const nextDemo = isTeacherDemoMode();
       const nextTokens = getCitadelTokens();
-      const nextCoins = (window.AvatarSystem && typeof window.AvatarSystem.wallet === "function")
-        ? window.AvatarSystem.wallet().coins
-        : 0;
-      const nextHonors = (window.AvatarSystem && typeof window.AvatarSystem.getCitadelHonorsSummary === "function")
-        ? window.AvatarSystem.getCitadelHonorsSummary(nextTokens)
-        : { titles: [], dojoPassed: [], capstonePassed: [] };
+      const nextCoins = nextDemo
+        ? 0
+        : (Number(window.AvatarSystem?.wallet?.()?.coins) || 0);
+      const nextHonors = getSafeHonorsSummary(nextTokens);
       const cEl = bodyEl.querySelector("#citadelCoinsVal");
       const dEl = bodyEl.querySelector("#citadelDojoCount");
       const pEl = bodyEl.querySelector("#citadelCapCount");
-      if (cEl) cEl.textContent = String(nextCoins);
+      if (cEl) cEl.textContent = nextDemo ? "不計星幣" : String(nextCoins);
       if (dEl) dEl.textContent = String(nextHonors.dojoPassed.length);
       if (pEl) pEl.textContent = String(nextHonors.capstonePassed.length);
       const statsWrap = bodyEl.querySelector(".citadel-hero-stats");
@@ -318,7 +372,7 @@
         nextHonors.titles.forEach((t) => {
           const sp = document.createElement("div");
           sp.className = "citadel-title-chip";
-          sp.textContent = `${t.icon} ${t.name}`;
+          sp.textContent = `${t?.icon || "🏅"} ${t?.name || ""}`;
           statsWrap.appendChild(sp);
         });
       }
@@ -326,33 +380,64 @@
 
     const mountActiveHall = async () => {
       const seq = ++hallMountSeq;
-      if (window.ComputationalDojo && typeof window.ComputationalDojo.unmount === "function") {
-        window.ComputationalDojo.unmount();
+      try {
+        window.ComputationalDojo?.unmount?.();
+      } catch (e) {
+        console.warn("[aetherCitadel] 卸載運算思維道場失敗:", e);
       }
-      if (window.CapstoneCases && typeof window.CapstoneCases.unmount === "function") {
-        window.CapstoneCases.unmount();
+      try {
+        window.CapstoneCases?.unmount?.();
+      } catch (e) {
+        console.warn("[aetherCitadel] 卸載解謎檔案室失敗:", e);
       }
       const hall = activeHall;
+      const mountOpts = { onProgress: syncStatsHeader, isDemoMode: isTeacherDemoMode() };
       const readyObj = hall === "dojo" ? window.ComputationalDojo : window.CapstoneCases;
       if (readyObj && typeof readyObj.mount === "function") {
-        readyObj.mount(hallMount, { onProgress: syncStatsHeader });
+        try {
+          readyObj.mount(hallMount, mountOpts);
+        } catch (initErr) {
+          console.error("[aetherCitadel] 殿堂模組初始化失敗:", initErr, initErr?.stack || "");
+          hallMount.innerHTML = `<div class="citadel-loading-box is-error">
+            <p>⚠️ 殿堂初始化執行失敗：${esc(initErr?.message || "未知錯誤")}</p>
+            <button type="button" class="citadel-sprint-btn" id="citadelHallRetryBtn">🔄 重新初始化</button>
+          </div>`;
+          const retryBtn = hallMount.querySelector("#citadelHallRetryBtn");
+          if (retryBtn) retryBtn.addEventListener("click", () => { void mountActiveHall(); });
+        }
         return;
       }
+
       hallMount.innerHTML = `<div class="citadel-loading-box">⏳ 正在載入${hall === "dojo" ? "運算思維互動道場（4 大演算法盤面）" : "跨島綜合解謎檔案室（2 大實戰案件）"}…</div>`;
+      let mod = null;
       try {
-        const mod = hall === "dojo" ? await loadComputationalDojo() : await loadCapstoneCases();
-        if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
-        if (mod && typeof mod.mount === "function") {
-          mod.mount(hallMount, { onProgress: syncStatsHeader });
-        }
-      } catch (err) {
+        mod = hall === "dojo" ? await loadComputationalDojo() : await loadCapstoneCases();
+      } catch (loadErr) {
         if (hall === "dojo") dojoLoadPromise = null;
         else capstoneLoadPromise = null;
         if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
-        console.error("[aetherCitadel] 動態載入殿堂模組失敗:", err);
+        console.error("[aetherCitadel] 動態載入殿堂模組失敗:", loadErr, loadErr?.stack || "");
         hallMount.innerHTML = `<div class="citadel-loading-box is-error">
-          <p>⚠️ 模組載入失敗，請檢查網路連線後重試。</p>
+          <p>⚠️ 殿堂模組載入失敗：${esc(loadErr?.message || "請檢查網路連線後重試")}</p>
           <button type="button" class="citadel-sprint-btn" id="citadelHallRetryBtn">🔄 重新載入</button>
+        </div>`;
+        const retryBtn = hallMount.querySelector("#citadelHallRetryBtn");
+        if (retryBtn) retryBtn.addEventListener("click", () => { void mountActiveHall(); });
+        return;
+      }
+
+      if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
+      try {
+        if (!mod || typeof mod.mount !== "function") {
+          throw new Error("載入的殿堂模組缺少 mount 函式");
+        }
+        mod.mount(hallMount, mountOpts);
+      } catch (initErr) {
+        if (!isOpen() || seq !== hallMountSeq || activeHall !== hall) return;
+        console.error("[aetherCitadel] 殿堂模組初始化執行失敗:", initErr, initErr?.stack || "");
+        hallMount.innerHTML = `<div class="citadel-loading-box is-error">
+          <p>⚠️ 殿堂初始化執行失敗：${esc(initErr?.message || "初始化過程發生錯誤")}</p>
+          <button type="button" class="citadel-sprint-btn" id="citadelHallRetryBtn">🔄 重新初始化</button>
         </div>`;
         const retryBtn = hallMount.querySelector("#citadelHallRetryBtn");
         if (retryBtn) retryBtn.addEventListener("click", () => { void mountActiveHall(); });
@@ -377,7 +462,7 @@
   }
 
   function renderUnlockCeremony(access) {
-    if (access.allSevenAt80 && window.Store && typeof window.Store.recordCitadelToken === "function") {
+    if (!isTeacherDemoMode() && access.allSevenAt80 && window.Store && typeof window.Store.recordCitadelToken === "function") {
       window.Store.recordCitadelToken("citadel:unlocked");
     }
     tempCeremonyShown = true;
@@ -442,6 +527,7 @@
     close,
     isOpen,
     checkAccess,
-    isTeacherTempUnlocked
+    isTeacherTempUnlocked,
+    isTeacherDemoMode
   };
 })();

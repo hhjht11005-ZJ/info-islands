@@ -19,17 +19,55 @@
     { id: "dojo:recursion", short: "遞迴剪枝", title: "遞迴回溯與堆疊剪枝", icon: "🌲", badge: "Call Stack & Pruning", coins: 30 }
   ];
 
+  const demoCompleted = new Set();
+
+  function hasActiveTeacherSession() {
+    try {
+      for (const key of ["ii_teacher_session", "island_teacher_session"]) {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || !parsed.password) continue;
+        const exp = Number(parsed.expiresAt);
+        if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) continue;
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  function isTeacherDemoMode() {
+    if (window.Store?.profile) return false;
+    const unlockFlag = Boolean(
+      window.CloudConfig?.isCitadelTempUnlocked?.() ||
+      window.CloudConfig?.get?.()?.unlockCitadel
+    );
+    return hasActiveTeacherSession() || unlockFlag;
+  }
+
+  function getDemoTokens() {
+    return Array.from(demoCompleted);
+  }
+
   function getTokens() {
+    if (isTeacherDemoMode()) {
+      return getDemoTokens();
+    }
     if (window.Store && typeof window.Store.getCitadelTokens === "function") {
-      return window.Store.getCitadelTokens();
+      const list = window.Store.getCitadelTokens();
+      return Array.isArray(list) ? list : [];
     }
     if (window.AvatarSystem && typeof window.AvatarSystem.getState === "function") {
-      return window.AvatarSystem.getState().citadelTokens || [];
+      const list = window.AvatarSystem.getState()?.citadelTokens;
+      return Array.isArray(list) ? list : [];
     }
     return [];
   }
 
   function isCompleted(token) {
+    if (isTeacherDemoMode()) {
+      return demoCompleted.has(token);
+    }
     return getTokens().includes(token);
   }
 
@@ -40,20 +78,47 @@
   }
 
   function isAvatarLocked() {
-    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+    return Boolean(window.AvatarSystem?.isAvatarLocked?.());
   }
 
   function isTokenRewarded(token) {
-    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isCitadelTokenRewarded === "function" && window.AvatarSystem.isCitadelTokenRewarded(token));
+    return Boolean(window.AvatarSystem?.isCitadelTokenRewarded?.(token));
   }
 
   function completeDojoLevel(token, label, onUpdate) {
+    const demoMode = isTeacherDemoMode();
     const wasAll = DOJO_LEVELS.every((lv) => isCompleted(lv.id));
-    let res = { ok: true, isNew: false, gained: 0 };
+    let res = { ok: true, isNew: false, gained: 0, demo: demoMode };
+
+    if (demoMode) {
+      const isNew = !demoCompleted.has(token);
+      demoCompleted.add(token);
+      res = { ok: true, demo: true, isNew, gained: 0 };
+      const nowAll = DOJO_LEVELS.every((lv) => isCompleted(lv.id));
+      notify(`🎉 【教師演示】通過「${label}」！演示成功（不寫入學生星幣與雲端成績）`, "ok", 3600);
+      if (typeof window.confetti === "function") {
+        try {
+          window.confetti({ particleCount: 70, spread: 70, origin: { y: 0.56 }, colors: ["#38bdf8", "#ffd166", "#34d399", "#a78bfa"] });
+        } catch {}
+      }
+      if (!wasAll && nowAll) {
+        setTimeout(() => {
+          notify("⚡ 【教師演示】運算思維道場 4 關全通關！（課堂演示模式，未寫入雲端）", "ok", 4600);
+          if (typeof window.confetti === "function") {
+            try {
+              window.confetti({ particleCount: 110, spread: 95, origin: { y: 0.5 }, colors: ["#ffd166", "#38bdf8", "#c084fc"] });
+            } catch {}
+          }
+        }, 450);
+      }
+      if (typeof onUpdate === "function") onUpdate(res);
+      return res;
+    }
+
     if (window.Store && typeof window.Store.recordCitadelToken === "function") {
-      res = window.Store.recordCitadelToken(token);
+      res = window.Store.recordCitadelToken(token) || res;
     } else if (window.AvatarSystem && typeof window.AvatarSystem.grantCitadelToken === "function") {
-      res = window.AvatarSystem.grantCitadelToken(token);
+      res = window.AvatarSystem.grantCitadelToken(token) || res;
     }
     const nowAll = DOJO_LEVELS.every((lv) => isCompleted(lv.id));
     if (res && res.gained > 0) {
@@ -957,9 +1022,19 @@
 
     const renderShell = () => {
       cleanupLevel();
+      const demoMode = isTeacherDemoMode();
       const passedCount = DOJO_LEVELS.filter((l) => isCompleted(l.id)).length;
       const allPassed = passedCount === DOJO_LEVELS.length;
       const curLv = DOJO_LEVELS.find((l) => l.id === activeId) || DOJO_LEVELS[0];
+
+      const getCoinTagText = (lvId) => {
+        if (demoMode) {
+          return isCompleted(lvId) ? "✔ 演示已通關（不寫入成績）" : "👨‍🏫 教師演示模式（自由體驗）";
+        }
+        return isCompleted(lvId)
+          ? (isTokenRewarded(lvId) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）")
+          : (isAvatarLocked() ? "⭐ 過關獎勵 +30" : "🔒 鎖定角色後過關可得 +30 ⭐");
+      };
 
       container.innerHTML = `
         <div class="dojo-wrap" data-scrollable="true">
@@ -969,7 +1044,7 @@
               <p>純狀態機與圖論實戰盤面 · 每關首次通關發放 <b>+30 ⭐ 探索星幣</b> · 4 關全通關解鎖稱號 <b>「⚡ 演算法宗師」</b></p>
             </div>
             <div class="dojo-master-pill ${allPassed ? "is-done" : ""}">
-              ${allPassed ? "⚡ 已獲稱號：演算法宗師" : `進度：${passedCount} / 4 關`}
+              ${allPassed ? (demoMode ? "⚡ 演示全通關 (4/4)" : "⚡ 已獲稱號：演算法宗師") : `進度：${passedCount} / 4 關`}
             </div>
           </div>
           <div class="dojo-tabs" role="tablist">
@@ -988,9 +1063,7 @@
               <h4>${curLv.icon} ${esc(curLv.title)}</h4>
             </div>
             <span class="dojo-coin-tag ${isCompleted(curLv.id) ? "is-done" : ""}">
-              ${isCompleted(curLv.id)
-                ? (isTokenRewarded(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）")
-                : (isAvatarLocked() ? "⭐ 過關獎勵 +30" : "🔒 鎖定角色後過關可得 +30 ⭐")}
+              ${getCoinTagText(curLv.id)}
             </span>
           </div>
           <div id="dojoBoardBody" class="dojo-board-body"></div>
@@ -1009,16 +1082,21 @@
         body: boardBody,
         pass: () => {
           completeDojoLevel(curLv.id, curLv.title, () => {
+            const curDemo = isTeacherDemoMode();
             const pCount = DOJO_LEVELS.filter((l) => isCompleted(l.id)).length;
             const pill = container.querySelector(".dojo-master-pill");
             if (pill) {
               pill.classList.toggle("is-done", pCount === DOJO_LEVELS.length);
-              pill.textContent = pCount === DOJO_LEVELS.length ? "⚡ 已獲稱號：演算法宗師" : `進度：${pCount} / 4 關`;
+              pill.textContent = pCount === DOJO_LEVELS.length
+                ? (curDemo ? "⚡ 演示全通關 (4/4)" : "⚡ 已獲稱號：演算法宗師")
+                : `進度：${pCount} / 4 關`;
             }
             const tag = container.querySelector(".dojo-coin-tag");
             if (tag) {
               tag.classList.add("is-done");
-              tag.textContent = isTokenRewarded(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）";
+              tag.textContent = curDemo
+                ? "✔ 演示已通關（不寫入成績）"
+                : (isTokenRewarded(curLv.id) ? "✔ 已通關 · +30 ⭐ 已入帳" : "✔ 已通關（鎖定角色前無星幣）");
             }
             const tabBtn = container.querySelector(`.dojo-tab[data-lv="${curLv.id}"]`);
             if (tabBtn) {
@@ -1045,6 +1123,8 @@
     mount,
     unmount,
     isCompleted,
+    isTeacherDemoMode,
+    getDemoTokens,
     stepFsm,
     evalCircuit,
     simulateMazeDfs,

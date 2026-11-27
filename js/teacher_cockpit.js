@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 (() => {
   const SESSION_KEY = "ii:teacher_cockpit_pwd";
   const LEGACY_TEACHER_SESSION_KEY = "ii:teacher_cockpit_session_v2";
+  const TEACHER_SESSION_PRIMARY_KEY = "ii_teacher_session";
   const TEACHER_SESSION_KEY = "island_teacher_session";
   const TEACHER_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
   const DIFF_LABELS = { easy: "易", medium: "中", hard: "難", single: "標準" };
@@ -360,18 +361,40 @@ import QRCode from "qrcode";
     return true;
   }
 
+  function persistTeacherSessionToStorage(sessionObj) {
+    if (!sessionObj || !sessionObj.password) return;
+    try {
+      const jsonStr = JSON.stringify(sessionObj);
+      sessionStorage.setItem(TEACHER_SESSION_PRIMARY_KEY, jsonStr);
+      sessionStorage.setItem(TEACHER_SESSION_KEY, jsonStr);
+      sessionStorage.setItem(SESSION_KEY, sessionObj.password);
+      sessionStorage.setItem(LEGACY_TEACHER_SESSION_KEY, JSON.stringify({
+        teacher: {
+          teacherId: sessionObj.teacherId,
+          schoolName: sessionObj.schoolName,
+          teacherName: sessionObj.teacherName,
+          account: sessionObj.account
+        },
+        password: sessionObj.password,
+        unlockCitadel: Boolean(sessionObj.unlockCitadel),
+        expiresAt: sessionObj.expiresAt
+      }));
+    } catch {}
+  }
+
   function clearTeacherSession() {
     state.teacherSession = null;
     state.teacherPassword = "";
     state.teacher = null;
     state.hasLoadedDashboard = false;
     try {
+      sessionStorage.removeItem(TEACHER_SESSION_PRIMARY_KEY);
       sessionStorage.removeItem(TEACHER_SESSION_KEY);
       sessionStorage.removeItem(SESSION_KEY);
       sessionStorage.removeItem(LEGACY_TEACHER_SESSION_KEY);
     } catch {}
-    if (typeof syncTeacherReturnButton === "function") {
-      syncTeacherReturnButton();
+    if (typeof updateTeacherFloatingButton === "function") {
+      updateTeacherFloatingButton();
     }
   }
 
@@ -379,7 +402,7 @@ import QRCode from "qrcode";
     clearTeacherSession();
   }
 
-  function setTeacherSession(teacherObj, pwd, fallbackAccount = "") {
+  function setTeacherSession(teacherObj, pwd, fallbackAccount = "", unlockOverride = undefined) {
     const passwordStr = String(pwd ?? "").trim();
     if (!passwordStr) {
       clearTeacherSession();
@@ -387,12 +410,18 @@ import QRCode from "qrcode";
     }
     const prev = (state.teacherSession && typeof state.teacherSession === "object") ? state.teacherSession : {};
     const t = (teacherObj && typeof teacherObj === "object") ? teacherObj : {};
+    const resolvedUnlock = unlockOverride !== undefined
+      ? Boolean(unlockOverride)
+      : (typeof isCitadelDemoActive === "function"
+          ? isCitadelDemoActive()
+          : Boolean(t.unlockCitadel ?? prev.unlockCitadel));
     const sessionObj = {
       teacherId: String(t.teacherId ?? prev.teacherId ?? "").trim(),
       schoolName: String(t.schoolName ?? prev.schoolName ?? "").trim(),
       teacherName: String(t.teacherName ?? prev.teacherName ?? "").trim(),
       account: String(t.account ?? fallbackAccount ?? prev.account ?? "").trim(),
       password: passwordStr,
+      unlockCitadel: resolvedUnlock,
       expiresAt: Date.now() + TEACHER_SESSION_TTL_MS
     };
     state.teacherSession = sessionObj;
@@ -403,19 +432,19 @@ import QRCode from "qrcode";
       teacherName: sessionObj.teacherName,
       account: sessionObj.account
     };
-    try {
-      sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(sessionObj));
-      sessionStorage.setItem(SESSION_KEY, sessionObj.password);
-      sessionStorage.setItem(LEGACY_TEACHER_SESSION_KEY, JSON.stringify({
-        teacher: state.teacher,
-        password: sessionObj.password,
-        expiresAt: sessionObj.expiresAt
-      }));
-    } catch {}
-    if (typeof syncTeacherReturnButton === "function") {
-      syncTeacherReturnButton();
+    persistTeacherSessionToStorage(sessionObj);
+    if (typeof updateTeacherFloatingButton === "function") {
+      updateTeacherFloatingButton();
     }
     return sessionObj;
+  }
+
+  function syncTeacherSessionUnlockState(unlockFlag) {
+    const sess = getTeacherSession();
+    if (!sess || !sess.password) return;
+    sess.unlockCitadel = Boolean(unlockFlag);
+    state.teacherSession = sess;
+    persistTeacherSessionToStorage(sess);
   }
 
   function getTeacherSession() {
@@ -427,8 +456,9 @@ import QRCode from "qrcode";
       return null;
     }
     try {
-      const raw = sessionStorage.getItem(TEACHER_SESSION_KEY);
-      if (raw) {
+      for (const key of [TEACHER_SESSION_PRIMARY_KEY, TEACHER_SESSION_KEY]) {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
         const parsed = JSON.parse(raw);
         if (parsed && parsed.password) {
           if (!isTeacherSessionValid(parsed)) {
@@ -436,12 +466,18 @@ import QRCode from "qrcode";
             return null;
           }
           const t = (parsed.teacher && typeof parsed.teacher === "object") ? parsed.teacher : {};
+          const unlockFlag = Boolean(
+            parsed.unlockCitadel === true ||
+            String(parsed.unlockCitadel || "").trim().toLowerCase() === "true" ||
+            parsed.unlockCitadel === 1
+          );
           const restored = {
             teacherId: String(parsed.teacherId ?? t.teacherId ?? "").trim(),
             schoolName: String(parsed.schoolName ?? t.schoolName ?? "").trim(),
             teacherName: String(parsed.teacherName ?? t.teacherName ?? "").trim(),
             account: String(parsed.account ?? t.account ?? "").trim(),
             password: String(parsed.password),
+            unlockCitadel: unlockFlag,
             expiresAt: Number(parsed.expiresAt) > 0 ? Number(parsed.expiresAt) : (Date.now() + TEACHER_SESSION_TTL_MS)
           };
           state.teacherSession = restored;
@@ -452,6 +488,10 @@ import QRCode from "qrcode";
             teacherName: restored.teacherName,
             account: restored.account
           };
+          if (restored.unlockCitadel && window.CloudConfig && typeof window.CloudConfig.setLocalCitadelOverride === "function") {
+            window.CloudConfig.setLocalCitadelOverride(true);
+          }
+          persistTeacherSessionToStorage(restored);
           return restored;
         }
       }
@@ -461,7 +501,7 @@ import QRCode from "qrcode";
         if (parsed && parsed.password && isTeacherSessionValid(parsed)) {
           const t = (parsed.teacher && typeof parsed.teacher === "object") ? parsed.teacher : {};
           if (t.teacherId || t.account) {
-            return setTeacherSession(t, parsed.password, t.account || "");
+            return setTeacherSession(t, parsed.password, t.account || "", Boolean(parsed.unlockCitadel));
           }
         }
       }
@@ -715,14 +755,10 @@ import QRCode from "qrcode";
     el.className = `tc-global-status${kind ? ` ${kind}` : ""}`;
   }
 
-  /* ---- DOM 建置：右下角垂直懸浮控制容器（回到戰情室 + 舞台預覽返回膠囊） ---- */
-  let bottomRightDock = document.getElementById("teacherBottomRightDock");
-  if (!bottomRightDock) {
-    bottomRightDock = document.createElement("div");
-    bottomRightDock.id = "teacherBottomRightDock";
-    bottomRightDock.className = "tc-bottom-right-dock";
-    bottomRightDock.hidden = true;
-    document.body.appendChild(bottomRightDock);
+  /* ---- DOM 建置：右下角快捷按鈕（直接掛載於 document.body 最外層，獨立於任何學生 HUD 容器） ---- */
+  const staleDock = document.getElementById("teacherBottomRightDock");
+  if (staleDock && staleDock.parentElement) {
+    staleDock.parentElement.removeChild(staleDock);
   }
 
   let backToCockpitBtn = document.getElementById("btnBackToTeacherCockpit");
@@ -730,56 +766,94 @@ import QRCode from "qrcode";
     backToCockpitBtn = document.createElement("button");
     backToCockpitBtn.id = "btnBackToTeacherCockpit";
     backToCockpitBtn.type = "button";
-    backToCockpitBtn.className = "tc-back-cockpit-btn";
-    backToCockpitBtn.setAttribute("aria-label", "回到教師戰情室");
-    backToCockpitBtn.hidden = true;
-    backToCockpitBtn.innerHTML = `<span class="tc-back-main">📊 回到戰情室</span><span class="tc-citadel-demo-badge" id="tcCitadelDemoBadge" hidden>⚡ 浮島演示中</span>`;
-    bottomRightDock.appendChild(backToCockpitBtn);
+  }
+  backToCockpitBtn.className = "tc-back-cockpit-btn hidden";
+  backToCockpitBtn.setAttribute("aria-label", "回到教師戰情室");
+  backToCockpitBtn.hidden = true;
+  backToCockpitBtn.style.position = "fixed";
+  backToCockpitBtn.style.right = "16px";
+  backToCockpitBtn.style.bottom = "16px";
+  backToCockpitBtn.style.zIndex = "9990";
+  backToCockpitBtn.style.display = "none";
+  backToCockpitBtn.innerHTML = `<span class="tc-back-main">📊 回到戰情室</span><span class="tc-citadel-demo-badge hidden" id="tcCitadelDemoBadge" hidden>⚡ 浮島演示中</span>`;
+  if (backToCockpitBtn.parentElement !== document.body) {
+    document.body.appendChild(backToCockpitBtn);
   }
   const backMainSpan = backToCockpitBtn.querySelector(".tc-back-main");
   const citadelDemoBadge = backToCockpitBtn.querySelector("#tcCitadelDemoBadge");
 
-  const restorePill = document.createElement("button");
-  restorePill.id = "tcRestorePill";
-  restorePill.type = "button";
+  let restorePill = document.getElementById("tcRestorePill");
+  if (!restorePill) {
+    restorePill = document.createElement("button");
+    restorePill.id = "tcRestorePill";
+    restorePill.type = "button";
+  }
   restorePill.className = "tc-restore-pill";
   restorePill.innerHTML = `🧑‍🏫 返回戰情室`;
-  bottomRightDock.appendChild(restorePill);
+  if (restorePill.parentElement !== document.body) {
+    document.body.appendChild(restorePill);
+  }
 
   function isCitadelDemoActive() {
     const cfg = state.data && state.data.config;
     if (cfg && cfg.unlockCitadel !== undefined && cfg.unlockCitadel !== null && String(cfg.unlockCitadel).trim() !== "") {
       const v = cfg.unlockCitadel;
       if (v === true || String(v).trim().toLowerCase() === "true" || String(v).trim() === "1") return true;
+      if (v === false || String(v).trim().toLowerCase() === "false" || String(v).trim() === "0") {
+        return Boolean(
+          window.CloudConfig &&
+          typeof window.CloudConfig.isCitadelTempUnlocked === "function" &&
+          window.CloudConfig.isCitadelTempUnlocked()
+        );
+      }
     }
-    return Boolean(
+    if (
       window.CloudConfig &&
       typeof window.CloudConfig.isCitadelTempUnlocked === "function" &&
       window.CloudConfig.isCitadelTempUnlocked()
-    );
+    ) {
+      return true;
+    }
+    return Boolean(state.teacherSession && state.teacherSession.unlockCitadel);
   }
 
-  function syncTeacherReturnButton() {
-    if (!bottomRightDock || !backToCockpitBtn) return;
+  function updateTeacherFloatingButton() {
+    if (!backToCockpitBtn) return;
     const sess = getTeacherSession();
     const hasValidSession = Boolean(sess && sess.password);
-    const isCockpitShown = cockpitWrap.classList.contains("show");
-    const isAuthShown = authWrap.classList.contains("show");
+    const isCockpitShown = cockpitWrap.classList.contains("show") && !cockpitWrap.hidden;
+    const isAuthShown = authWrap.classList.contains("show") && !authWrap.hidden;
     const isStageMinimized = restorePill.classList.contains("show");
     const showQuickReturn = hasValidSession && !isCockpitShown && !isAuthShown && !isStageMinimized;
-    const showDock = showQuickReturn || isStageMinimized;
-
-    bottomRightDock.hidden = !showDock;
-    backToCockpitBtn.hidden = !showQuickReturn;
     const demoOn = isCitadelDemoActive();
+
+    if (showQuickReturn) {
+      backToCockpitBtn.hidden = false;
+      backToCockpitBtn.classList.remove("hidden");
+      backToCockpitBtn.style.display = "inline-flex";
+      backToCockpitBtn.style.position = "fixed";
+      backToCockpitBtn.style.right = "16px";
+      backToCockpitBtn.style.bottom = window.matchMedia && window.matchMedia("(max-width: 767px)").matches ? "68px" : "16px";
+      backToCockpitBtn.style.zIndex = "9990";
+    } else {
+      backToCockpitBtn.hidden = true;
+      backToCockpitBtn.classList.add("hidden");
+      backToCockpitBtn.style.display = "none";
+    }
+
     if (citadelDemoBadge) {
       citadelDemoBadge.hidden = !demoOn;
+      citadelDemoBadge.classList.toggle("hidden", !demoOn);
+      citadelDemoBadge.style.display = demoOn ? "inline-flex" : "none";
     }
     backToCockpitBtn.classList.toggle("is-demo-active", demoOn);
+
     if (document.body) {
-      document.body.classList.toggle("has-teacher-cockpit-dock", showDock);
+      document.body.classList.toggle("has-teacher-cockpit-dock", showQuickReturn || isStageMinimized);
     }
   }
+
+  const syncTeacherReturnButton = updateTeacherFloatingButton;
 
   /* ---- DOM 建置：超大字體題目投影檢討視窗 ---- */
   const projWrap = document.createElement("div");
@@ -902,14 +976,7 @@ import QRCode from "qrcode";
           teacherName: nextTeacher.teacherName || state.teacherSession.teacherName,
           account: nextTeacher.account || state.teacherSession.account
         };
-        try {
-          sessionStorage.setItem(TEACHER_SESSION_KEY, JSON.stringify(state.teacherSession));
-          sessionStorage.setItem(LEGACY_TEACHER_SESSION_KEY, JSON.stringify({
-            teacher: state.teacher,
-            password: state.teacherSession.password,
-            expiresAt: state.teacherSession.expiresAt
-          }));
-        } catch {}
+        persistTeacherSessionToStorage(state.teacherSession);
       }
     }
     const prevData = (state.data && typeof state.data === "object")
@@ -934,6 +1001,7 @@ import QRCode from "qrcode";
     if (state.data.config && window.CloudConfig && typeof window.CloudConfig.set === "function") {
       window.CloudConfig.set(state.data.config);
     }
+    syncTeacherSessionUnlockState(isCitadelDemoActive());
     if (!preserveDispatchDraft || !state.dispatchDraft || !state.dispatchDirty) {
       const baseCfg = state.data.config
         || (window.CloudConfig && typeof window.CloudConfig.get === "function" ? window.CloudConfig.get() : null)
@@ -947,7 +1015,7 @@ import QRCode from "qrcode";
       state.selectedClass = classes[0] || "";
     }
     state.luckyResult = null;
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   }
 
   async function saveCloudConfig(config, explicitSession = null) {
@@ -3120,8 +3188,17 @@ import QRCode from "qrcode";
     authWrap.classList.remove("show");
     authWrap.classList.add("hidden", "pointer-events-none");
     authWrap.hidden = true;
+    const sess = getTeacherSession();
+    if (sess && sess.password) {
+      hideStudentLoginModal();
+    }
     notifyCockpitToggle();
-    syncTeacherReturnButton();
+    if (window.__island3D && typeof window.__island3D.resumeMainMapControls === "function") {
+      window.__island3D.resumeMainMapControls();
+    } else if (typeof window.resumeMainMapControls === "function") {
+      window.resumeMainMapControls();
+    }
+    updateTeacherFloatingButton();
   }
 
   function showCockpitWorkspace() {
@@ -3136,7 +3213,7 @@ import QRCode from "qrcode";
     cockpitWrap.classList.add("show");
     renderMainBody();
     notifyCockpitToggle();
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   }
 
   async function toggleCitadelTemporaryUnlock() {
@@ -3159,6 +3236,7 @@ import QRCode from "qrcode";
     };
     state.data.config = createDraftFromConfig(baseCfg);
     if (state.dispatchDraft) state.dispatchDraft.unlockCitadel = nextFlag;
+    syncTeacherSessionUnlockState(nextFlag);
     if (window.CloudConfig && typeof window.CloudConfig.set === "function") {
       window.CloudConfig.set(baseCfg);
     } else {
@@ -3168,7 +3246,7 @@ import QRCode from "qrcode";
       window.__island3D.syncCitadelState();
     }
     renderTopBar();
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
     setGlobalStatus(
       nextFlag
         ? "⚡ 已臨時開放天穹浮島（課堂演示／競賽培訓模式），本機已即時解封！正在同步至雲端 Config…"
@@ -3205,7 +3283,7 @@ import QRCode from "qrcode";
     cockpitWrap.classList.add("pointer-events-none");
     restorePill.classList.add("show");
     notifyCockpitToggle();
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   }
 
   function closeCockpit() {
@@ -3232,10 +3310,12 @@ import QRCode from "qrcode";
       hideStudentLoginModal();
     }
     notifyCockpitToggle();
-    if (typeof window.resumeMainMapControls === "function") {
+    if (window.__island3D && typeof window.__island3D.resumeMainMapControls === "function") {
+      window.__island3D.resumeMainMapControls();
+    } else if (typeof window.resumeMainMapControls === "function") {
       window.resumeMainMapControls();
     }
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   }
 
   function openAuthModal(prefillErr = "", { preserveDispatchDraft = false, defaultTab = "login" } = {}) {
@@ -3417,7 +3497,7 @@ import QRCode from "qrcode";
     container.addEventListener("wheel", stopBubble, { passive: true });
     container.addEventListener("touchmove", stopBubble, { passive: true });
     container.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && (!isFormFieldTarget(e.target) || projWrap.classList.contains("show") || !!document.getElementById("teacher-question-projector") || !!document.getElementById("teacher-island-details-modal"))) {
+      if (e.key === "Escape" && !e.isComposing) {
         handleTopmostEscape();
       }
       e.stopPropagation();
@@ -3586,6 +3666,10 @@ import QRCode from "qrcode";
   };
 
   cockpitWrap.addEventListener("click", (e) => {
+    if (e.target === cockpitWrap) {
+      closeCockpit();
+      return;
+    }
     const target = e.target;
     if (!target || typeof target.closest !== "function") return;
 
@@ -3857,8 +3941,9 @@ import QRCode from "qrcode";
         state.data.config = {};
       }
       state.data.config.unlockCitadel = det.unlockCitadel;
+      syncTeacherSessionUnlockState(isCitadelDemoActive());
     }
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   });
   document.addEventListener("ii:gas-snapshot", (e) => {
     const cfg = e && e.detail && e.detail.snapshot && e.detail.snapshot.config;
@@ -3867,11 +3952,15 @@ import QRCode from "qrcode";
         state.data.config = {};
       }
       state.data.config.unlockCitadel = cfg.unlockCitadel;
+      syncTeacherSessionUnlockState(isCitadelDemoActive());
     }
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
   });
   document.addEventListener("ii:cockpit-toggle", () => {
-    syncTeacherReturnButton();
+    updateTeacherFloatingButton();
+  });
+  window.addEventListener("resize", () => {
+    updateTeacherFloatingButton();
   });
   qrWrap.addEventListener("click", (e) => { if (e.target === qrWrap) closeQrModal(); });
   projWrap.addEventListener("click", (e) => { if (e.target === projWrap) closeProjectorModal(); });
@@ -3879,8 +3968,7 @@ import QRCode from "qrcode";
   confirmWrap.addEventListener("click", (e) => { if (e.target === confirmWrap) closeConfirmModal(); });
 
   document.addEventListener("keydown", (e) => {
-    if (isFormFieldTarget(e.target) && !projWrap.classList.contains("show") && !document.getElementById("teacher-question-projector") && !document.getElementById("teacher-island-details-modal")) return;
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !e.isComposing && window.isTeacherCockpitOpen && window.isTeacherCockpitOpen()) {
       handleTopmostEscape();
     }
   });
@@ -3909,11 +3997,18 @@ import QRCode from "qrcode";
     }
   } catch {}
 
-  syncTeacherReturnButton();
+  updateTeacherFloatingButton();
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", syncTeacherReturnButton);
+    document.addEventListener("DOMContentLoaded", updateTeacherFloatingButton);
   }
 
   window.parseStudentProgressSet = parseStudentProgressSet;
-  window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit, findQuestionForProjection, parseStudentProgressSet };
+  window.updateTeacherFloatingButton = updateTeacherFloatingButton;
+  window.TeacherCockpit = {
+    open: openTeacherCockpit,
+    close: closeCockpit,
+    updateFloatingButton: updateTeacherFloatingButton,
+    findQuestionForProjection,
+    parseStudentProgressSet
+  };
 })();

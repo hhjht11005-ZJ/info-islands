@@ -2300,26 +2300,12 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   border: 1px dashed rgba(255, 255, 255, 0.2);
 }
 
-/* 右下角懸浮垂直控制容器 & 返回教師戰情室快捷按鈕 */
-.tc-bottom-right-dock {
+/* 右下角懸浮返回教師戰情室快捷按鈕 & 舞台預覽返回膠囊（獨立掛載於 document.body） */
+.tc-back-cockpit-btn {
   position: fixed;
   right: 16px;
   bottom: 16px;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  pointer-events: none;
-  font-family: "Noto Sans TC", sans-serif;
-}
-.tc-bottom-right-dock[hidden] {
-  display: none !important;
-}
-.tc-bottom-right-dock > * {
-  pointer-events: auto;
-}
-.tc-back-cockpit-btn {
+  z-index: 9990;
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -2334,11 +2320,13 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   letter-spacing: 0.02em;
   cursor: pointer;
   white-space: nowrap;
+  pointer-events: auto;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 12px 28px rgba(7, 13, 42, 0.55), 0 0 18px rgba(251, 191, 36, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.22);
   transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.2s ease, border-color 0.2s ease, opacity 0.2s ease;
 }
+.tc-back-cockpit-btn.hidden,
 .tc-back-cockpit-btn[hidden] {
   display: none !important;
 }
@@ -2378,6 +2366,7 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   box-shadow: 0 0 12px rgba(251, 191, 36, 0.7);
   animation: tcDemoPulse 2.2s ease-in-out infinite;
 }
+.tc-citadel-demo-badge.hidden,
 .tc-citadel-demo-badge[hidden] {
   display: none !important;
 }
@@ -2387,7 +2376,10 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 }
 
 .tc-restore-pill {
-  position: relative;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 9991;
   display: none;
   align-items: center;
   gap: 8px;
@@ -2399,20 +2391,25 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
   font-family: "Noto Sans TC", sans-serif;
   font-weight: 900;
   font-size: 1rem;
+  cursor: pointer;
+  pointer-events: auto;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
 }
 .tc-restore-pill.show { display: inline-flex; animation: tcPopIn 0.25s ease; }
 .tc-restore-pill:hover { transform: translateY(-2px) scale(1.03); }
 
 @media (max-width: 767px) {
-  .tc-bottom-right-dock {
+  .tc-back-cockpit-btn {
     right: 12px;
     bottom: 68px;
-    gap: 8px;
-  }
-  .tc-back-cockpit-btn {
     padding: 8px 14px;
     font-size: 0.82rem;
+  }
+  .tc-restore-pill {
+    right: 12px;
+    bottom: 68px;
+    padding: 9px 16px;
+    font-size: 0.9rem;
   }
   .tc-citadel-demo-badge {
     font-size: 0.68rem;
@@ -6057,6 +6054,22 @@ button.diff-card:hover { transform: translateY(-4px) scale(1.02); box-shadow: 0 
 }
 
 .citadel-hall-shell { display: flex; flex-direction: column; gap: 14px; }
+.citadel-teacher-demo-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.28), rgba(217, 119, 6, 0.22));
+  border: 1.5px solid rgba(251, 191, 36, 0.85);
+  color: #fef3c7;
+  font-family: "Noto Sans TC", sans-serif;
+  font-size: 0.92rem;
+  font-weight: 800;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(245, 158, 11, 0.18);
+}
 .citadel-hall-hero {
   display: flex;
   flex-wrap: wrap;

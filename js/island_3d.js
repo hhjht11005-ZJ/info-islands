@@ -14070,7 +14070,14 @@
   let aetherCitadelLoadPromise = null;
   async function openAetherCitadelLazy(opts = {}) {
     if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
-      window.AetherCitadel.open(opts);
+      try {
+        window.AetherCitadel.open(opts);
+      } catch (initErr) {
+        console.error("[island_3d] 初始化天穹試煉浮島失敗:", initErr, initErr?.stack || "");
+        if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+          window.AvatarSystem.toast(`⚠️ 天穹浮島初始化失敗：${initErr?.message || "畫面初始化異常"}`, "warn", 4200);
+        }
+      }
       return;
     }
     const hudBtn = document.getElementById("citadelHudBtn");
@@ -14083,21 +14090,33 @@
       window.AvatarSystem.toast("⏳ 正在載入天穹試煉浮島模組…", "info", 1800);
     }
     try {
-      if (!aetherCitadelLoadPromise) {
-        aetherCitadelLoadPromise = import("./aetherCitadel.js");
+      try {
+        if (!aetherCitadelLoadPromise) {
+          aetherCitadelLoadPromise = import("./aetherCitadel.js");
+        }
+        await aetherCitadelLoadPromise;
+      } catch (loadErr) {
+        aetherCitadelLoadPromise = null;
+        console.error("[island_3d] 動態載入天穹試煉浮島模組失敗:", loadErr, loadErr?.stack || "");
+        if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+          window.AvatarSystem.toast(`⚠️ 天穹浮島模組載入失敗：${loadErr?.message || "請檢查網路後再試一次"}`, "warn", 4200);
+        }
+        return;
       }
-      await aetherCitadelLoadPromise;
-      if (typeof attachSceneModalObservers === "function") {
-        attachSceneModalObservers();
-      }
-      if (window.AetherCitadel && typeof window.AetherCitadel.open === "function") {
+
+      try {
+        if (typeof attachSceneModalObservers === "function") {
+          attachSceneModalObservers();
+        }
+        if (!window.AetherCitadel || typeof window.AetherCitadel.open !== "function") {
+          throw new Error("AetherCitadel 主控物件未正確註冊");
+        }
         window.AetherCitadel.open(opts);
-      }
-    } catch (err) {
-      aetherCitadelLoadPromise = null;
-      console.error("[island_3d] 動態載入天穹試煉浮島失敗:", err);
-      if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
-        window.AvatarSystem.toast("⚠️ 天穹浮島模組載入失敗，請檢查網路後再試一次。", "warn", 3200);
+      } catch (initErr) {
+        console.error("[island_3d] 初始化天穹試煉浮島失敗:", initErr, initErr?.stack || "");
+        if (window.AvatarSystem && typeof window.AvatarSystem.toast === "function") {
+          window.AvatarSystem.toast(`⚠️ 天穹浮島初始化失敗：${initErr?.message || "畫面初始化異常"}`, "warn", 4200);
+        }
       }
     } finally {
       if (hudBtn) {

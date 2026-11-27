@@ -522,13 +522,16 @@
 
   function hasActiveTeacherSession() {
     try {
-      const raw = sessionStorage.getItem("island_teacher_session");
-      if (!raw) return false;
-      const parsed = JSON.parse(raw);
-      if (!parsed || typeof parsed !== "object" || !parsed.password) return false;
-      const exp = Number(parsed.expiresAt);
-      if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) return false;
-      return true;
+      for (const key of ["ii_teacher_session", "island_teacher_session"]) {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || !parsed.password) continue;
+        const exp = Number(parsed.expiresAt);
+        if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) continue;
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }

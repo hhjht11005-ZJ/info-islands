@@ -16,17 +16,55 @@
     { id: "capstone:smart-city", short: "智慧城市風暴", title: "《失控的智慧城市：無人配送車隊調度風暴》", icon: "🚐", badge: "AI 智慧 → 演算法山 → 創作協作 → 資料程式", coins: 50 }
   ];
 
+  const demoCompleted = new Set();
+
+  function hasActiveTeacherSession() {
+    try {
+      for (const key of ["ii_teacher_session", "island_teacher_session"]) {
+        const raw = sessionStorage.getItem(key);
+        if (!raw) continue;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object" || !parsed.password) continue;
+        const exp = Number(parsed.expiresAt);
+        if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) continue;
+        return true;
+      }
+    } catch {}
+    return false;
+  }
+
+  function isTeacherDemoMode() {
+    if (window.Store?.profile) return false;
+    const unlockFlag = Boolean(
+      window.CloudConfig?.isCitadelTempUnlocked?.() ||
+      window.CloudConfig?.get?.()?.unlockCitadel
+    );
+    return hasActiveTeacherSession() || unlockFlag;
+  }
+
+  function getDemoTokens() {
+    return Array.from(demoCompleted);
+  }
+
   function getTokens() {
+    if (isTeacherDemoMode()) {
+      return getDemoTokens();
+    }
     if (window.Store && typeof window.Store.getCitadelTokens === "function") {
-      return window.Store.getCitadelTokens();
+      const list = window.Store.getCitadelTokens();
+      return Array.isArray(list) ? list : [];
     }
     if (window.AvatarSystem && typeof window.AvatarSystem.getState === "function") {
-      return window.AvatarSystem.getState().citadelTokens || [];
+      const list = window.AvatarSystem.getState()?.citadelTokens;
+      return Array.isArray(list) ? list : [];
     }
     return [];
   }
 
   function isCompleted(token) {
+    if (isTeacherDemoMode()) {
+      return demoCompleted.has(token);
+    }
     return getTokens().includes(token);
   }
 
@@ -37,20 +75,47 @@
   }
 
   function isAvatarLocked() {
-    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isAvatarLocked === "function" && window.AvatarSystem.isAvatarLocked());
+    return Boolean(window.AvatarSystem?.isAvatarLocked?.());
   }
 
   function isTokenRewarded(token) {
-    return Boolean(window.AvatarSystem && typeof window.AvatarSystem.isCitadelTokenRewarded === "function" && window.AvatarSystem.isCitadelTokenRewarded(token));
+    return Boolean(window.AvatarSystem?.isCitadelTokenRewarded?.(token));
   }
 
   function completeCase(token, label, onUpdate) {
+    const demoMode = isTeacherDemoMode();
     const wasAll = CASES.every((c) => isCompleted(c.id));
-    let res = { ok: true, isNew: false, gained: 0 };
+    let res = { ok: true, isNew: false, gained: 0, demo: demoMode };
+
+    if (demoMode) {
+      const isNew = !demoCompleted.has(token);
+      demoCompleted.add(token);
+      res = { ok: true, demo: true, isNew, gained: 0 };
+      const nowAll = CASES.every((c) => isCompleted(c.id));
+      notify(`🎉 【教師演示】結案「${label}」！演示成功（不寫入學生星幣與雲端成績）`, "ok", 3800);
+      if (typeof window.confetti === "function") {
+        try {
+          window.confetti({ particleCount: 80, spread: 75, origin: { y: 0.56 }, colors: ["#ffd166", "#34d399", "#38bdf8", "#f472b6"] });
+        } catch {}
+      }
+      if (!wasAll && nowAll) {
+        setTimeout(() => {
+          notify("🕵️ 【教師演示】跨島雙案全破！（課堂演示模式，未寫入雲端）", "ok", 4800);
+          if (typeof window.confetti === "function") {
+            try {
+              window.confetti({ particleCount: 120, spread: 98, origin: { y: 0.5 }, colors: ["#ffd166", "#38bdf8", "#34d399"] });
+            } catch {}
+          }
+        }, 450);
+      }
+      if (typeof onUpdate === "function") onUpdate(res);
+      return res;
+    }
+
     if (window.Store && typeof window.Store.recordCitadelToken === "function") {
-      res = window.Store.recordCitadelToken(token);
+      res = window.Store.recordCitadelToken(token) || res;
     } else if (window.AvatarSystem && typeof window.AvatarSystem.grantCitadelToken === "function") {
-      res = window.AvatarSystem.grantCitadelToken(token);
+      res = window.AvatarSystem.grantCitadelToken(token) || res;
     }
     const nowAll = CASES.every((c) => isCompleted(c.id));
     if (res && res.gained > 0) {
@@ -1133,9 +1198,19 @@
     let activeCaseId = opts.initialCase || CASES[0].id;
 
     const renderShell = () => {
+      const demoMode = isTeacherDemoMode();
       const doneCount = CASES.filter((c) => isCompleted(c.id)).length;
       const allDone = doneCount === CASES.length;
       const curCase = CASES.find((c) => c.id === activeCaseId) || CASES[0];
+
+      const getCoinTagText = (caseId) => {
+        if (demoMode) {
+          return isCompleted(caseId) ? "✔ 演示已結案（不寫入成績）" : "👨‍🏫 教師演示模式（自由體驗）";
+        }
+        return isCompleted(caseId)
+          ? (isTokenRewarded(caseId) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）")
+          : (isAvatarLocked() ? "⭐ 結案獎勵 +50" : "🔒 鎖定角色後結案可得 +50 ⭐");
+      };
 
       container.innerHTML = `
         <div class="cap-wrap" data-scrollable="true">
@@ -1145,7 +1220,7 @@
               <p>前一關鑑識出的真實數據必須於下一關輸入檢核 · 每案全破發放 <b>+50 ⭐ 探索星幣</b> · 雙案全破解鎖稱號 <b>「🕵️ 首席資安鑑識官」</b></p>
             </div>
             <div class="dojo-master-pill ${allDone ? "is-done" : ""}">
-              ${allDone ? "🕵️ 已獲稱號：首席資安鑑識官" : `破案進度：${doneCount} / 2 案`}
+              ${allDone ? (demoMode ? "🕵️ 演示雙案全破 (2/2)" : "🕵️ 已獲稱號：首席資安鑑識官") : `破案進度：${doneCount} / 2 案`}
             </div>
           </div>
           <div class="dojo-tabs" role="tablist">
@@ -1164,9 +1239,7 @@
               <h4>${curCase.icon} ${esc(curCase.title)}</h4>
             </div>
             <span class="dojo-coin-tag ${isCompleted(curCase.id) ? "is-done" : ""}">
-              ${isCompleted(curCase.id)
-                ? (isTokenRewarded(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）")
-                : (isAvatarLocked() ? "⭐ 結案獎勵 +50" : "🔒 鎖定角色後結案可得 +50 ⭐")}
+              ${getCoinTagText(curCase.id)}
             </span>
           </div>
           <div id="capCaseBody" class="cap-case-body"></div>
@@ -1185,16 +1258,21 @@
         body: caseBody,
         pass: () => {
           completeCase(curCase.id, curCase.short, () => {
+            const curDemo = isTeacherDemoMode();
             const dCount = CASES.filter((c) => isCompleted(c.id)).length;
             const pill = container.querySelector(".dojo-master-pill");
             if (pill) {
               pill.classList.toggle("is-done", dCount === CASES.length);
-              pill.textContent = dCount === CASES.length ? "🕵️ 已獲稱號：首席資安鑑識官" : `破案進度：${dCount} / 2 案`;
+              pill.textContent = dCount === CASES.length
+                ? (curDemo ? "🕵️ 演示雙案全破 (2/2)" : "🕵️ 已獲稱號：首席資安鑑識官")
+                : `破案進度：${dCount} / 2 案`;
             }
             const tag = container.querySelector(".dojo-coin-tag");
             if (tag) {
               tag.classList.add("is-done");
-              tag.textContent = isTokenRewarded(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）";
+              tag.textContent = curDemo
+                ? "✔ 演示已結案（不寫入成績）"
+                : (isTokenRewarded(curCase.id) ? "✔ 已結案 · +50 ⭐ 已入帳" : "✔ 已結案（鎖定角色前無星幣）");
             }
             const tabBtn = container.querySelector(`.dojo-tab[data-case="${curCase.id}"]`);
             if (tabBtn) {
@@ -1219,6 +1297,8 @@
     mount,
     unmount,
     isCompleted,
+    isTeacherDemoMode,
+    getDemoTokens,
     evaluateZeroDayPatch,
     computeAiMetrics,
     evalTelemetry
