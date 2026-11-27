@@ -520,8 +520,22 @@
     });
   }
 
+  function hasActiveTeacherSession() {
+    try {
+      const raw = sessionStorage.getItem("island_teacher_session");
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== "object" || !parsed.password) return false;
+      const exp = Number(parsed.expiresAt);
+      if (Number.isFinite(exp) && exp > 0 && Date.now() > exp) return false;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   renderChip();
-  if (!Store.profile) show();    // 初次入島自動跳出
+  if (!Store.profile && !hasActiveTeacherSession()) show();    // 初次入島自動跳出（教師演示工作階段除外）
   else hide();
   window.Auth = { show, hide, requireLogin: () => { if (!Store.profile) { show(); return false; } return true; }, renderChip };
 })();

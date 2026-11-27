@@ -370,6 +370,9 @@ import QRCode from "qrcode";
       sessionStorage.removeItem(SESSION_KEY);
       sessionStorage.removeItem(LEGACY_TEACHER_SESSION_KEY);
     } catch {}
+    if (typeof syncTeacherReturnButton === "function") {
+      syncTeacherReturnButton();
+    }
   }
 
   function clearTeacherPassword() {
@@ -409,6 +412,9 @@ import QRCode from "qrcode";
         expiresAt: sessionObj.expiresAt
       }));
     } catch {}
+    if (typeof syncTeacherReturnButton === "function") {
+      syncTeacherReturnButton();
+    }
     return sessionObj;
   }
 
@@ -709,13 +715,71 @@ import QRCode from "qrcode";
     el.className = `tc-global-status${kind ? ` ${kind}` : ""}`;
   }
 
-  /* ---- DOM 建置：右下角懸浮返回膠囊 ---- */
+  /* ---- DOM 建置：右下角垂直懸浮控制容器（回到戰情室 + 舞台預覽返回膠囊） ---- */
+  let bottomRightDock = document.getElementById("teacherBottomRightDock");
+  if (!bottomRightDock) {
+    bottomRightDock = document.createElement("div");
+    bottomRightDock.id = "teacherBottomRightDock";
+    bottomRightDock.className = "tc-bottom-right-dock";
+    bottomRightDock.hidden = true;
+    document.body.appendChild(bottomRightDock);
+  }
+
+  let backToCockpitBtn = document.getElementById("btnBackToTeacherCockpit");
+  if (!backToCockpitBtn) {
+    backToCockpitBtn = document.createElement("button");
+    backToCockpitBtn.id = "btnBackToTeacherCockpit";
+    backToCockpitBtn.type = "button";
+    backToCockpitBtn.className = "tc-back-cockpit-btn";
+    backToCockpitBtn.setAttribute("aria-label", "回到教師戰情室");
+    backToCockpitBtn.hidden = true;
+    backToCockpitBtn.innerHTML = `<span class="tc-back-main">📊 回到戰情室</span><span class="tc-citadel-demo-badge" id="tcCitadelDemoBadge" hidden>⚡ 浮島演示中</span>`;
+    bottomRightDock.appendChild(backToCockpitBtn);
+  }
+  const backMainSpan = backToCockpitBtn.querySelector(".tc-back-main");
+  const citadelDemoBadge = backToCockpitBtn.querySelector("#tcCitadelDemoBadge");
+
   const restorePill = document.createElement("button");
   restorePill.id = "tcRestorePill";
   restorePill.type = "button";
   restorePill.className = "tc-restore-pill";
   restorePill.innerHTML = `🧑‍🏫 返回戰情室`;
-  document.body.appendChild(restorePill);
+  bottomRightDock.appendChild(restorePill);
+
+  function isCitadelDemoActive() {
+    const cfg = state.data && state.data.config;
+    if (cfg && cfg.unlockCitadel !== undefined && cfg.unlockCitadel !== null && String(cfg.unlockCitadel).trim() !== "") {
+      const v = cfg.unlockCitadel;
+      if (v === true || String(v).trim().toLowerCase() === "true" || String(v).trim() === "1") return true;
+    }
+    return Boolean(
+      window.CloudConfig &&
+      typeof window.CloudConfig.isCitadelTempUnlocked === "function" &&
+      window.CloudConfig.isCitadelTempUnlocked()
+    );
+  }
+
+  function syncTeacherReturnButton() {
+    if (!bottomRightDock || !backToCockpitBtn) return;
+    const sess = getTeacherSession();
+    const hasValidSession = Boolean(sess && sess.password);
+    const isCockpitShown = cockpitWrap.classList.contains("show");
+    const isAuthShown = authWrap.classList.contains("show");
+    const isStageMinimized = restorePill.classList.contains("show");
+    const showQuickReturn = hasValidSession && !isCockpitShown && !isAuthShown && !isStageMinimized;
+    const showDock = showQuickReturn || isStageMinimized;
+
+    bottomRightDock.hidden = !showDock;
+    backToCockpitBtn.hidden = !showQuickReturn;
+    const demoOn = isCitadelDemoActive();
+    if (citadelDemoBadge) {
+      citadelDemoBadge.hidden = !demoOn;
+    }
+    backToCockpitBtn.classList.toggle("is-demo-active", demoOn);
+    if (document.body) {
+      document.body.classList.toggle("has-teacher-cockpit-dock", showDock);
+    }
+  }
 
   /* ---- DOM 建置：超大字體題目投影檢討視窗 ---- */
   const projWrap = document.createElement("div");
@@ -883,6 +947,7 @@ import QRCode from "qrcode";
       state.selectedClass = classes[0] || "";
     }
     state.luckyResult = null;
+    syncTeacherReturnButton();
   }
 
   async function saveCloudConfig(config, explicitSession = null) {
@@ -3039,15 +3104,7 @@ import QRCode from "qrcode";
     if (regErr) regErr.textContent = "";
   }
 
-  function closeAuthModal() {
-    authWrap.classList.remove("show");
-    authWrap.classList.add("hidden", "pointer-events-none");
-    authWrap.hidden = true;
-    notifyCockpitToggle();
-  }
-
-  function showCockpitWorkspace() {
-    // 教師成功登入後，自動隱藏並略過學生登入遮罩視窗
+  function hideStudentLoginModal() {
     if (window.Auth && typeof window.Auth.hide === "function") {
       window.Auth.hide();
     }
@@ -3057,6 +3114,19 @@ import QRCode from "qrcode";
       loginModal.classList.add("hidden", "pointer-events-none");
       loginModal.hidden = true;
     }
+  }
+
+  function closeAuthModal() {
+    authWrap.classList.remove("show");
+    authWrap.classList.add("hidden", "pointer-events-none");
+    authWrap.hidden = true;
+    notifyCockpitToggle();
+    syncTeacherReturnButton();
+  }
+
+  function showCockpitWorkspace() {
+    // 教師成功登入後，自動隱藏並略過學生登入遮罩視窗
+    hideStudentLoginModal();
 
     closeAuthModal();
     state.isMinimized = false;
@@ -3066,6 +3136,7 @@ import QRCode from "qrcode";
     cockpitWrap.classList.add("show");
     renderMainBody();
     notifyCockpitToggle();
+    syncTeacherReturnButton();
   }
 
   async function toggleCitadelTemporaryUnlock() {
@@ -3097,6 +3168,7 @@ import QRCode from "qrcode";
       window.__island3D.syncCitadelState();
     }
     renderTopBar();
+    syncTeacherReturnButton();
     setGlobalStatus(
       nextFlag
         ? "⚡ 已臨時開放天穹浮島（課堂演示／競賽培訓模式），本機已即時解封！正在同步至雲端 Config…"
@@ -3133,6 +3205,7 @@ import QRCode from "qrcode";
     cockpitWrap.classList.add("pointer-events-none");
     restorePill.classList.add("show");
     notifyCockpitToggle();
+    syncTeacherReturnButton();
   }
 
   function closeCockpit() {
@@ -3141,8 +3214,10 @@ import QRCode from "qrcode";
       luckyTimer = null;
       state.luckyRunning = false;
     }
+    state.isMinimized = false;
     cockpitWrap.classList.remove("show");
     cockpitWrap.classList.add("pointer-events-none");
+    cockpitWrap.hidden = true;
     restorePill.classList.remove("show");
     closeProjectorModal();
     closeQrModal();
@@ -3152,7 +3227,15 @@ import QRCode from "qrcode";
       window.previewAllStage("auto");
       state.activeStage = null;
     }
+    const sess = getTeacherSession();
+    if (sess && sess.password) {
+      hideStudentLoginModal();
+    }
     notifyCockpitToggle();
+    if (typeof window.resumeMainMapControls === "function") {
+      window.resumeMainMapControls();
+    }
+    syncTeacherReturnButton();
   }
 
   function openAuthModal(prefillErr = "", { preserveDispatchDraft = false, defaultTab = "login" } = {}) {
@@ -3171,6 +3254,7 @@ import QRCode from "qrcode";
     authWrap.classList.remove("hidden", "pointer-events-none");
     authWrap.classList.add("show");
     notifyCockpitToggle();
+    syncTeacherReturnButton();
     setTimeout(() => {
       if (state.authTab === "register") {
         const regSchool = authWrap.querySelector("#tcRegSchool");
@@ -3183,28 +3267,47 @@ import QRCode from "qrcode";
     }, 60);
   }
 
+  let isOpeningTeacherCockpit = false;
   async function openTeacherCockpit() {
     const sess = getTeacherSession();
     if (sess && sess.password) {
+      if (isOpeningTeacherCockpit) return;
+      isOpeningTeacherCockpit = true;
+      if (backToCockpitBtn) backToCockpitBtn.disabled = true;
+      if (backMainSpan) backMainSpan.textContent = "⏳ 載入戰情室…";
+      if (state.hasLoadedDashboard) {
+        showCockpitWorkspace();
+        setGlobalStatus("⏳ 正在同步最新雲端班級數據…", "");
+      }
       try {
         const res = await fetchTeacherDashboard(sess.password, sess);
         if (res && res.status === "ok") {
           setTeacherSession(res.teacher || sess, sess.password, sess.account);
           applyDashboardData(res);
           showCockpitWorkspace();
+          setGlobalStatus("");
           return;
         }
         if (res && res.status === "unauthorized") {
           clearTeacherSession();
+          closeCockpit();
           openAuthModal("教師驗證已逾時，請重新登入");
           return;
         }
       } catch {
-        if (state.hasLoadedDashboard) {
-          showCockpitWorkspace();
-          setGlobalStatus("⚠️ 暫時無法連線同步最新資料，目前顯示已載入畫面", "err");
-          return;
-        }
+        showCockpitWorkspace();
+        setGlobalStatus(
+          state.hasLoadedDashboard
+            ? "⚠️ 暫時無法連線同步最新資料，目前顯示已載入畫面"
+            : "⚠️ 暫時無法連線同步最新資料，請點擊右上角「🔄 同步」重試",
+          "err"
+        );
+        return;
+      } finally {
+        isOpeningTeacherCockpit = false;
+        if (backToCockpitBtn) backToCockpitBtn.disabled = false;
+        if (backMainSpan) backMainSpan.textContent = "📊 回到戰情室";
+        syncTeacherReturnButton();
       }
     }
     openAuthModal();
@@ -3739,7 +3842,37 @@ import QRCode from "qrcode";
     }
   });
 
-  restorePill.onclick = showCockpitWorkspace;
+  restorePill.onclick = (e) => {
+    e.stopPropagation();
+    showCockpitWorkspace();
+  };
+  backToCockpitBtn.onclick = (e) => {
+    e.stopPropagation();
+    void openTeacherCockpit();
+  };
+  document.addEventListener("ii:config-updated", (e) => {
+    const det = e && e.detail;
+    if (det && typeof det === "object" && det.unlockCitadel !== undefined) {
+      if (!state.data.config || typeof state.data.config !== "object") {
+        state.data.config = {};
+      }
+      state.data.config.unlockCitadel = det.unlockCitadel;
+    }
+    syncTeacherReturnButton();
+  });
+  document.addEventListener("ii:gas-snapshot", (e) => {
+    const cfg = e && e.detail && e.detail.snapshot && e.detail.snapshot.config;
+    if (cfg && typeof cfg === "object" && cfg.unlockCitadel !== undefined) {
+      if (!state.data.config || typeof state.data.config !== "object") {
+        state.data.config = {};
+      }
+      state.data.config.unlockCitadel = cfg.unlockCitadel;
+    }
+    syncTeacherReturnButton();
+  });
+  document.addEventListener("ii:cockpit-toggle", () => {
+    syncTeacherReturnButton();
+  });
   qrWrap.addEventListener("click", (e) => { if (e.target === qrWrap) closeQrModal(); });
   projWrap.addEventListener("click", (e) => { if (e.target === projWrap) closeProjectorModal(); });
   detailWrap.addEventListener("click", (e) => { if (e.target === detailWrap) closeDetailModal(); });
@@ -3775,6 +3908,11 @@ import QRCode from "qrcode";
       setTimeout(() => openTeacherCockpit(), 120);
     }
   } catch {}
+
+  syncTeacherReturnButton();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", syncTeacherReturnButton);
+  }
 
   window.parseStudentProgressSet = parseStudentProgressSet;
   window.TeacherCockpit = { open: openTeacherCockpit, close: closeCockpit, findQuestionForProjection, parseStudentProgressSet };
